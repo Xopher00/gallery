@@ -16,7 +16,10 @@
 -->
 
 <resources xmlns:tools="http://schemas.android.com/tools">
-  <style name="Theme.Gallery" parent="android:Theme.Material.Light.NoActionBar" />
+  <style name="Theme.Gallery" parent="Theme.Material3.DayNight.NoActionBar">
+      <!-- Box: M3 You dynamic color enabled -->
+      <item name="android:colorDynamic">true</item>
+  </style>
   <style name="Theme.Gallery.SplashScreen" parent="Theme.SplashScreen">
       <!-- Need to match surfaceLight in Colors.kt -->
       <item name="windowSplashScreenBackground">#FFFFFFFF</item>

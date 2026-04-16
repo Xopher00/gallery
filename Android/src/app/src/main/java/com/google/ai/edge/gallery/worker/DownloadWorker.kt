@@ -91,6 +91,17 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
   }
 
   override suspend fun doWork(): Result {
+    // Box: Block downloads when offline mode is enabled
+    try {
+      com.google.ai.edge.gallery.security.OfflineMode.assertOnlineOrThrow()
+    } catch (e: com.google.ai.edge.gallery.security.OfflineMode.OfflineModeException) {
+      return Result.failure(
+        Data.Builder()
+          .putString(KEY_MODEL_DOWNLOAD_ERROR_MESSAGE, e.message)
+          .build()
+      )
+    }
+
     val fileUrl = inputData.getString(KEY_MODEL_URL)
     val modelName = inputData.getString(KEY_MODEL_NAME) ?: "Model"
     val version = inputData.getString(KEY_MODEL_COMMIT_HASH)!!

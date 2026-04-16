@@ -44,6 +44,7 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "AI Edge Gallery"
+rootProject.name = "Box"
 
 include(":app")
+include(":smollm")

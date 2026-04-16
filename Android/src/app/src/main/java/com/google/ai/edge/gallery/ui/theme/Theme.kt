@@ -326,13 +326,32 @@ fun GalleryTheme(content: @Composable () -> Unit) {
 
   StatusBarColorController(useDarkTheme = darkTheme)
 
-  val colorScheme =
-    when {
-      darkTheme -> darkScheme
-      else -> lightScheme
-    }
+  // Box: Use Material 3 You dynamic colors extracted from wallpaper.
+  // minSdk 35 guarantees dynamic color is always available.
+  val context = view.context
+  val colorScheme = when {
+    darkTheme -> androidx.compose.material3.dynamicDarkColorScheme(context)
+    else -> androidx.compose.material3.dynamicLightColorScheme(context)
+  }
 
-  val customColorsPalette = if (darkTheme) darkCustomColors else lightCustomColors
+  // Derive custom colors from the dynamic scheme for backward compatibility
+  val customColorsPalette = if (darkTheme) {
+    darkCustomColors.copy(
+      userBubbleBgColor = colorScheme.primaryContainer,
+      agentBubbleBgColor = colorScheme.surfaceContainerHigh,
+      linkColor = colorScheme.primary,
+      tabHeaderBgColor = colorScheme.primary,
+      taskCardBgColor = colorScheme.surfaceContainerHigh,
+    )
+  } else {
+    lightCustomColors.copy(
+      userBubbleBgColor = colorScheme.primaryContainer,
+      agentBubbleBgColor = colorScheme.surfaceContainerHigh,
+      linkColor = colorScheme.primary,
+      tabHeaderBgColor = colorScheme.primary,
+      taskCardBgColor = colorScheme.surfaceContainerLowest,
+    )
+  }
 
   CompositionLocalProvider(LocalCustomColors provides customColorsPalette) {
     MaterialTheme(colorScheme = colorScheme, typography = AppTypography, content = content)

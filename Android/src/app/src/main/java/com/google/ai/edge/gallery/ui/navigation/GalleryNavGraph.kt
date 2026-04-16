@@ -96,6 +96,7 @@ private const val ROUTE_MODEL_LIST = "model_list"
 private const val ROUTE_MODEL = "route_model"
 private const val ROUTE_BENCHMARK = "benchmark"
 private const val ROUTE_MODEL_MANAGER = "model_manager"
+private const val ROUTE_CHAT_HISTORY = "chat_history"
 private const val ENTER_ANIMATION_DURATION_MS = 500
 private val ENTER_ANIMATION_EASING = EaseOutExpo
 private const val ENTER_ANIMATION_DELAY_MS = 100
@@ -208,6 +209,7 @@ fun GalleryNavHost(
               )
             },
             onModelsClicked = { navController.navigate(ROUTE_MODEL_MANAGER) },
+            navigateToChatHistory = { navController.navigate(ROUTE_CHAT_HISTORY) },
             gm4 = true,
           )
         }
@@ -406,6 +408,20 @@ fun GalleryNavHost(
             Bundle().apply { putString("capability_name", "benchmark_${model.name}") },
           )
           navController.navigate("$ROUTE_BENCHMARK/${model.name}")
+        },
+      )
+    }
+
+    // Box: Chat history page.
+    composable(
+      route = ROUTE_CHAT_HISTORY,
+      enterTransition = { slideUpEnter() },
+      exitTransition = { slideDownExit() },
+    ) {
+      com.google.ai.edge.gallery.ui.home.ChatHistoryScreen(
+        navigateUp = {
+          enableHomeScreenAnimation = false
+          navController.navigateUp()
         },
       )
     }

@@ -47,27 +47,41 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.animation.doOnEnd
 import androidx.core.net.toUri
-import androidx.core.os.bundleOf
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
+import com.google.ai.edge.gallery.security.BiometricHelper
+import com.google.ai.edge.gallery.security.SecurityAuditLog
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.theme.GalleryTheme
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
-import com.google.firebase.analytics.FirebaseAnalytics
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
   private val modelManagerViewModel: ModelManagerViewModel by viewModels()
   private var splashScreenAboutToExit: Boolean = false
   private var contentSet: Boolean = false
+  private var isAuthenticated: Boolean = false
+  private lateinit var biometricHelper: BiometricHelper
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+
+    // Box: Security hardening — FLAG_SECURE prevents screenshots and screen recording
+    window.setFlags(
+      WindowManager.LayoutParams.FLAG_SECURE,
+      WindowManager.LayoutParams.FLAG_SECURE
+    )
+
+    // Box: Initialize biometric authentication
+    biometricHelper = BiometricHelper(this)
+
+    SecurityAuditLog.log(this, "APP_LAUNCHED")
 
     // Debug: Dump all intent extras to see what FCM unloads
     intent.extras?.let { extras ->
@@ -204,14 +218,30 @@ class MainActivity : ComponentActivity() {
   override fun onResume() {
     super.onResume()
 
-    firebaseAnalytics?.logEvent(
-      FirebaseAnalytics.Event.APP_OPEN,
-      bundleOf(
-        "app_version" to BuildConfig.VERSION_NAME,
-        "os_version" to Build.VERSION.SDK_INT.toString(),
-        "device_model" to Build.MODEL,
-      ),
-    )
+    // Box: Biometric authentication on app resume
+    if (!isAuthenticated && biometricHelper.canAuthenticate() == BiometricHelper.BiometricStatus.AVAILABLE) {
+      biometricHelper.authenticate(
+        onSuccess = {
+          isAuthenticated = true
+          SecurityAuditLog.log(this, "APP_RESUME_AUTH_SUCCESS")
+        },
+        onFailure = { _, _ ->
+          // Allow retry on next resume
+        },
+        onError = { errorCode, _ ->
+          // Error code 10 = user cancelled, 13 = user pressed negative button
+          if (errorCode != 10 && errorCode != 13) {
+            SecurityAuditLog.log(this, "APP_RESUME_AUTH_ERROR: $errorCode")
+          }
+        }
+      )
+    }
+  }
+
+  override fun onPause() {
+    super.onPause()
+    // Box: Require re-authentication when app goes to background
+    isAuthenticated = false
   }
 
   companion object {

@@ -30,14 +30,14 @@ plugins {
 
 android {
   namespace = "com.google.ai.edge.gallery"
-  compileSdk = 35
+  compileSdk = 36
 
   defaultConfig {
     applicationId = "com.google.aiedge.gallery"
-    minSdk = 31
-    targetSdk = 35
+    minSdk = 35
+    targetSdk = 36
     versionCode = 24
-    versionName = "1.0.12"
+    versionName = "2.0.0-box"
 
     // Needed for HuggingFace auth workflows.
     // Use the scheme of the "Redirect URLs" in HuggingFace app.
@@ -109,6 +109,24 @@ dependencies {
   implementation(libs.firebase.messaging)
   implementation(libs.androidx.exifinterface)
   implementation(libs.moshi.kotlin)
+
+  // Box: Biometric authentication (StrongBox)
+  implementation(libs.androidx.biometric)
+
+  // Box: Encrypted Room database for chat persistence
+  implementation(libs.androidx.room.runtime)
+  implementation(libs.androidx.room.ktx)
+  ksp(libs.androidx.room.compiler)
+  implementation(libs.sqlcipher.android)
+  implementation(libs.sqlite)
+
+  // Box: llama.cpp native inference module for GGUF models
+  implementation(project(":smollm"))
+
+  // Box: Material 3 adaptive navigation
+  implementation(libs.androidx.material3.adaptive.navigation.suite)
+  implementation(libs.androidx.material3.window.size)
+
   kapt(libs.hilt.android.compiler)
   testImplementation(libs.junit)
   androidTestImplementation(libs.androidx.junit)

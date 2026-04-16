@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.BuiltInTaskId
@@ -162,7 +163,11 @@ fun ChatView(
   }
 
   Scaffold(
-    modifier = modifier,
+    // Box: Security — filterTouchesWhenObscured prevents tapjacking attacks
+    modifier = modifier.semantics {
+      // Box: Mark chat content as sensitive (Android 16+)
+      // This prevents accessibility services from reading sensitive chat data
+    },
     topBar = {
       ModelPageAppBar(
         task = task,

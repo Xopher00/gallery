@@ -52,6 +52,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -289,6 +290,52 @@ fun SettingsDialog(
                 }
               }
             }
+          }
+
+          // Box: Offline mode toggle
+          Column(modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}) {
+            Text(
+              "Offline mode",
+              style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+            )
+            Text(
+              "Block all network requests. Models must be pre-downloaded.",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            val offlineEnabled = com.google.ai.edge.gallery.security.OfflineMode.isEnabled.collectAsState()
+            Row(
+              modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Text(
+                if (offlineEnabled.value) "Enabled" else "Disabled",
+                style = MaterialTheme.typography.bodyMedium,
+              )
+              androidx.compose.material3.Switch(
+                checked = offlineEnabled.value,
+                onCheckedChange = {
+                  com.google.ai.edge.gallery.security.OfflineMode.setEnabled(context, it)
+                },
+              )
+            }
+          }
+
+          // Box: Privacy notice
+          Column(modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}) {
+            Text(
+              "Privacy",
+              style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+            )
+            Text(
+              "Box is a privacy-focused fork of Google AI Edge Gallery. " +
+                "Chat history is encrypted with SQLCipher. " +
+                "Biometric authentication protects app access. " +
+                "Not affiliated with Google.",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
           }
 
           // Third party licenses.

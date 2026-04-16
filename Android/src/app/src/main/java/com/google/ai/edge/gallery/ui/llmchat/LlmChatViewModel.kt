@@ -23,7 +23,9 @@ import androidx.lifecycle.viewModelScope
 import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.Task
+import com.google.ai.edge.gallery.data.local.ChatRepository
 import com.google.ai.edge.gallery.runtime.runtimeHelper
+import com.google.ai.edge.gallery.security.SecurityUtils
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageAudioClip
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageError
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageLoading
@@ -47,6 +49,58 @@ private const val TAG = "AGLlmChatViewModel"
 
 @OptIn(ExperimentalApi::class)
 open class LlmChatViewModelBase() : ChatViewModel() {
+
+  // Box: Chat persistence — will be injected by Hilt in concrete subclasses
+  var chatRepository: ChatRepository? = null
+  private var currentConversationId: String? = null
+
+  /**
+   * Box: Persist a user message to the encrypted database.
+   */
+  private fun persistUserMessage(model: Model, content: String) {
+    val repo = chatRepository ?: return
+    viewModelScope.launch(Dispatchers.IO) {
+      try {
+        val convId = currentConversationId ?: run {
+          val conv = repo.createConversation(
+            title = content.take(50),
+            taskType = "llm_chat",
+            modelName = model.name,
+          )
+          currentConversationId = conv.id
+          conv.id
+        }
+        repo.saveMessage(
+          conversationId = convId,
+          role = "user",
+          content = SecurityUtils.sanitizePrompt(content),
+        )
+      } catch (e: Exception) {
+        Log.e(TAG, "Failed to persist user message", e)
+      }
+    }
+  }
+
+  /**
+   * Box: Persist an assistant response to the encrypted database.
+   */
+  private fun persistAssistantMessage(model: Model, content: String, latencyMs: Long = 0) {
+    val repo = chatRepository ?: return
+    val convId = currentConversationId ?: return
+    viewModelScope.launch(Dispatchers.IO) {
+      try {
+        repo.saveMessage(
+          conversationId = convId,
+          role = "assistant",
+          content = content,
+          latencyMs = latencyMs,
+        )
+      } catch (e: Exception) {
+        Log.e(TAG, "Failed to persist assistant message", e)
+      }
+    }
+  }
+
   fun generateResponse(
     model: Model,
     input: String,
@@ -61,6 +115,11 @@ open class LlmChatViewModelBase() : ChatViewModel() {
     viewModelScope.launch(Dispatchers.Default) {
       setInProgress(true)
       setPreparing(true)
+
+      // Box: Persist user message to encrypted DB
+      if (input.isNotEmpty()) {
+        persistUserMessage(model, input)
+      }
 
       // Loading.
       addMessage(model = model, message = ChatMessageLoading(accelerator = accelerator))
@@ -194,6 +253,12 @@ open class LlmChatViewModelBase() : ChatViewModel() {
                 }
                 setInProgress(false)
                 onDone()
+
+                // Box: Persist assistant response to encrypted DB
+                val assistantMsg = getLastMessageWithTypeAndSide(model, ChatMessageType.TEXT, ChatSide.AGENT)
+                if (assistantMsg is ChatMessageText && assistantMsg.content.isNotEmpty()) {
+                  persistAssistantMessage(model, assistantMsg.content, assistantMsg.latencyMs.toLong())
+                }
               }
             }
           }
@@ -341,8 +406,20 @@ open class LlmChatViewModelBase() : ChatViewModel() {
   }
 }
 
-@HiltViewModel class LlmChatViewModel @Inject constructor() : LlmChatViewModelBase()
+@HiltViewModel class LlmChatViewModel @Inject constructor(
+  repo: ChatRepository
+) : LlmChatViewModelBase() {
+  init { chatRepository = repo }
+}
 
-@HiltViewModel class LlmAskImageViewModel @Inject constructor() : LlmChatViewModelBase()
+@HiltViewModel class LlmAskImageViewModel @Inject constructor(
+  repo: ChatRepository
+) : LlmChatViewModelBase() {
+  init { chatRepository = repo }
+}
 
-@HiltViewModel class LlmAskAudioViewModel @Inject constructor() : LlmChatViewModelBase()
+@HiltViewModel class LlmAskAudioViewModel @Inject constructor(
+  repo: ChatRepository
+) : LlmChatViewModelBase() {
+  init { chatRepository = repo }
+}
