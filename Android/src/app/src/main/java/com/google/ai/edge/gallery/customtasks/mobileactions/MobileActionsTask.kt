@@ -46,7 +46,21 @@ private const val TAG = "AGMATask"
 class MobileActionsTask @Inject constructor(@ApplicationContext private val context: Context) :
   CustomTask {
   private var curActions = mutableStateListOf<Action>()
-  private val tools = listOf(tool(MobileActionsTools(onFunctionCalled = { curActions.add(it) })))
+  // The in-app path has no allowlist/permission gate -- every recognized action is performed
+  // (MobileActionsViewModel.launch(), invoked from MobileActionsScreen when curActions changes).
+  // Nothing here can observe whether that launch actually succeeded, so this always reports
+  // ToolOutcome.Success to the model, matching this path's previous behavior exactly.
+  private val tools =
+    listOf(
+      tool(
+        MobileActionsTools(
+          onFunctionCalled = { action ->
+            curActions.add(action)
+            ToolOutcome.Success
+          }
+        )
+      )
+    )
 
   override val task =
     Task(

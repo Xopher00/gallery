@@ -910,4 +910,45 @@
   <!-- Short description for the Tiny Garden task. [CHAR_LIMIT=35] -->
   <string name="task_short_desc_tiny_garden" translatable="true" description="Short description for the Tiny Garden task. [CHAR_LIMIT=45]">Use natural language to plant</string>
 
+
+  <!-- API server (ported from api-server branch): process-text quick actions -->
+  <string name="process_text_action_explain" translatable="true" description="Preset quick-action button label: ask the model to explain the input text. [CHAR_LIMIT=15]">Explain</string>
+  <string name="process_text_action_reply" translatable="true" description="Preset quick-action button label: ask the model to draft a reply to the input text. [CHAR_LIMIT=15]">Reply</string>
+  <string name="process_text_action_summarize" translatable="true" description="Preset quick-action button label: ask the model to summarize the input text. [CHAR_LIMIT=15]">Summarize</string>
+  <string name="process_text_action_translate" translatable="true" description="Preset quick-action button label: ask the model to translate the input text to English. [CHAR_LIMIT=15]">Translate</string>
+  <string name="process_text_copied" translatable="true" description="Toast message confirming the model's answer was copied to the clipboard. [CHAR_LIMIT=30]">Copied to clipboard</string>
+  <string name="process_text_empty_input" translatable="true" description="Message shown when the text selected or shared into this quick-action surface was empty or blank. [CHAR_LIMIT=60]">No text was provided.</string>
+  <string name="process_text_error_prefix" translatable="true" description="Prefix shown before the error text when inference fails in the quick-action sheet. [CHAR_LIMIT=20]">Error:</string>
+  <string name="process_text_generating" translatable="true" description="Status text shown in the quick-action sheet while the model is generating its answer. [CHAR_LIMIT=20]">Thinking…</string>
+  <string name="process_text_image_unsupported" translatable="true" description="Message shown when an image was shared into this quick-action surface but the currently loaded model does not support image input. [CHAR_LIMIT=100]">The loaded model doesn\'t support images. Load a multimodal model in Box to use this with images.</string>
+  <string name="process_text_label" translatable="true" description="Label shown in the text-selection menu (Process Text) and system share sheet entry for this app. [CHAR_LIMIT=25]">Ask Box</string>
+  <string name="process_text_no_model_message" translatable="true" description="Message telling the user to open Box and load a model before this quick-action surface can run inference. [CHAR_LIMIT=150]">Open Box and load a model on the Chat screen, then try this again.</string>
+  <string name="process_text_no_model_title" translatable="true" description="Title shown in the quick-action sheet when no local model is loaded. [CHAR_LIMIT=30]">No model loaded</string>
+  <string name="process_text_replace_button" translatable="true" description="Button label: send the model's answer back to the source app to replace the selected text (only shown when the selection is editable). [CHAR_LIMIT=15]">Replace</string>
+  <string name="process_text_truncated_notice" translatable="true" description="Notice shown when the incoming selection/share text exceeded the input cap and was truncated to the first N characters. %1$s is the character count. [CHAR_LIMIT=80]">Input truncated to the first %1$s characters.</string>
+
+  <!-- API server (ported from api-server branch): OpenAI-compatible API server settings screen -->
+  <string name="server_agent_tools_risky_section_title" translatable="true" description="Sub-header for the small group of tools considered higher-risk (dialling, sending SMS, opening arbitrary URLs). [CHAR_LIMIT=40]">Higher-risk tools (off by default)</string>
+  <string name="server_agent_tools_risky_warning" translatable="true" description="Warning shown above the higher-risk tool switches, explaining why they default off. [CHAR_LIMIT=250]">These open the dialer, message compose, or a browser with content an API client (or a model it drives) chooses. They stay off unless you turn them on here.</string>
+  <string name="server_agent_tools_section_info" translatable="true" description="Informational note explaining what the agent-tools switches control. [CHAR_LIMIT=250]">Controls which tools an API client\'s agent run is allowed to actually perform on this phone. A tool left off still gets called by the model, but its real action is blocked and the run fails.</string>
+  <string name="server_agent_tools_section_title" translatable="true" description="Section header for the per-tool allowlist controlling which MobileActions tools /v1/agent/run may actually execute. [CHAR_LIMIT=30]">Agent tools</string>
+  <string name="server_battery_optimization_button" translatable="true" description="Button label requesting exemption from battery optimisation so the server keeps running in the background. [CHAR_LIMIT=40]">Run in background</string>
+  <string name="server_battery_optimization_info" translatable="true" description="Informational note explaining the battery-optimisation exemption button. [CHAR_LIMIT=250]">Exempts this app from battery optimisation so Android is less likely to stop the server while it runs in the background. Opens a system dialog asking for your permission.</string>
+  <string name="server_boot_section_title" translatable="true" description="Section header for the boot-persistence controls (start on boot, battery optimisation exemption). [CHAR_LIMIT=30]">Persistence</string>
+  <string name="server_client_config_copied" translatable="true" description="Confirmation text shown after copying the client config. [CHAR_LIMIT=30]">Client config copied</string>
+  <string name="server_copy_client_config" translatable="true" description="Button label to copy the base URL and API key as a client config snippet. [CHAR_LIMIT=30]">Copy client config</string>
+  <string name="server_interface_error" translatable="true" description="Error text shown when the server cannot start or keep running because the selected interface is unavailable. [CHAR_LIMIT=300]">%1$s</string>
+  <string name="server_interface_none_found" translatable="true" description="Message shown when no eligible network interfaces were found to pick from. [CHAR_LIMIT=200]">No active network interfaces with an IPv4 address were found. Connect to Wi-Fi, a hotspot, or a VPN like Tailscale, then reopen this screen.</string>
+  <string name="server_interface_refresh" translatable="true" description="Button label to re-scan for available network interfaces. [CHAR_LIMIT=30]">Refresh interfaces</string>
+  <string name="server_interface_section_title" translatable="true" description="Section header for the network-interface picker shown in Specific-interface mode. [CHAR_LIMIT=30]">Interface</string>
+  <string name="server_interface_warning" translatable="true" description="Security note shown when Specific-interface mode is selected, naming the chosen interface. [CHAR_LIMIT=300]">Any device reachable through \'%1$s\' (%2$s) can reach this server. It is still protected by the bearer API key below. Devices on other networks this phone is connected to cannot reach it.</string>
+  <string name="server_mode_interface" translatable="true" description="Label for the mode where the server binds to one user-chosen network interface. [CHAR_LIMIT=30]">Specific interface</string>
+  <string name="server_mode_lan" translatable="true" description="Label for LAN-reachable server mode. [CHAR_LIMIT=30]">LAN (same network)</string>
+  <string name="server_mode_lan_warning" translatable="true" description="Security note shown when LAN mode is selected. [CHAR_LIMIT=200]">Any device on the same Wi-Fi network can reach this server. It is still protected by the bearer API key below.</string>
+  <string name="server_mode_loopback" translatable="true" description="Label for loopback-only server mode. [CHAR_LIMIT=30]">Loopback (this device only)</string>
+  <string name="server_mode_loopback_info" translatable="true" description="Informational note shown when Loopback mode is selected, confirming the narrowest scope. [CHAR_LIMIT=200]">Only apps on this phone can reach this server. It is still protected by the bearer API key below.</string>
+  <string name="server_mode_section_title" translatable="true" description="Section header for the server network-mode selector. [CHAR_LIMIT=30]">Network mode</string>
+  <string name="server_start_on_boot_info" translatable="true" description="Informational note explaining what the start-on-boot switch does. [CHAR_LIMIT=250]">When on, this server starts automatically after the phone reboots and you unlock it once, and reloads the last model you had running. Off by default.</string>
+  <string name="server_start_on_boot_label" translatable="true" description="Label for the switch controlling whether the API server auto-starts when the phone reboots. Default off. [CHAR_LIMIT=40]">Start server on boot</string>
+
 </resources>

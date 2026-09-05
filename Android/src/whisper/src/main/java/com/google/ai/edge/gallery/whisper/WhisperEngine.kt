@@ -1,8 +1,7 @@
 package com.google.ai.edge.gallery.whisper
 
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -17,6 +16,11 @@ class WhisperEngine {
     }
 
     private var contextHandle: Long = 0L
+    private val stateLock = ReentrantLock()
+
+    @Volatile
+    var isTranscribing = false
+        private set
 
     suspend fun loadModel(modelPath: String): Boolean = withContext(Dispatchers.Default) {
         if (contextHandle != 0L) freeModel()
@@ -27,14 +31,41 @@ class WhisperEngine {
     suspend fun transcribe(audioData: FloatArray, language: String = "en"): String =
         withContext(Dispatchers.Default) {
             if (contextHandle == 0L) return@withContext ""
-            transcribeNative(contextHandle, audioData, language)
+            stateLock.withLock { isTranscribing = true }
+            try {
+                val result = transcribeNative(contextHandle, audioData, language)
+                // transcribeNative returns an empty string both on cancellation and on
+                // genuine silence; empty is treated as "no transcript" either way, not an error.
+                result
+            } finally {
+                stateLock.withLock { isTranscribing = false }
+            }
         }
 
+    /**
+     * Frees the native whisper context.
+     *
+     * Blocks on the native mutex until any in-flight transcription returns; never call from
+     * the Main thread.
+     */
     fun freeModel() {
-        if (contextHandle != 0L) {
-            freeModelNative(contextHandle)
+        // Capture the handle and zero the field while still holding the lock, then free the
+        // captured local outside the (already-released) lock. This makes a second concurrent or
+        // subsequent freeModel() call see contextHandle == 0L and no-op instead of racing to
+        // free the same native pointer twice (use-after-free / double-free).
+        val handle = stateLock.withLock {
+            val h = contextHandle
             contextHandle = 0L
+            h
         }
+        if (handle != 0L) {
+            freeModelNative(handle)
+        }
+    }
+
+    /** Requests cancellation of any in-flight transcription via whisper.cpp's abort_callback. */
+    fun cancelTranscription() {
+        cancelTranscriptionNative()
     }
 
     val isLoaded get() = contextHandle != 0L
@@ -42,39 +73,7 @@ class WhisperEngine {
     private external fun loadModelNative(modelPath: String): Long
     private external fun transcribeNative(handle: Long, audioData: FloatArray, language: String): String
     private external fun freeModelNative(handle: Long)
-}
-
-/** Records 16kHz mono PCM16 from the mic and returns it as float32 samples. */
-fun recordAudio(durationMs: Int = 30_000, onStopped: () -> FloatArray): FloatArray {
-    val bufferSize = AudioRecord.getMinBufferSize(
-        WhisperEngine.SAMPLE_RATE,
-        AudioFormat.CHANNEL_IN_MONO,
-        AudioFormat.ENCODING_PCM_16BIT,
-    ).coerceAtLeast(4096)
-
-    val recorder = AudioRecord(
-        MediaRecorder.AudioSource.MIC,
-        WhisperEngine.SAMPLE_RATE,
-        AudioFormat.CHANNEL_IN_MONO,
-        AudioFormat.ENCODING_PCM_16BIT,
-        bufferSize,
-    )
-
-    val pcmBuffer = mutableListOf<Short>()
-    val chunk = ShortArray(bufferSize / 2)
-
-    recorder.startRecording()
-    val deadline = System.currentTimeMillis() + durationMs
-    while (System.currentTimeMillis() < deadline) {
-        val read = recorder.read(chunk, 0, chunk.size)
-        if (read > 0) {
-            for (i in 0 until read) pcmBuffer.add(chunk[i])
-        }
-    }
-    recorder.stop()
-    recorder.release()
-
-    return pcmBuffer.map { it / 32768f }.toFloatArray()
+    private external fun cancelTranscriptionNative()
 }
 
 /** Convert a ShortArray of PCM16 samples to float32. */

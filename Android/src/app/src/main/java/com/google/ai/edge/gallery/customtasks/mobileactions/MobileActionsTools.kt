@@ -22,27 +22,69 @@ import com.google.ai.edge.litertlm.ToolSet
 
 private const val TAG = "AGMATools"
 
-class MobileActionsTools(val onFunctionCalled: (Action) -> Unit) : ToolSet {
+/**
+ * What actually happened when a `@Tool` method handed its [Action] to
+ * [MobileActionsTools.onFunctionCalled]. Every `@Tool` method used to return an unconditional
+ * "success" map to the model regardless of whether the action was permitted or whether it
+ * actually happened. This is the outcome channel that lets a caller of [MobileActionsTools] --
+ * the allowlist-gated consumer in openai/handlers/AgentHandler.kt, or the ungated in-app consumer
+ * in MobileActionsTask.kt -- report the truth back through the map each `@Tool` method returns.
+ */
+sealed class ToolOutcome {
+  /** The action was permitted and actually happened. */
+  object Success : ToolOutcome()
+
+  /**
+   * The caller refused to perform this action. [toolName] names the refused tool so the model can
+   * reason about which call failed; [reason] is a short, human-readable phrase (default covers the
+   * common "not on the allowlist" case). Deliberately does not enumerate which tools ARE allowed --
+   * an agent must not be able to learn the enabled-tool configuration by probing disallowed tools
+   * one at a time.
+   */
+  data class Refused(val toolName: String, val reason: String = "not enabled for this session") :
+    ToolOutcome()
+
+  /**
+   * The tool was allowed to run but the underlying device action failed. [error] is a short,
+   * human-readable reason (an exception message, or "no app found to handle this action").
+   */
+  data class Failed(val error: String) : ToolOutcome()
+}
+
+/**
+ * Builds the map returned to the model for a `@Tool` method, truthful to [outcome]. [onSuccess]
+ * supplies the extra echoed-input fields the prior unconditional-success maps included (e.g.
+ * "to"/"subject"/"body" for sendEmail) -- included only on an actual success, so a refusal or
+ * failure response never implies the input was acted on.
+ */
+private fun outcomeMap(
+  outcome: ToolOutcome,
+  onSuccess: Map<String, String> = emptyMap(),
+): Map<String, String> =
+  when (outcome) {
+    is ToolOutcome.Success -> mapOf("result" to "success") + onSuccess
+    is ToolOutcome.Refused ->
+      mapOf(
+        "result" to "refused",
+        "error" to
+          "Tool '${outcome.toolName}' is not available (${outcome.reason}). This action was not performed.",
+      )
+    is ToolOutcome.Failed -> mapOf("result" to "error", "error" to outcome.error)
+  }
+
+class MobileActionsTools(val onFunctionCalled: (Action) -> ToolOutcome) : ToolSet {
   @Tool(description = "Turn on flashlight")
   fun turnOnFlashlight(): Map<String, String> {
     Log.d(TAG, "turn on flashlight")
 
-    // Call the callback with the recognized action.
-    onFunctionCalled(FlashlightOnAction())
-
-    // Return a response object to the model confirming the action.
-    return mapOf("result" to "success")
+    return outcomeMap(onFunctionCalled(FlashlightOnAction()))
   }
 
   @Tool(description = "Turn off flashlight")
   fun turnOffFlashlight(): Map<String, String> {
     Log.d(TAG, "turn off flashlight")
 
-    // Call the callback with the recognized action.
-    onFunctionCalled(FlashlightOffAction())
-
-    // Return a response object to the model confirming the action.
-    return mapOf("result" to "success")
+    return outcomeMap(onFunctionCalled(FlashlightOffAction()))
   }
 
   @Tool(description = "Add contact")
@@ -57,21 +99,22 @@ class MobileActionsTools(val onFunctionCalled: (Action) -> Unit) : ToolSet {
       "create contact. First name: '$firstName', last name: '$lastName', phone number: '$phoneNumber', email: '$email'",
     )
 
-    onFunctionCalled(
-      CreateContactAction(
-        firstName = firstName,
-        lastName = lastName,
-        phoneNumber = phoneNumber,
-        email = email,
-      )
-    )
-
-    return mapOf(
-      "result" to "success",
-      "first_name" to firstName,
-      "last_name" to lastName,
-      "phone_number" to phoneNumber,
-      "email" to email,
+    return outcomeMap(
+      onFunctionCalled(
+        CreateContactAction(
+          firstName = firstName,
+          lastName = lastName,
+          phoneNumber = phoneNumber,
+          email = email,
+        )
+      ),
+      onSuccess =
+        mapOf(
+          "first_name" to firstName,
+          "last_name" to lastName,
+          "phone_number" to phoneNumber,
+          "email" to email,
+        ),
     )
   }
 
@@ -83,9 +126,10 @@ class MobileActionsTools(val onFunctionCalled: (Action) -> Unit) : ToolSet {
   ): Map<String, String> {
     Log.d(TAG, "send email. To: '$to', subject: '$subject', body: '$body'")
 
-    onFunctionCalled(SendEmailAction(to = to, subject = subject, body = body))
-
-    return mapOf("result" to "success", "to" to to, "subject" to subject, "body" to body)
+    return outcomeMap(
+      onFunctionCalled(SendEmailAction(to = to, subject = subject, body = body)),
+      onSuccess = mapOf("to" to to, "subject" to subject, "body" to body),
+    )
   }
 
   @Tool(description = "Show location on map")
@@ -94,18 +138,17 @@ class MobileActionsTools(val onFunctionCalled: (Action) -> Unit) : ToolSet {
   ): Map<String, String> {
     Log.d(TAG, "Show location on map. Location: '$location'")
 
-    onFunctionCalled(ShowLocationOnMap(location = location))
-
-    return mapOf("result" to "success", "location" to location)
+    return outcomeMap(
+      onFunctionCalled(ShowLocationOnMap(location = location)),
+      onSuccess = mapOf("location" to location),
+    )
   }
 
   @Tool(description = "Open WiFi settings")
   fun openWifiSettings(): Map<String, String> {
     Log.d(TAG, "Open wifi settings")
 
-    onFunctionCalled(OpenWifiSettingsAction())
-
-    return mapOf("result" to "success")
+    return outcomeMap(onFunctionCalled(OpenWifiSettingsAction()))
   }
 
   @Tool(description = "Create calendar event")
@@ -115,9 +158,10 @@ class MobileActionsTools(val onFunctionCalled: (Action) -> Unit) : ToolSet {
   ): Map<String, String> {
     Log.d(TAG, "Create calendar event. Datetime: '$datetime', title: '$title'")
 
-    onFunctionCalled(CreateCalendarEventAction(datetime = datetime, title = title))
-
-    return mapOf("result" to "success", "datetime" to datetime, "title" to title)
+    return outcomeMap(
+      onFunctionCalled(CreateCalendarEventAction(datetime = datetime, title = title)),
+      onSuccess = mapOf("datetime" to datetime, "title" to title),
+    )
   }
 
   @Tool(description = "Set alarm")
@@ -128,9 +172,10 @@ class MobileActionsTools(val onFunctionCalled: (Action) -> Unit) : ToolSet {
   ): Map<String, String> {
     Log.d(TAG, "Set alarm. Hour: $hour, minute: $minute, label: '$label'")
 
-    onFunctionCalled(SetAlarmAction(hour = hour, minute = minute, label = label))
-
-    return mapOf("result" to "success", "hour" to hour.toString(), "minute" to minute.toString())
+    return outcomeMap(
+      onFunctionCalled(SetAlarmAction(hour = hour, minute = minute, label = label)),
+      onSuccess = mapOf("hour" to hour.toString(), "minute" to minute.toString()),
+    )
   }
 
   @Tool(description = "Set countdown timer")
@@ -140,9 +185,10 @@ class MobileActionsTools(val onFunctionCalled: (Action) -> Unit) : ToolSet {
   ): Map<String, String> {
     Log.d(TAG, "Set timer. Length: ${lengthSeconds}s, label: '$label'")
 
-    onFunctionCalled(SetTimerAction(lengthSeconds = lengthSeconds, label = label))
-
-    return mapOf("result" to "success", "lengthSeconds" to lengthSeconds.toString())
+    return outcomeMap(
+      onFunctionCalled(SetTimerAction(lengthSeconds = lengthSeconds, label = label)),
+      onSuccess = mapOf("lengthSeconds" to lengthSeconds.toString()),
+    )
   }
 
   @Tool(description = "Dial phone number")
@@ -151,9 +197,10 @@ class MobileActionsTools(val onFunctionCalled: (Action) -> Unit) : ToolSet {
   ): Map<String, String> {
     Log.d(TAG, "Dial number: '$phoneNumber'")
 
-    onFunctionCalled(DialNumberAction(phoneNumber = phoneNumber))
-
-    return mapOf("result" to "success", "phoneNumber" to phoneNumber)
+    return outcomeMap(
+      onFunctionCalled(DialNumberAction(phoneNumber = phoneNumber)),
+      onSuccess = mapOf("phoneNumber" to phoneNumber),
+    )
   }
 
   @Tool(description = "Send SMS")
@@ -163,9 +210,10 @@ class MobileActionsTools(val onFunctionCalled: (Action) -> Unit) : ToolSet {
   ): Map<String, String> {
     Log.d(TAG, "Send SMS. To: '$phoneNumber', message: '$message'")
 
-    onFunctionCalled(SendSmsAction(phoneNumber = phoneNumber, message = message))
-
-    return mapOf("result" to "success", "phoneNumber" to phoneNumber, "message" to message)
+    return outcomeMap(
+      onFunctionCalled(SendSmsAction(phoneNumber = phoneNumber, message = message)),
+      onSuccess = mapOf("phoneNumber" to phoneNumber, "message" to message),
+    )
   }
 
   @Tool(description = "Open URL in browser")
@@ -177,26 +225,23 @@ class MobileActionsTools(val onFunctionCalled: (Action) -> Unit) : ToolSet {
   ): Map<String, String> {
     Log.d(TAG, "Open URL: '$url'")
 
-    onFunctionCalled(OpenUrlAction(url = url))
-
-    return mapOf("result" to "success", "url" to url)
+    return outcomeMap(
+      onFunctionCalled(OpenUrlAction(url = url)),
+      onSuccess = mapOf("url" to url),
+    )
   }
 
   @Tool(description = "Open Bluetooth settings")
   fun openBluetoothSettings(): Map<String, String> {
     Log.d(TAG, "Open Bluetooth settings")
 
-    onFunctionCalled(OpenBluetoothSettingsAction())
-
-    return mapOf("result" to "success")
+    return outcomeMap(onFunctionCalled(OpenBluetoothSettingsAction()))
   }
 
   @Tool(description = "Open sound settings")
   fun openSoundSettings(): Map<String, String> {
     Log.d(TAG, "Open sound settings")
 
-    onFunctionCalled(OpenSoundSettingsAction())
-
-    return mapOf("result" to "success")
+    return outcomeMap(onFunctionCalled(OpenSoundSettingsAction()))
   }
 }

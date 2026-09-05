@@ -110,6 +110,9 @@ interface CustomTask {
     onDone: () -> Unit,
   )
 
+  /** Cancel any in-flight generation for [model]; called before the model is torn down. Default: no-op. */
+  fun stopGenerationFn(model: Model) {}
+
   /**
    * Called when a model associated with this task is deleted from the model repository. Allows
    * tasks to clean up task-specific database files, cancel workers, or release resources.

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import java.io.FileInputStream
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -51,11 +53,33 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
+  // Sign release builds with the project keystore when keystore.properties is present, so a build
+  // installs over an existing one. Without it, fall back to the debug key (CI, fresh clones).
+  // keystore.properties is gitignored; see PATCHES.md.
+  val ksPropsFile =
+      rootProject.file("keystore.properties").takeIf { it.exists() }
+          ?: file("keystore.properties").takeIf { it.exists() }
+  val ksProps =
+      ksPropsFile?.let { f -> Properties().apply { load(FileInputStream(f)) } }
+
+  signingConfigs {
+    create("release") {
+      if (ksProps != null) {
+        storeFile = file(ksProps.getProperty("storeFile"))
+        storePassword = ksProps.getProperty("storePassword")
+        keyAlias = ksProps.getProperty("keyAlias")
+        keyPassword = ksProps.getProperty("keyPassword")
+      }
+    }
+  }
+
   buildTypes {
     release {
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("debug")
+      signingConfig =
+          if (ksProps != null) signingConfigs.getByName("release")
+          else signingConfigs.getByName("debug")
     }
   }
   compileOptions {
@@ -65,6 +89,15 @@ android {
   buildFeatures {
     compose = true
     buildConfig = true
+  }
+  // API server (ported from api-server branch): Netty on Android fails the resource
+  // merge without these pickFirsts.
+  packaging {
+    resources {
+      pickFirsts += "META-INF/INDEX.LIST"
+      pickFirsts += "META-INF/io.netty.versions.properties"
+      pickFirsts += "META-INF/*.kotlin_module"
+    }
   }
 }
 
@@ -153,7 +186,13 @@ dependencies {
   implementation(libs.mcp.kotlin.sdk)
   implementation(libs.ktor.client.android)
   implementation(libs.ktor.client.core)
+  implementation(libs.ktor.server.core)
+  implementation(libs.ktor.server.netty)
+  implementation(libs.ktor.server.content.negotiation)
+  implementation(libs.ktor.serialization.kotlinx.json)
+  implementation(libs.ktor.server.cors)
   implementation(libs.tasks.vision)
+  implementation(libs.mlkit.text.recognition)
 }
 
 configurations.all {

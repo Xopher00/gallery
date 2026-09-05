@@ -63,6 +63,7 @@ import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.AddComment
+import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Notifications
@@ -172,6 +173,7 @@ fun HomeScreen(
   navigateToChatHistory: () -> Unit = {},
   onNewChatClicked: () -> Unit = {},
   onImportModelClicked: () -> Unit = {},
+  onServerClicked: () -> Unit = {},
   enableAnimation: Boolean,
   modifier: Modifier = Modifier,
 ) {
@@ -336,6 +338,27 @@ fun HomeScreen(
               }
               Spacer(modifier = Modifier.height(16.dp))
               Row(modifier = Modifier.fillMaxWidth()) {
+                SquareDrawerItem(
+                  label = "API Server",
+                  description = "Local OpenAI-compatible API server",
+                  icon = Icons.Rounded.Dns,
+                  onClick = {
+                    scope.launch { drawerState.close() }
+                    scope.launch {
+                      delay(50)
+                      onServerClicked()
+                    }
+                  },
+                  modifier = Modifier.weight(1f),
+                  iconBrush =
+                    linearGradient(
+                      colors =
+                        listOf(
+                          MaterialTheme.customColors.taskBgGradientColors[0][0],
+                          MaterialTheme.customColors.taskBgGradientColors[0][1],
+                        )
+                    ),
+                )
               }
             }
           }

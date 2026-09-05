@@ -91,7 +91,28 @@ class SmolLM {
         withContext(Dispatchers.IO) {
             val ggufReader = GGUFReader()
             ggufReader.load(modelPath)
-            val modelContextSize = ggufReader.getContextSize() ?: DefaultParams.CONTEXT_SIZE
+            // Clamp the GGUF's declared context to something a phone can actually hold. Modern
+            // models advertise enormous training contexts -- Qwen3.5-9B declares 262144 -- and
+            // honouring that verbatim allocates a KV cache and compute buffers far past what the
+            // device has, so lmkd kills the process mid-load. The bigger the weights, the less
+            // headroom remains for the cache, so the cap tightens with file size. An explicit
+            // caller setting (params.contextSize) still wins.
+            // Adapted from jegly/OfflineLLM @ e81091e (Apache-2.0), smollm/SmolLM.kt.
+            val fileSizeBytes = File(modelPath).length()
+            val maxContextBySize = when {
+                fileSizeBytes > 2L * 1024 * 1024 * 1024 -> 4096L // > 2 GB
+                fileSizeBytes > 1L * 1024 * 1024 * 1024 -> 8192L // 1-2 GB
+                else -> 8192L
+            }
+            val rawContextSize = ggufReader.getContextSize() ?: DefaultParams.CONTEXT_SIZE
+            val modelContextSize = minOf(rawContextSize, maxContextBySize)
+            if (modelContextSize < rawContextSize) {
+                Log.i(
+                    TAG,
+                    "Clamped declared context $rawContextSize -> $modelContextSize " +
+                        "(model file ${fileSizeBytes / (1024 * 1024)} MB)",
+                )
+            }
             val modelChatTemplate = ggufReader.getChatTemplate() ?: DefaultParams.CHAT_TEMPLATE
             nativePtr = loadModel(
                 modelPath,

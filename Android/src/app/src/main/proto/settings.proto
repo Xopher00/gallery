@@ -80,6 +80,7 @@ message Settings {
 
   repeated string viewed_promo_id = 10;
   bool disable_firebase_analytics = 11;
+  bool start_server_on_boot = 12;
 }
 
 message McpAuth {

@@ -19,10 +19,22 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
+import com.google.ai.edge.gallery.modelmanager.ModelRegistryEntryPoint
+import com.google.ai.edge.gallery.openai.OpenAiServerService
+import com.google.ai.edge.gallery.openai.OpenAiServerState
 import dagger.hilt.android.EntryPointAccessors
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
- * Reschedules all notifications after the device boots up.
+ * Reschedules all notifications after the device boots up, and optionally starts
+ * [OpenAiServerService] and preloads the last-pinned model, if the user has opted into "Start
+ * server on boot" (default OFF; see [DataStoreRepositoryEntryPoint]).
  *
  * This receiver is triggered by the ACTION_BOOT_COMPLETED broadcast.
  */
@@ -40,10 +52,92 @@ class BootReceiver : BroadcastReceiver() {
       } catch (e: Exception) {
         Log.e(TAG, "Failed to reschedule notifications on boot", e)
       }
+
+      // Boot auto-start of the API server -- opt-in, defaults to false. This whole branch is
+      // wrapped so that any failure here (Hilt not ready, DataStore read failure, preload
+      // throwing) is caught and logged, never left to propagate out of onReceive().
+      try {
+        val dataStoreRepository =
+          EntryPointAccessors.fromApplication(
+              context.applicationContext,
+              DataStoreRepositoryEntryPoint::class.java,
+            )
+            .dataStoreRepository()
+
+        if (!dataStoreRepository.readStartServerOnBoot()) {
+          Log.d(TAG, "startServerOnBoot is off; not starting the API server")
+        } else {
+          Log.i(TAG, "startServerOnBoot is on; loading the model allowlist and starting the server")
+          val modelRegistry =
+            EntryPointAccessors.fromApplication(
+                context.applicationContext,
+                ModelRegistryEntryPoint::class.java,
+              )
+              .modelRegistry()
+
+          // goAsync() keeps this receiver's process alive briefly past onReceive() returning,
+          // for the async allowlist load + service start + best-effort preload below.
+          // pendingResult.finish() is called from every exit path (including the catch block)
+          // so the system is never left waiting on it.
+          val pendingResult = goAsync()
+          val bootScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+          bootScope.launch {
+            try {
+              val allowlistDone = CompletableDeferred<Unit>()
+              modelRegistry.loadModelAllowlist(
+                onDone = { allowlistDone.complete(Unit) },
+                onError = { err ->
+                  Log.w(TAG, "loadModelAllowlist() on boot reported an error (continuing): $err")
+                  allowlistDone.complete(Unit)
+                },
+              )
+              allowlistDone.await()
+
+              modelRegistry.restoreImportedModels()
+
+              OpenAiServerService.startService(context.applicationContext)
+
+              // Best-effort preload of the last-pinned model: poll briefly for
+              // OpenAiServerState.runningServer, set by OpenAiServer.start(), rather than
+              // racing the service's own async startup.
+              val lastPinned = OpenAiServerState.loadLastPinnedModel(context.applicationContext)
+              if (lastPinned != null) {
+                val (name, accelerator) = lastPinned
+                var server = OpenAiServerState.runningServer
+                var attempts = 0
+                while (server == null && attempts < BOOT_PRELOAD_MAX_ATTEMPTS) {
+                  delay(BOOT_PRELOAD_POLL_INTERVAL_MS)
+                  server = OpenAiServerState.runningServer
+                  attempts++
+                }
+                if (server == null) {
+                  Log.w(
+                    TAG,
+                    "Boot preload: server never came up within the poll budget; skipping preload of '$name'",
+                  )
+                } else {
+                  val result = server.loadModel(name, accelerator)
+                  Log.i(TAG, "Boot preload of '$name' (accelerator=$accelerator) -> $result")
+                }
+              } else {
+                Log.d(TAG, "Boot preload: no last-pinned model recorded; nothing to preload")
+              }
+            } catch (e: Exception) {
+              Log.e(TAG, "Failed to start API server / preload model on boot", e)
+            } finally {
+              pendingResult.finish()
+            }
+          }
+        }
+      } catch (e: Exception) {
+        Log.e(TAG, "Failed to read startServerOnBoot preference on boot", e)
+      }
     }
   }
 
   companion object {
     private const val TAG = "BootReceiver"
+    private const val BOOT_PRELOAD_MAX_ATTEMPTS = 25
+    private const val BOOT_PRELOAD_POLL_INTERVAL_MS = 200L
   }
 }

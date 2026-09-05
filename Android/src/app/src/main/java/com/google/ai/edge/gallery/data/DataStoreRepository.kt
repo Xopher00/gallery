@@ -61,6 +61,21 @@ interface DataStoreRepository {
    */
   fun readFirebaseAnalytics(): Boolean
 
+  /**
+   * Saves the user's opt-in preference for whether [com.google.ai.edge.gallery.openai
+   * .OpenAiServerService] should be started automatically by
+   * [com.google.ai.edge.gallery.notifications.BootReceiver] on `ACTION_BOOT_COMPLETED`.
+   *
+   * WP (spec section 6): defaults to `false` (the proto3 zero-value for
+   * `start_server_on_boot`) -- a server that starts itself on boot without the user asking is
+   * security-relevant behaviour, and this project's standing rule is that such behaviour is
+   * opt-in only.
+   */
+  fun saveStartServerOnBoot(enabled: Boolean)
+
+  /** Reads the current start-server-on-boot preference. `false` unless explicitly enabled. */
+  fun readStartServerOnBoot(): Boolean
+
   fun saveSecret(key: String, value: String)
 
   fun readSecret(key: String): String?
@@ -189,6 +204,19 @@ class DefaultDataStoreRepository(
     return runBlocking {
       val settings = dataStore.data.first()
       !settings.disableFirebaseAnalytics
+    }
+  }
+
+  override fun saveStartServerOnBoot(enabled: Boolean) {
+    runBlocking {
+      dataStore.updateData { settings -> settings.toBuilder().setStartServerOnBoot(enabled).build() }
+    }
+  }
+
+  override fun readStartServerOnBoot(): Boolean {
+    return runBlocking {
+      val settings = dataStore.data.first()
+      settings.startServerOnBoot
     }
   }
 
@@ -471,4 +499,16 @@ class DefaultDataStoreRepository(
       settings.viewedPromoIdList.contains(promoId)
     }
   }
+}
+
+// WP (spec section 6): mirrors NotificationScheduleManagerEntryPoint
+// (notifications/NotificationScheduleManager.kt) and ModelRegistryEntryPoint
+// (modelmanager/ModelRegistry.kt) exactly -- the existing precedent in this tree for reaching a
+// @Singleton from a component with no Activity/ViewModel to inject through. Used by
+// BootReceiver (a BroadcastReceiver) to read the start-server-on-boot preference, and by
+// ServerScreen (a plain @Composable, not @AndroidEntryPoint) to read/write it.
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+interface DataStoreRepositoryEntryPoint {
+  fun dataStoreRepository(): DataStoreRepository
 }

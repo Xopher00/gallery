@@ -1089,7 +1089,7 @@ fun MessageInputText(
 }
 
 @Composable
-private fun MediaPanelCloseButton(onClicked: () -> Unit) {
+internal fun MediaPanelCloseButton(onClicked: () -> Unit) {
   Box(
     modifier =
       Modifier.offset(x = 10.dp, y = (-10).dp)

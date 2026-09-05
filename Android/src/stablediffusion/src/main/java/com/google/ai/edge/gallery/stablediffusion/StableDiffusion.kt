@@ -2,6 +2,8 @@ package com.google.ai.edge.gallery.stablediffusion
 
 import android.graphics.Bitmap
 import android.util.Log
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +23,14 @@ class StableDiffusion {
     }
 
     private var contextHandle: Long = 0L
+    private val stateLock = ReentrantLock()
+
+    @Volatile
+    var isGenerating = false
+        private set
+
+    @Volatile
+    private var cancelRequested = false
 
     data class GenerationParams(
         val prompt: String,
@@ -59,6 +69,11 @@ class StableDiffusion {
 
         val seed = if (params.seed < 0) System.currentTimeMillis() else params.seed
 
+        stateLock.withLock {
+            isGenerating = true
+            cancelRequested = false
+        }
+
         // Progress polling: read atomic counters updated by the C++ progress callback
         val pollJob = launch {
             var lastStep = -1
@@ -96,18 +111,46 @@ class StableDiffusion {
                     bitmap = bitmap,
                 ))
             } else {
-                Log.e(TAG, "Generation returned null — model may have failed to load properly")
+                // generateImageNative returns null both on cancellation and on genuine failure;
+                // the native side already logs which one it was ("generation cancelled" vs
+                // "generate_image returned null"), so mirror that distinction here.
+                if (cancelRequested) {
+                    Log.i(TAG, "Generation cancelled")
+                } else {
+                    Log.e(TAG, "Generation returned null — model may have failed to load properly")
+                }
             }
         } catch (e: Exception) {
             pollJob.cancel()
             Log.e(TAG, "Generation failed", e)
+        } finally {
+            stateLock.withLock { isGenerating = false }
         }
     }
 
+    /** Requests cancellation of any in-flight [generateImage] call. Native side aborts between
+     * ggml graph nodes (not mid-op), so the current node still runs to completion. */
+    fun cancelGeneration() {
+        cancelRequested = true
+        cancelGenerationNative()
+    }
+
+    /**
+     * Blocks on the native mutex until any in-flight generation returns — may take up to one
+     * graph node; never call from the Main thread.
+     */
     fun freeModel() {
-        if (contextHandle != 0L) {
-            freeContextNative(contextHandle)
+        // Capture the handle and zero the field while still holding the lock, then free the
+        // captured local outside the (already-released) lock. This makes a second concurrent or
+        // subsequent freeModel() call see contextHandle == 0L and no-op instead of racing to
+        // free the same native pointer twice (use-after-free / double-free).
+        val handle = stateLock.withLock {
+            val h = contextHandle
             contextHandle = 0L
+            h
+        }
+        if (handle != 0L) {
+            freeContextNative(handle)
         }
     }
 
@@ -134,5 +177,6 @@ class StableDiffusion {
     ): ByteArray?
     private external fun getProgressStep(): Int
     private external fun getProgressTotal(): Int
+    private external fun cancelGenerationNative()
     private external fun freeContextNative(ctxHandle: Long)
 }

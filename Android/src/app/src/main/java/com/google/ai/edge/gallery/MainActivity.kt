@@ -50,6 +50,7 @@ import androidx.core.net.toUri
 import androidx.core.os.bundleOf
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
+import com.google.ai.edge.gallery.openai.OpenAiServerState
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.theme.GalleryTheme
 import com.google.ai.edge.litertlm.ExperimentalApi
@@ -71,6 +72,39 @@ class MainActivity : ComponentActivity() {
     // This prevents Jetpack Compose from automatically restoring the previous screen
     // and forces the app to start cleanly on the Home Screen after an OS kill.
     super.onCreate(null)
+
+    // Scriptable headless start: the API server's service is exported=false, so adb shell
+    // cannot start it directly. Starting it from inside the app process is always allowed, so
+    // launching MainActivity with `--ez start_api_server true` boots the server with no UI taps.
+    if (intent?.getBooleanExtra("start_api_server", false) == true) {
+      com.google.ai.edge.gallery.openai.OpenAiServerService.startService(applicationContext)
+    }
+
+    // Scriptable headless load: `--es load_model <id> [--es accelerator <cpu|gpu|npu>]`
+    // alongside `--ez start_api_server true` boots straight into serving a specific model with
+    // no UI taps. Goes through the same OpenAiServer.loadModel() path a POST
+    // /v1/models/{id}/load call would use, once the server (and OpenAiServerState's static
+    // OpenAiServer instance) has had a chance to start -- see OpenAiServerService.
+    intent?.getStringExtra("load_model")?.let { modelId ->
+      val accelerator = intent.getStringExtra("accelerator")
+      lifecycleScope.launch {
+        // OpenAiServerService starts the server asynchronously; poll briefly for
+        // OpenAiServerState.runningServer (set by OpenAiServer.start()) rather than racing it.
+        var server = OpenAiServerState.runningServer
+        var attempts = 0
+        while (server == null && attempts < 50) {
+          delay(200)
+          server = OpenAiServerState.runningServer
+          attempts++
+        }
+        if (server == null) {
+          Log.e(TAG, "load_model requested but OpenAiServer never started (start_api_server missing or failed)")
+          return@launch
+        }
+        val result = server.loadModel(modelId, accelerator)
+        Log.i(TAG, "Headless load_model('$modelId', accelerator=$accelerator) -> $result")
+      }
+    }
 
     // Debug: Dump all intent extras to see what FCM unloads
     intent.extras?.let { extras ->

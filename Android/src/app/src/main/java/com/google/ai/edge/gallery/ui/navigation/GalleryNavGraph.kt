@@ -191,6 +191,8 @@ fun GalleryNavHost(
     enterTransition = { EnterTransition.None },
     exitTransition = { ExitTransition.None },
   ) {
+    forkExtraRoutes(navController = navController)
+
     // Home screen.
     composable(route = ROUTE_HOMESCREEN) {
       // Create a state to trigger PromoScreen fade in animation.
@@ -230,6 +232,7 @@ fun GalleryNavHost(
             onImportModelClicked = {
               navController.navigate("$ROUTE_MODEL_MANAGER?startImport=true")
             },
+            onServerClicked = { navController.navigate(ROUTE_SERVER) },
           )
         }
 

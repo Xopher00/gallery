@@ -16,6 +16,7 @@
 
 package com.google.ai.edge.gallery.worker
 
+import com.google.ai.edge.gallery.MainActivity
 import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -370,7 +371,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
     val content = "Downloading in progress: $progress%"
 
     val intent =
-      Intent(applicationContext, Class.forName("com.box.gallery.MainActivity")).apply {
+      Intent(applicationContext, MainActivity::class.java).apply {
         flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
       }
     val pendingIntent =
