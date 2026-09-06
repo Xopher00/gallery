@@ -39,7 +39,7 @@ data class CustomTaskData(
   val setAppBarControlsDisabled: (Boolean) -> Unit = {},
   val setTopBarVisible: (Boolean) -> Unit = {},
   val setCustomNavigateUpCallback: ((() -> Unit)?) -> Unit = {},
-  val conversationId: String? = null,
+  val sessionId: String? = null,
 )
 
 data class CustomTaskDataForBuiltinTask(
@@ -47,6 +47,6 @@ data class CustomTaskDataForBuiltinTask(
   val onNavUp: () -> Unit,
   // The initial query to be sent to the model when the screen is first loaded.
   val initialQuery: String? = null,
-  val conversationId: String? = null,
-  val autoResumeConversation: Boolean = true,
+  val sessionId: String? = null,
+  val autoResumeSession: Boolean = true,
 )

@@ -79,9 +79,9 @@ class BiometricHelper(private val activity: FragmentActivity) {
 
     // --- App-lock (resume gate) additions below. ---
     //
-    // canAuthenticate()/authenticate() above check BIOMETRIC_STRONG only, which is correct for
-    // BiometricEncryptionManager's use (a CryptoObject-bound key that only a class-3 biometric
-    // can release). The app-resume lock has no CryptoObject to bind to -- it is a plain gate --
+    // canAuthenticate()/authenticate() above check BIOMETRIC_STRONG only, which is what a
+    // CryptoObject-bound key would require (only a class-3 biometric can release one).
+    // The app-resume lock has no CryptoObject to bind to -- it is a plain gate --
     // so per this card's owner decision it accepts BIOMETRIC_STRONG or DEVICE_CREDENTIAL, making
     // the device PIN/pattern/password a built-in fallback. minSdk is 31 here (see
     // Android/src/gradle/libs.versions.toml's androidx-biometric = 1.2.0-alpha05), above the

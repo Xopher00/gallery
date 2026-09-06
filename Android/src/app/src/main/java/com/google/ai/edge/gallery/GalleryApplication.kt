@@ -20,18 +20,13 @@ import android.app.Application
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.notifications.NotificationScheduleManager
 import com.google.ai.edge.gallery.security.AppLockManager
-import com.google.ai.edge.gallery.security.BiometricEncryptionManager
 import com.google.ai.edge.gallery.security.OfflineMode
 import com.google.ai.edge.gallery.security.SecurityAuditLog
-import com.google.ai.edge.gallery.security.SecurityUtils
 import com.google.ai.edge.gallery.security.SignatureVerifier
 import com.google.ai.edge.gallery.ui.theme.ThemeSettings
 import com.google.firebase.FirebaseApp
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 @HiltAndroidApp
 class GalleryApplication : Application() {
@@ -57,25 +52,35 @@ class GalleryApplication : Application() {
     OfflineMode.init(this)
     // Box: load the persisted lock/screenshot prefs; without this they reset on every restart.
     AppLockManager.init(this)
-    // Box: load the persisted DB-encryption-enabled flag into isEnabledFlow. Without this,
-    // isEnabledFlow starts false on every process start regardless of the SharedPrefs value
-    // (it is otherwise only ever flipped by storeEncryptedPassphrase()/disable(), both called
-    // from the Settings screen), so the startup decrypt gate below (MainActivity) would think
-    // encryption is off and let the UI straight through to a database that getDatabasePassphrase()
-    // will still refuse to open.
-    BiometricEncryptionManager.init(this)
-    // Box: warm the non-biometric database-passphrase cache off the main thread so the first
-    // chat-history open after a cold start doesn't pay for a synchronous StrongBox unwrap on
-    // the UI thread (measured ~1s / 162 skipped frames at 120Hz). Skipped, silently, when
-    // biometric DB encryption is on -- there the plain passphrase legitimately doesn't exist
-    // until the user authenticates, and this must never trigger a prompt or log an error.
-    CoroutineScope(Dispatchers.IO).launch {
-      SecurityUtils.warmPassphraseCache(this@GalleryApplication)
-    }
     // Box: report-only repackaging/re-signing check. Debug/CI builds carry no expected
     // digest (see BuildConfig.TRUSTED_SIGNING_CERT_SHA256) and log "not configured", not
     // a mismatch. This never blocks startup or disables anything.
     SignatureVerifier(this).checkAndLog()
     SecurityAuditLog.log(this, "APPLICATION_CREATED")
+
+    // Box: one-time cleanup after retiring the Room/SQLCipher chat store in favour of the proto
+    // session store (D-n, 2026-09-06). Runs once, guarded by a flag in box_settings (kept -- it
+    // also holds the app-lock/screenshot prefs). Never allowed to crash startup: proto already
+    // holds every conversation, so a cleanup failure just leaves harmless leftover files.
+    try {
+      val settingsPrefs = getSharedPreferences("box_settings", MODE_PRIVATE)
+      if (!settingsPrefs.getBoolean("room_store_cleanup_done", false)) {
+        try {
+          deleteDatabase("box_chat.db")
+        } catch (e: Exception) {
+          SecurityAuditLog.log(this, "ROOM_CLEANUP_DELETE_DB_FAILED: ${e.message}")
+        }
+        for (prefsFile in listOf("box_secure_prefs", "box_db_enc", "box_security")) {
+          try {
+            deleteSharedPreferences(prefsFile)
+          } catch (e: Exception) {
+            SecurityAuditLog.log(this, "ROOM_CLEANUP_DELETE_PREFS_FAILED: $prefsFile: ${e.message}")
+          }
+        }
+        settingsPrefs.edit().putBoolean("room_store_cleanup_done", true).apply()
+      }
+    } catch (e: Exception) {
+      SecurityAuditLog.log(this, "ROOM_CLEANUP_FAILED: ${e.message}")
+    }
   }
 }

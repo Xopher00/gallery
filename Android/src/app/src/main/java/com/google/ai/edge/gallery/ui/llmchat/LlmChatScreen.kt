@@ -28,8 +28,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -85,8 +83,8 @@ fun LlmChatScreen(
   skillCount: Int = 0,
   mcpCount: Int = 0,
   mcpToolsCount: Int = 0,
-  conversationId: String? = null,
-  autoResumeConversation: Boolean = true,
+  sessionId: String? = null,
+  autoResumeSession: Boolean = true,
 ) {
   ChatViewWrapper(
     viewModel = viewModel,
@@ -112,8 +110,8 @@ fun LlmChatScreen(
     showImagePicker = showImagePicker,
     showAudioPicker = showAudioPicker,
     getActiveSkills = getActiveSkills,
-    conversationId = conversationId,
-    autoResumeConversation = autoResumeConversation,
+    sessionId = sessionId,
+    autoResumeSession = autoResumeSession,
   )
 }
 
@@ -240,19 +238,16 @@ fun ChatViewWrapper(
   skillCount: Int = 0,
   mcpCount: Int = 0,
   mcpToolsCount: Int = 0,
-  conversationId: String? = null,
-  autoResumeConversation: Boolean = true,
+  sessionId: String? = null,
+  autoResumeSession: Boolean = true,
 ) {
   val context = LocalContext.current
   val task = modelManagerViewModel.getTaskById(id = taskId)!!
 
-  // Wire per-conversation system prompt from viewModel state.
-  val vmSystemPrompt by viewModel.currentSystemPrompt.collectAsState()
-  val effectiveCurSystemPrompt = vmSystemPrompt.ifEmpty { curSystemPrompt }
-  val effectiveOnSystemPromptChanged: (String) -> Unit = { sp ->
-    viewModel.updateSystemPrompt(sp)
-    onSystemPromptChanged(sp)
-  }
+  // Proto sessions have no per-conversation system prompt field. The per-task system
+  // prompt (Google's SystemPromptRepository, surfaced via LlmChatViewModelBase.uiSystemPrompt
+  // and applySystemPromptChange) is already threaded through curSystemPrompt /
+  // onSystemPromptChanged by callers (see LlmChatTaskModule.kt), so use them directly.
 
   ChatView(
     task = task,
@@ -373,11 +368,11 @@ fun ChatViewWrapper(
       aboveInputComposable(model)
     },
     allowEditingSystemPrompt = allowEditingSystemPrompt,
-    curSystemPrompt = effectiveCurSystemPrompt,
-    onSystemPromptChanged = effectiveOnSystemPromptChanged,
+    curSystemPrompt = curSystemPrompt,
+    onSystemPromptChanged = onSystemPromptChanged,
     sendMessageTrigger = sendMessageTrigger,
     showAudioPicker = showAudioPicker,
-    conversationId = conversationId,
-    autoResumeConversation = autoResumeConversation,
+    sessionId = sessionId,
+    autoResumeSession = autoResumeSession,
   )
 }

@@ -21,7 +21,6 @@ import com.google.ai.edge.gallery.agent.AgentRuntimeExecutor
 import com.google.ai.edge.gallery.agent.sessions.LlmSessionManager
 import com.google.ai.edge.gallery.data.ChatSessionRepository
 import com.google.ai.edge.gallery.data.SystemPromptRepository
-import com.google.ai.edge.gallery.relay.data.local.ChatPersistence
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -34,7 +33,6 @@ constructor(
   chatSessionRepository: ChatSessionRepository,
   @AgentChatExecutor runtimeExecutor: AgentRuntimeExecutor,
   llmSessionManager: LlmSessionManager,
-  chatPersistence: ChatPersistence,
 ) :
 LlmChatViewModel(systemPromptRepository, chatSessionRepository, runtimeExecutor,
-llmSessionManager, chatPersistence)
+llmSessionManager)

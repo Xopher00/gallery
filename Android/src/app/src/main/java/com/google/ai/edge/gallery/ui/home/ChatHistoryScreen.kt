@@ -45,6 +45,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -60,12 +61,18 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.compose.ui.platform.LocalContext
-import com.google.ai.edge.gallery.data.local.entities.Conversation
-import com.google.ai.edge.gallery.data.local.entities.Message
+import com.google.ai.edge.gallery.proto.ChatMessageProto
+import com.google.ai.edge.gallery.proto.ChatSessionProto
+import com.google.ai.edge.gallery.proto.ChatSideProto
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// How long a fast load is allowed to skip the "Loading conversations…" text entirely, so it
+// doesn't flicker in and out on quick loads (owner-reported residual flicker, 3.8).
+private const val LOADING_INDICATOR_DELAY_MS = 150L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,18 +88,29 @@ fun ChatHistoryScreen(
     val conversations = conversationsOrNull ?: emptyList()
     val selectedMessages by viewModel.selectedMessages.collectAsState()
     var showDeleteAllDialog by remember { mutableStateOf(false) }
-    var selectedConversation by remember { mutableStateOf<Conversation?>(null) }
+    var selectedConversation by remember { mutableStateOf<ChatSessionProto?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     val filteredConversations by remember(conversations, searchQuery) {
         derivedStateOf {
             if (searchQuery.isEmpty()) conversations
             else conversations.filter {
                 it.title.contains(searchQuery, ignoreCase = true) ||
-                it.modelName.contains(searchQuery, ignoreCase = true)
+                it.originalModel.contains(searchQuery, ignoreCase = true)
             }
         }
     }
-    var conversationToRename by remember { mutableStateOf<Conversation?>(null) }
+    var conversationToRename by remember { mutableStateOf<ChatSessionProto?>(null) }
+
+    // Suppress the loading indicator for a short grace period so a fast load never flickers it
+    // on screen; a genuinely slow load still shows it after the delay.
+    var showLoadingIndicator by remember { mutableStateOf(false) }
+    LaunchedEffect(isLoadingConversations) {
+        showLoadingIndicator = false
+        if (isLoadingConversations) {
+            delay(LOADING_INDICATOR_DELAY_MS)
+            showLoadingIndicator = true
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -134,17 +152,20 @@ fun ChatHistoryScreen(
         },
     ) { innerPadding ->
         if (isLoadingConversations) {
-            // Not loaded yet — distinct from "loaded and empty".
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "Loading conversations...",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            // Not loaded yet — distinct from "loaded and genuinely empty". Render nothing during
+            // the grace period; only show the text once the load has proven itself slow.
+            if (showLoadingIndicator) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "Loading conversations...",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         } else if (conversations.isEmpty()) {
             // Empty state
@@ -220,7 +241,7 @@ fun ChatHistoryScreen(
 
                 items(
                     items = filteredConversations,
-                    key = { it.id },
+                    key = { it.sessionId },
                 ) { conversation ->
                     val dismissState = rememberSwipeToDismissBoxState(
                         confirmValueChange = { dismissValue ->
@@ -263,17 +284,17 @@ fun ChatHistoryScreen(
                             conversation = conversation,
                             onClick = {
                                 selectedConversation = conversation
-                                viewModel.loadMessages(conversation.id)
+                                viewModel.loadMessages(conversation)
                             },
                             onRename = { conversationToRename = it },
                             onContinueChat = { conversation ->
-                                val (model, messages) = viewModel.continueChat(conversation)
-                                model?.let { chatModel ->
-                                    modelManagerViewModel?.getModelByName(name = chatModel.name)?.let { foundModel ->
+                                val (modelName, sessionId) = viewModel.continueChat(conversation)
+                                modelName?.let { name ->
+                                    modelManagerViewModel?.getModelByName(name = name)?.let { foundModel ->
                                         modelManagerViewModel.selectModel(foundModel)
                                         val llmTask = modelManagerViewModel.getCustomTaskByTaskId("llm_chat")
                                         llmTask?.let { task ->
-                                            navController?.navigate("route_model/${task.task.id}/${chatModel.name}?conversationId=${conversation.id}")
+                                            navController?.navigate("route_model/${task.task.id}/${name}?sessionId=${sessionId}")
                                         }
                                     }
                                 }
@@ -311,7 +332,7 @@ fun ChatHistoryScreen(
 
     // Rename dialog
     conversationToRename?.let { conv ->
-        var renameText by remember(conv.id) { mutableStateOf(conv.title) }
+        var renameText by remember(conv.sessionId) { mutableStateOf(conv.title) }
         AlertDialog(
             onDismissRequest = { conversationToRename = null },
             title = { Text("Rename conversation") },
@@ -350,10 +371,10 @@ fun ChatHistoryScreen(
 
 @Composable
 private fun ConversationCard(
-    conversation: Conversation,
+    conversation: ChatSessionProto,
     onClick: () -> Unit,
-    onRename: (Conversation) -> Unit,
-    onContinueChat: (Conversation) -> Unit,
+    onRename: (ChatSessionProto) -> Unit,
+    onContinueChat: (ChatSessionProto) -> Unit,
 ) {
     val dateFormat = remember { SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()) }
 
@@ -379,7 +400,7 @@ private fun ConversationCard(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = conversation.modelName.take(1).uppercase().ifEmpty { "B" },
+                    text = conversation.originalModel.take(1).uppercase().ifEmpty { "B" },
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     fontWeight = FontWeight.Medium,
@@ -411,9 +432,9 @@ private fun ConversationCard(
                 }
                 Spacer(modifier = Modifier.height(2.dp))
                 Row {
-                    if (conversation.modelName.isNotEmpty()) {
+                    if (conversation.originalModel.isNotEmpty()) {
                         Text(
-                            text = conversation.modelName,
+                            text = conversation.originalModel,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
@@ -425,19 +446,19 @@ private fun ConversationCard(
                         )
                     }
                     Text(
-                        text = "${conversation.messageCount} messages",
+                        text = "${conversation.messagesCount} messages",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Text(
-                    text = dateFormat.format(Date(conversation.updatedAt)),
+                    text = dateFormat.format(Date(conversation.timestampMs)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
-                
+
                 // Continue Chat button
-                if (conversation.modelName.isNotEmpty()) {
+                if (conversation.originalModel.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     androidx.compose.material3.Button(
                         onClick = { onContinueChat(conversation) },
@@ -458,10 +479,10 @@ private fun ConversationCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MessageViewerSheet(
-    conversation: Conversation,
-    messages: List<Message>,
+    conversation: ChatSessionProto,
+    messages: List<ChatMessageProto>,
     onDismiss: () -> Unit,
-    onExport: (Conversation, List<Message>) -> Unit = { _, _ -> },
+    onExport: (ChatSessionProto, List<ChatMessageProto>) -> Unit = { _, _ -> },
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -481,9 +502,9 @@ private fun MessageViewerSheet(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (conversation.modelName.isNotEmpty()) {
+                    if (conversation.originalModel.isNotEmpty()) {
                         Text(
-                            text = conversation.modelName,
+                            text = conversation.originalModel,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -532,8 +553,8 @@ private fun MessageViewerSheet(
 }
 
 @Composable
-private fun MessageBubble(message: Message) {
-    val isUser = message.role == "user"
+private fun MessageBubble(message: ChatMessageProto) {
+    val isUser = message.side == ChatSideProto.CHAT_SIDE_USER
 
     Column(
         modifier = Modifier.fillMaxWidth(),

@@ -7,13 +7,10 @@ import android.provider.MediaStore
 import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.ai.edge.gallery.data.local.ChatRepository
-import com.google.ai.edge.gallery.data.local.entities.Conversation
-import com.google.ai.edge.gallery.data.local.entities.Message
-import com.google.ai.edge.gallery.data.Model
-import com.google.ai.edge.gallery.ui.common.chat.ChatMessage
-import com.google.ai.edge.gallery.ui.common.chat.ChatMessageText
-import com.google.ai.edge.gallery.ui.common.chat.ChatSide
+import com.google.ai.edge.gallery.data.ChatSessionRepository
+import com.google.ai.edge.gallery.proto.ChatMessageProto
+import com.google.ai.edge.gallery.proto.ChatSessionProto
+import com.google.ai.edge.gallery.proto.ChatSideProto
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,7 +19,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -31,62 +27,67 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ChatHistoryViewModel @Inject constructor(
-    private val chatRepository: ChatRepository,
+    private val chatSessionRepository: ChatSessionRepository,
 ) : ViewModel() {
 
     // Null means "not loaded yet"; an empty list means "loaded and genuinely empty".
-    val conversations: StateFlow<List<Conversation>?> = chatRepository
-        .getAllConversations()
+    val conversations: StateFlow<List<ChatSessionProto>?> = chatSessionRepository
+        .chatSessions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    private val _selectedMessages = MutableStateFlow<List<Message>>(emptyList())
-    val selectedMessages: StateFlow<List<Message>> = _selectedMessages.asStateFlow()
+    private val _selectedMessages = MutableStateFlow<List<ChatMessageProto>>(emptyList())
+    val selectedMessages: StateFlow<List<ChatMessageProto>> = _selectedMessages.asStateFlow()
 
-    fun loadMessages(conversationId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _selectedMessages.value = chatRepository.getMessagesSync(conversationId)
-        }
+    fun loadMessages(session: ChatSessionProto) {
+        // The messages already live inside the session proto — no separate fetch needed.
+        _selectedMessages.value = session.messagesList
     }
 
-    fun deleteConversation(conversation: Conversation) {
+    fun deleteConversation(session: ChatSessionProto) {
         viewModelScope.launch(Dispatchers.IO) {
-            chatRepository.deleteConversation(conversation)
+            chatSessionRepository.deleteChatSession(session.sessionId)
         }
     }
 
     fun deleteAll() {
         viewModelScope.launch(Dispatchers.IO) {
-            chatRepository.deleteAllConversations()
+            chatSessionRepository.clearAllChatSessions()
         }
     }
 
-    fun renameConversation(conversation: Conversation, newTitle: String) {
+    fun renameConversation(session: ChatSessionProto, newTitle: String) {
         val trimmed = newTitle.trim()
         if (trimmed.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
-            chatRepository.updateConversation(conversation.copy(title = trimmed))
+            // saveChatSession upserts by sessionId, so saving the same id back with a new
+            // title (every other field preserved via toBuilder) is a rename.
+            chatSessionRepository.saveChatSession(session.toBuilder().setTitle(trimmed).build())
         }
     }
+
+    private fun senderLabel(message: ChatMessageProto): String =
+        if (message.side == ChatSideProto.CHAT_SIDE_USER) "You" else "Assistant"
 
     fun exportAll(context: Context) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                val conversations = chatRepository.getAllConversationsSync()
+                val sessions = chatSessionRepository.getAllChatSessions()
                 val sb = StringBuilder()
                 sb.appendLine("Box Chat Export")
                 sb.appendLine("Exported: ${fmt.format(Date())}")
-                sb.appendLine("Total conversations: ${conversations.size}")
+                sb.appendLine("Total conversations: ${sessions.size}")
                 sb.appendLine("=".repeat(72))
-                conversations.forEachIndexed { i, conv ->
+                sessions.forEachIndexed { i, session ->
                     sb.appendLine()
-                    sb.appendLine("--- Conversation ${i + 1}: \"${conv.title}\" ---")
-                    if (conv.modelName.isNotEmpty()) sb.appendLine("Model: ${conv.modelName}")
-                    sb.appendLine("Date: ${fmt.format(Date(conv.createdAt))}")
+                    sb.appendLine("--- Conversation ${i + 1}: \"${session.title}\" ---")
+                    if (session.originalModel.isNotEmpty()) sb.appendLine("Model: ${session.originalModel}")
+                    sb.appendLine("Date: ${fmt.format(Date(session.timestampMs))}")
                     sb.appendLine()
-                    chatRepository.getMessagesSync(conv.id).forEach { msg ->
-                        val sender = if (msg.role == "user") "You" else "Assistant"
-                        sb.appendLine("[${fmt.format(Date(msg.timestamp))}] $sender:")
+                    session.messagesList.forEach { msg ->
+                        // Proto messages carry no per-message timestamp, so unlike the Room-backed
+                        // export there is no "[timestamp]" prefix here.
+                        sb.appendLine("${senderLabel(msg)}:")
                         sb.appendLine(msg.content)
                         sb.appendLine()
                     }
@@ -106,24 +107,29 @@ class ChatHistoryViewModel @Inject constructor(
         }
     }
 
-    fun exportConversation(context: Context, conversation: Conversation, messages: List<Message>) {
+    fun exportConversation(
+        context: Context,
+        session: ChatSessionProto,
+        messages: List<ChatMessageProto>,
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
                 val sb = StringBuilder()
                 sb.appendLine("Box Chat Export")
-                sb.appendLine("Conversation: ${conversation.title}")
-                if (conversation.modelName.isNotEmpty()) sb.appendLine("Model: ${conversation.modelName}")
+                sb.appendLine("Conversation: ${session.title}")
+                if (session.originalModel.isNotEmpty()) sb.appendLine("Model: ${session.originalModel}")
                 sb.appendLine("Exported: ${fmt.format(Date())}")
                 sb.appendLine("=".repeat(72))
                 sb.appendLine()
                 messages.forEach { msg ->
-                    val sender = if (msg.role == "user") "You" else "Assistant"
-                    sb.appendLine("[${fmt.format(Date(msg.timestamp))}] $sender:")
+                    // No per-message timestamp available on ChatMessageProto — dropped rather
+                    // than fabricated (see exportAll).
+                    sb.appendLine("${senderLabel(msg)}:")
                     sb.appendLine(msg.content)
                     sb.appendLine()
                 }
-                val safeName = conversation.title.replace(Regex("[^a-zA-Z0-9]"), "_").take(30)
+                val safeName = session.title.replace(Regex("[^a-zA-Z0-9]"), "_").take(30)
                 val fileName = "box_${safeName}_${System.currentTimeMillis()}.txt"
                 val saved = saveToDownloads(context, fileName, sb.toString())
                 withContext(Dispatchers.Main) {
@@ -155,42 +161,13 @@ class ChatHistoryViewModel @Inject constructor(
     }
 
     /**
-     * Continue a conversation by loading its messages back into the active chat.
-     * Returns the model and messages to be loaded into the chat screen.
+     * Continue a conversation by handing the caller the session id to navigate with. The caller
+     * (ChatHistoryScreen) resolves the model from [ChatSessionProto.getOriginalModel] and
+     * navigates the chat route with `sessionId=<session_id>`; the chat screen itself re-hydrates
+     * messages from the proto session store keyed by that id.
      */
-    fun continueChat(conversation: Conversation): Pair<Model?, List<ChatMessage>> {
-        val messages = runBlocking {
-            chatRepository.getMessagesSync(conversation.id)
-        }
-        val chatMessages = messages.map { message ->
-            ChatMessageText(
-                content = message.content,
-                side = if (message.role == "user") ChatSide.USER else ChatSide.AGENT,
-                latencyMs = message.latencyMs.toFloat()
-            )
-        }
-        
-        // Create a Model object for the conversation (simplified for continuation)
-        val model = if (conversation.modelName.isNotEmpty()) {
-            Model(
-                name = conversation.modelName,
-                url = "", // Not needed for continuation
-                configs = emptyList(),
-                sizeInBytes = 0,
-                downloadFileName = "",
-                showRunAgainButton = false,
-                imported = true,
-                llmSupportImage = false,
-                llmSupportAudio = false,
-                llmSupportTinyGarden = false,
-                llmSupportMobileActions = false,
-                llmMaxToken = 0,
-                accelerators = emptyList(),
-                isLlm = true,
-                runtimeType = com.google.ai.edge.gallery.data.RuntimeType.LITERT_LM
-            )
-        } else null
-        
-        return Pair(model, chatMessages)
+    fun continueChat(session: ChatSessionProto): Pair<String?, String> {
+        val modelName = session.originalModel.takeIf { it.isNotEmpty() }
+        return Pair(modelName, session.sessionId)
     }
 }

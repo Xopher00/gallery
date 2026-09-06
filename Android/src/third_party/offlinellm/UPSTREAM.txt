@@ -10,14 +10,15 @@ Vendored files (pristine, byte-identical to upstream at the pinned commit):
 - SignatureVerifier.kt
   original path: app/src/main/java/com/jegly/offlineLLM/utils/SignatureVerifier.kt
   lines: 39
-- SettingsRepository.kt
-  original path: app/src/main/java/com/jegly/offlineLLM/data/repository/SettingsRepository.kt
-  lines: 262
 
 License: Apache License, Version 2.0. Full text vendored verbatim in ./LICENSE (fetched from
 the upstream repository's LICENSE file at the same pinned commit; do not rely on GitHub's
 repository-level license API field for this repo, as it reports NOASSERTION due to an
 ASCII-art banner defeating SPDX detection — the LICENSE file itself is genuine Apache-2.0).
+
+SettingsRepository.kt was vendored here and REMOVED on 2026-09-06: the only derivative taken from it
+was SecurePrefs, which was deleted when this fork retired its Room/SQLCipher chat store, so nothing in
+the tree derives from it any more.
 
 These copies are pristine references, excluded from the build, kept only to diff against.
 Adapted derivatives live under Android/src/app/src/main/java/com/google/ai/edge/gallery/security/.

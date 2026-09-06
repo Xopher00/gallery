@@ -190,13 +190,6 @@ dependencies {
   // declared explicitly rather than relying on it arriving transitively via androidx.biometric.
   implementation(libs.androidx.fragment.ktx)
 
-  // Box: Encrypted Room database for chat persistence
-  implementation(libs.androidx.room.runtime)
-  implementation(libs.androidx.room.ktx)
-  ksp(libs.androidx.room.compiler)
-  implementation(libs.sqlcipher.android)
-  implementation(libs.sqlite)
-
   // Box: llama.cpp native inference module for GGUF models
   implementation(project(":smollm"))
 

@@ -323,7 +323,7 @@ fun GalleryNavHost(
     // Model page.
     composable(
       route =
-        "$ROUTE_MODEL/{taskId}/{modelName}?query={query}&conversationId={conversationId}&autoResume={autoResume}",
+        "$ROUTE_MODEL/{taskId}/{modelName}?query={query}&sessionId={sessionId}&autoResume={autoResume}",
       arguments =
         listOf(
           navArgument("taskId") { type = NavType.StringType },
@@ -333,7 +333,7 @@ fun GalleryNavHost(
             nullable = true
             defaultValue = null
           },
-          navArgument("conversationId") {
+          navArgument("sessionId") {
             type = NavType.StringType
             nullable = true
             defaultValue = null
@@ -349,7 +349,7 @@ fun GalleryNavHost(
       val modelName = backStackEntry.arguments?.getString("modelName") ?: ""
       val taskId = backStackEntry.arguments?.getString("taskId") ?: ""
       val queryParam = backStackEntry.arguments?.getString("query")
-      val conversationId = backStackEntry.arguments?.getString("conversationId")
+      val sessionId = backStackEntry.arguments?.getString("sessionId")
       val autoResume = backStackEntry.arguments?.getBoolean("autoResume") ?: true
       val scope = rememberCoroutineScope()
       val context = LocalContext.current
@@ -369,8 +369,8 @@ fun GalleryNavHost(
                     navController.navigateUp()
                   },
                   initialQuery = queryParam,
-                  conversationId = conversationId,
-                  autoResumeConversation = autoResume,
+                  sessionId = sessionId,
+                  autoResumeSession = autoResume,
                 )
             )
           } else {
@@ -415,7 +415,7 @@ fun GalleryNavHost(
                     bottomPadding = bottomPadding,
                     setAppBarControlsDisabled = { disableAppBarControls = it },
                     setTopBarVisible = { hideTopBar = !it },
-                    conversationId = conversationId,
+                    sessionId = sessionId,
                     setCustomNavigateUpCallback = { customNavigateUpCallback = it },
                   )
               )

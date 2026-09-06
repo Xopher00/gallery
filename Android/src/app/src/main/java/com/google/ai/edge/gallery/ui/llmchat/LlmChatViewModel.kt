@@ -36,7 +36,6 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.SystemPromptRepository
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.awaitInitialization
-import com.google.ai.edge.gallery.relay.data.local.ChatPersistence
 import com.google.ai.edge.gallery.tools.ToolAction
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageAudioClip
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageError
@@ -71,7 +70,6 @@ open class LlmChatViewModelBase(
   private val modelFeedbackRepository: Any? = null,
   override val runtimeExecutor: AgentRuntimeExecutor,
   override val llmSessionManager: LlmSessionManager? = null,
-  private val chatPersistence: ChatPersistence,
 ) : ChatViewModel(chatSessionRepository, runtimeExecutor, llmSessionManager) {
   private val _uiSystemPrompt = MutableStateFlow("")
   val uiSystemPrompt = _uiSystemPrompt.asStateFlow()
@@ -79,23 +77,6 @@ open class LlmChatViewModelBase(
   private val sessionStoppedByModel = mutableMapOf<String, Boolean>()
   // The current task ID for the session.
   private var currentTaskId: String = ""
-
-  // Box: Chat persistence — delegates to ChatPersistence (see
-  // data/local/fork/ChatPersistence.kt).
-  val currentSystemPrompt: StateFlow<String> = chatPersistence.currentSystemPrompt
-
-  fun setCurrentSystemPrompt(prompt: String) = chatPersistence.setCurrentSystemPrompt(prompt)
-
-  fun updateSystemPrompt(prompt: String) = chatPersistence.updateSystemPrompt(viewModelScope, prompt)
-
-  suspend fun getConversationById(conversationId: String) =
-    chatPersistence.getConversationById(conversationId)
-
-  fun setCurrentConversationId(conversationId: String) =
-    chatPersistence.setCurrentConversationId(conversationId)
-
-  suspend fun getLatestConversationForModel(modelName: String) =
-    chatPersistence.getLatestConversationForModel(modelName)
 
   /**
    * Sets the system prompt in the UI.
@@ -155,12 +136,6 @@ open class LlmChatViewModelBase(
     }
   }
 
-  /**
-   * Box: Load conversation history for continuing a conversation
-   */
-  suspend fun loadConversationHistory(conversationId: String) =
-    chatPersistence.loadConversationHistory(conversationId)
-
   open fun generateResponse(
     model: Model,
     input: String,
@@ -175,11 +150,6 @@ open class LlmChatViewModelBase(
     viewModelScope.launch(Dispatchers.Default) {
       setInProgress(true)
       setPreparing(true)
-
-      // Box: Persist user message to encrypted DB
-      if (input.isNotEmpty()) {
-        chatPersistence.persistUserMessage(viewModelScope, model, input)
-      }
 
       // Loading.
       addMessage(model = model, message = ChatMessageLoading(accelerator = accelerator))
@@ -344,17 +314,6 @@ open class LlmChatViewModelBase(
             setInProgress(false)
             setPreparing(false)
             onDone()
-
-            // Box: Persist assistant response to encrypted DB
-            val assistantMsg = getLastMessageWithTypeAndSide(model, ChatMessageType.TEXT, ChatSide.AGENT)
-            if (assistantMsg is ChatMessageText && assistantMsg.content.isNotEmpty()) {
-              chatPersistence.persistAssistantMessage(
-                viewModelScope,
-                model,
-                assistantMsg.content,
-                assistantMsg.latencyMs.toLong(),
-              )
-            }
           }
           is AgentEvent.Error -> {
             Log.e(TAG, "Error occurred while running inference: ${event.errorMessage}")
@@ -515,10 +474,9 @@ constructor(
   chatSessionRepository: ChatSessionRepository,
   @AiChatExecutor runtimeExecutor: AgentRuntimeExecutor,
   llmSessionManager: LlmSessionManager,
-  chatPersistence: ChatPersistence,
 ) :
 LlmChatViewModelBase(systemPromptRepository, chatSessionRepository, null, runtimeExecutor,
-llmSessionManager, chatPersistence)
+llmSessionManager)
 
 @HiltViewModel
 class LlmAskImageViewModel
@@ -528,10 +486,9 @@ constructor(
   chatSessionRepository: ChatSessionRepository,
   @AiChatExecutor runtimeExecutor: AgentRuntimeExecutor,
   llmSessionManager: LlmSessionManager,
-  chatPersistence: ChatPersistence,
 ) :
 LlmChatViewModelBase(systemPromptRepository, chatSessionRepository, null, runtimeExecutor,
-llmSessionManager, chatPersistence)
+llmSessionManager)
 
 @HiltViewModel
 class LlmAskAudioViewModel
@@ -541,7 +498,6 @@ constructor(
   chatSessionRepository: ChatSessionRepository,
   @AiChatExecutor runtimeExecutor: AgentRuntimeExecutor,
   llmSessionManager: LlmSessionManager,
-  chatPersistence: ChatPersistence,
 ) :
 LlmChatViewModelBase(systemPromptRepository, chatSessionRepository, null, runtimeExecutor,
-llmSessionManager, chatPersistence)
+llmSessionManager)

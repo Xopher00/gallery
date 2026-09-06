@@ -142,22 +142,9 @@ class MainActivity : FragmentActivity() {
           // as before. Collecting here (not just checking once) means the gate reacts live,
           // without a restart, to both re-locks on foreground and successful unlocks.
           val isUnlocked by AppLockManager.isUnlocked.collectAsState()
-          // Box: gate app content a second way behind the DB-encryption decrypt prompt. Fully
-          // qualified names here (no new imports) keep this a single-hunk touch to a
-          // Google-owned file -- see relay/ui/lock/DatabaseUnlockScreen.kt's header for why this
-          // exists and why, unlike the app lock above, it never fails open.
-          val dbEncryptionEnabled by
-            com.google.ai.edge.gallery.security.BiometricEncryptionManager.isEnabledFlow
-              .collectAsState()
-          val passphraseReady by
-            com.google.ai.edge.gallery.security.PassphraseHolder.isSet.collectAsState()
           Surface(modifier = Modifier.fillMaxSize()) {
             if (!isUnlocked) {
               AppLockScreen(activity = this@MainActivity)
-            } else if (dbEncryptionEnabled && !passphraseReady) {
-              com.google.ai.edge.gallery.relay.ui.lock.DatabaseUnlockScreen(
-                activity = this@MainActivity
-              )
             } else {
               GalleryApp(modelManagerViewModel = modelManagerViewModel)
 

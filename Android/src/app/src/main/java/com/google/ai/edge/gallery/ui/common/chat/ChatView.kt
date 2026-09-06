@@ -138,8 +138,8 @@ fun ChatView(
   emptyStateComposable: @Composable (Model) -> Unit = {},
   aboveInputComposable: @Composable (Model) -> Unit = {},
   allowEditingSystemPrompt: Boolean = false,
-  conversationId: String? = null,
-  autoResumeConversation: Boolean = true,
+  sessionId: String? = null,
+  autoResumeSession: Boolean = true,
   curSystemPrompt: String = "",
   onSystemPromptChanged: (String) -> Unit = {},
   sendMessageTrigger: SendMessageTrigger? = null,
@@ -150,44 +150,41 @@ fun ChatView(
 
   val context = LocalContext.current
 
-  // Load conversation history: use explicit conversationId if provided, else auto-resume
-  // the most recent conversation for this model (only when autoResumeConversation is true).
-  LaunchedEffect(conversationId, selectedModel.name) {
-    val llmViewModel = viewModel as? com.google.ai.edge.gallery.ui.llmchat.LlmChatViewModelBase
-      ?: return@LaunchedEffect
-    val existingMessages = llmViewModel.uiState.value.messagesByModel[selectedModel.name]
+  // Resume a chat session from the proto session store: use an explicit sessionId if
+  // provided, else auto-resume the most recent session for this task+model (only when
+  // autoResumeSession is true). Mirrors the history drawer's load logic below.
+  LaunchedEffect(sessionId, selectedModel.name) {
+    val existingMessages = viewModel.uiState.value.messagesByModel[selectedModel.name]
     if (!existingMessages.isNullOrEmpty()) return@LaunchedEffect  // already loaded for this model
 
-    val convId = if (conversationId != null) {
-      conversationId
-    } else if (autoResumeConversation) {
-      llmViewModel.getLatestConversationForModel(selectedModel.name)?.id
-    } else {
-      null
-    }
+    val taskSessions = viewModel.historySessions.value.filter { it.taskId == task.id }
+    val sessionToResume =
+      if (sessionId != null) {
+        taskSessions.firstOrNull { it.sessionId == sessionId }
+      } else if (autoResumeSession) {
+        // taskSessions is already sorted by timestampMs DESC (DefaultChatSessionRepository),
+        // so the first match for this model is the most recent one.
+        taskSessions.firstOrNull { it.originalModel == selectedModel.name }
+      } else {
+        null
+      }
 
-    if (convId != null) {
-      Log.d(TAG, "Loading conversation history for: $convId (model=${selectedModel.name})")
-      val messages = llmViewModel.loadConversationHistory(convId)
-      Log.d(TAG, "Loaded ${messages?.size ?: 0} messages")
-      messages?.forEach { message ->
-        llmViewModel.addMessage(
-          selectedModel,
-          ChatMessageText(
-            content = message.content,
-            side = if (message.role == "user") ChatSide.USER else ChatSide.AGENT,
-            latencyMs = message.latencyMs.toFloat(),
-          ),
-        )
+    if (sessionToResume != null) {
+      Log.d(
+        TAG,
+        "Resuming session: ${sessionToResume.sessionId} (model=${selectedModel.name})",
+      )
+      viewModel.setIsResettingSession(true)
+      viewModel.currentSessionId = sessionToResume.sessionId
+      val messages =
+        withContext(Dispatchers.IO) { deserializeProtoMessages(sessionToResume.messagesList) }
+      viewModel.clearAllMessages(selectedModel)
+      for (msg in messages) {
+        viewModel.addMessage(selectedModel, msg)
       }
-      llmViewModel.setCurrentConversationId(convId)
-      // Load the system prompt for this conversation so the config dialog shows it.
-      val conv = llmViewModel.getConversationById(convId)
-      if (conv?.systemPrompt?.isNotEmpty() == true) {
-        llmViewModel.setCurrentSystemPrompt(conv.systemPrompt)
-      }
+      onResetSessionClicked(selectedModel, messages, /* clearHistory= */ false)
     } else {
-      Log.d(TAG, "No existing conversation for model ${selectedModel.name}, starting fresh")
+      Log.d(TAG, "No existing session for model ${selectedModel.name}, starting fresh")
     }
   }
 
