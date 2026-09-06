@@ -18,8 +18,10 @@ package com.google.ai.edge.gallery.relay.modelmanager
 
 import android.content.Context
 import android.util.Log
+import com.google.ai.edge.gallery.BuildConfig
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.common.SystemPromptHelper
+import com.google.ai.edge.gallery.common.getJsonResponse
 import com.google.ai.edge.gallery.common.getModelStorageDir
 import com.google.ai.edge.gallery.customtasks.common.CustomTask
 import com.google.ai.edge.gallery.common.isAICoreSupported
@@ -51,6 +53,7 @@ import com.google.ai.edge.gallery.data.markInitializationStarted
 import com.google.ai.edge.gallery.data.markInitialized
 import com.google.ai.edge.gallery.data.resetInitialization
 import com.google.ai.edge.gallery.proto.ImportedModel
+import com.google.ai.edge.gallery.security.OfflineMode
 import com.google.ai.edge.litertlm.Contents
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
@@ -847,12 +850,31 @@ constructor(
 
   /**
    * The allowlist URL for a given app version. Kept as a copy of ModelManagerViewModel.kt's
-   * file-scope `getAllowlistUrl` so the duplicated allowlist block here stays complete. Not called
-   * by [fetchModelAllowlist] below: merged-base's allowlist source order reads bundled assets
-   * instead of the network, so nothing in this file currently builds this URL.
+   * file-scope `getAllowlistUrl` so the duplicated allowlist block here stays complete. Called by
+   * [fetchModelAllowlist] below to fetch Google's current allowlist over the network, matching
+   * upstream's ModelManagerViewModel.loadModelAllowlist() order.
    */
   private fun getAllowlistUrl(version: String): String {
     return "$ALLOWLIST_BASE_URL/${version}.json"
+  }
+
+  /**
+   * Writes a freshly-fetched allowlist [content] to disk as [MODEL_ALLOWLIST_FILENAME], so a
+   * later launch with no connectivity can fall back to the last-known-good network copy instead of
+   * the (potentially stale) bundled asset. Copy of ModelManagerViewModel.kt's private
+   * `saveModelAllowlistToDisk`, per the duplication note at the top of this file. A failed write is
+   * logged and swallowed -- it must never prevent the allowlist that was just fetched from being
+   * used this launch.
+   */
+  private fun saveModelAllowlistToDisk(content: String) {
+    try {
+      Log.d(TAG, "Saving model allowlist to disk...")
+      val file = File(modelsDir, MODEL_ALLOWLIST_FILENAME)
+      file.writeText(content)
+      Log.d(TAG, "Done: saving model allowlist to disk.")
+    } catch (e: Exception) {
+      Log.e(TAG, "failed to write model allowlist to disk", e)
+    }
   }
 
   private fun readModelAllowlistFromDisk(
@@ -895,11 +917,24 @@ constructor(
 
   /**
    * Fetches/reads the model allowlist (from the test file on disk, a local test constant, the
-   * bundled assets copy, then the last-saved-to-disk copy, in that order) and returns it parsed, or
-   * null if every source failed. Does no task/model-list mutation of its own -- that is
-   * [applyModelAllowlist] below, called separately once the result here is non-null. Does no
-   * network I/O: bundled assets are authoritative so app-version-controlled URLs take effect
-   * immediately, matching merged-base's ModelManagerViewModel.loadModelAllowlist().
+   * network, the last-saved-to-disk copy, then the bundled assets copy, in that order) and returns
+   * it parsed, or null if every source failed. Does no task/model-list mutation of its own -- that
+   * is [applyModelAllowlist] below, called separately once the result here is non-null.
+   *
+   * Matches upstream's ModelManagerViewModel.loadModelAllowlist() order (test file, test constant,
+   * network, disk cache) so the app gets Google's *current* allowlist instead of a copy frozen at
+   * whatever version was bundled into this APK, with disk cache and then bundled assets as
+   * fallbacks for a launch with no connectivity (the assets copy guarantees a first-ever launch,
+   * with no cache yet, still has a list). The network leg is skipped entirely -- falling straight
+   * through to disk cache / assets -- when [OfflineMode.isEnabled] is true, so Box's offline-only
+   * setting still works; this checks the flag directly rather than calling
+   * [OfflineMode.assertOnlineOrThrow], since offline mode here must mean "use local sources
+   * quietly," not "throw and fail the whole allowlist load."
+   *
+   * Callers must already be off the main thread: this does blocking network I/O via
+   * [getJsonResponse]. Verified caller: [runLoadModelAllowlist] invokes this synchronously inside
+   * a `withContext(Dispatchers.IO)` block (see [loadModelAllowlist]), so no additional dispatcher
+   * switch is added here.
    */
   private fun fetchModelAllowlist(context: Context, modelsDir: File): ModelAllowlist? {
     // Load model allowlist json.
@@ -920,14 +955,33 @@ constructor(
     }
 
     if (modelAllowlist == null) {
-      // Always use bundled assets first so app-version-controlled URLs take effect immediately.
-      Log.d(TAG, "Loading model allowlist from assets")
-      modelAllowlist = readModelAllowlistFromAssets(context)
+      if (OfflineMode.isEnabled.value) {
+        Log.d(TAG, "Offline mode enabled -- skipping network allowlist fetch")
+      } else {
+        val version = BuildConfig.VERSION_NAME.replace(".", "_")
+        val url = getAllowlistUrl(version)
+        Log.d(TAG, "Loading model allowlist from network. Url: $url")
+        val data = getJsonResponse<ModelAllowlist>(url = url)
+        modelAllowlist = data?.jsonObj
+
+        if (modelAllowlist == null) {
+          Log.w(TAG, "Failed to load model allowlist from network")
+        } else {
+          Log.d(TAG, "Done: loading model allowlist from network")
+          saveModelAllowlistToDisk(content = data?.textContent ?: "{}")
+        }
+      }
 
       if (modelAllowlist == null) {
-        // Fall back to disk cache if assets somehow fails.
-        Log.w(TAG, "Failed to load model allowlist from assets. Trying disk cache")
+        Log.d(TAG, "Trying model allowlist disk cache")
         modelAllowlist = readModelAllowlistFromDisk(modelsDir)
+
+        if (modelAllowlist == null) {
+          // Last resort: bundled assets, so a first launch with no connectivity (and thus no disk
+          // cache yet) still has a list.
+          Log.w(TAG, "Failed to load model allowlist from disk cache. Trying bundled assets")
+          modelAllowlist = readModelAllowlistFromAssets(context)
+        }
       }
     }
 

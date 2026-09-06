@@ -195,7 +195,6 @@ constructor(
   private val downloadRepository: DownloadRepository,
   val dataStoreRepository: DataStoreRepository,
   private val lifecycleProvider: AppLifecycleProvider,
-  private val customTasks: Set<@JvmSuppressWildcards CustomTask>,
   private val systemPromptRepository: SystemPromptRepository,
   private val modelRegistry: ModelRegistry,
   val huggingFaceApiClient: HuggingFaceApiClient,
@@ -263,8 +262,13 @@ constructor(
     return getActiveCustomTasks().find { it.task.id == id }
   }
 
+  // relay: the @IntoSet task providers are unscoped (module-scoped @InstallIn, not
+  // @Singleton), so they re-run per injection point. Injecting the Set<CustomTask> here
+  // would build a second, parallel task graph that ModelRegistry's attachment work
+  // (allowlist, imported models, preProcess) never touches. Delegate to the registry's
+  // copy so the whole app shares one set of Task objects.
   fun getActiveCustomTasks(): List<CustomTask> {
-    return customTasks.toList()
+    return modelRegistry.getActiveCustomTasks()
   }
 
   fun getSelectedModel(): Model? {
