@@ -34,9 +34,10 @@ class ChatHistoryViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
 ) : ViewModel() {
 
-    val conversations: StateFlow<List<Conversation>> = chatRepository
+    // Null means "not loaded yet"; an empty list means "loaded and genuinely empty".
+    val conversations: StateFlow<List<Conversation>?> = chatRepository
         .getAllConversations()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _selectedMessages = MutableStateFlow<List<Message>>(emptyList())
     val selectedMessages: StateFlow<List<Message>> = _selectedMessages.asStateFlow()

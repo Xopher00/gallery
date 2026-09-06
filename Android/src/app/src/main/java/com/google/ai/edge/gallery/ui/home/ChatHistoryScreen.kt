@@ -76,7 +76,9 @@ fun ChatHistoryScreen(
     viewModel: ChatHistoryViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
-    val conversations by viewModel.conversations.collectAsState()
+    val conversationsOrNull by viewModel.conversations.collectAsState()
+    val isLoadingConversations = conversationsOrNull == null
+    val conversations = conversationsOrNull ?: emptyList()
     val selectedMessages by viewModel.selectedMessages.collectAsState()
     var showDeleteAllDialog by remember { mutableStateOf(false) }
     var selectedConversation by remember { mutableStateOf<Conversation?>(null) }
@@ -131,7 +133,20 @@ fun ChatHistoryScreen(
             )
         },
     ) { innerPadding ->
-        if (conversations.isEmpty()) {
+        if (isLoadingConversations) {
+            // Not loaded yet — distinct from "loaded and empty".
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "Loading conversations...",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else if (conversations.isEmpty()) {
             // Empty state
             Box(
                 modifier = Modifier

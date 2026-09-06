@@ -41,8 +41,12 @@ import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
+import io.ktor.server.plugins.BadRequestException
+import io.ktor.server.plugins.CannotTransformContentToTypeException
+import io.ktor.server.plugins.UnsupportedMediaTypeException
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.plugins.cors.routing.*
+import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -83,6 +87,16 @@ sealed class LoadResult {
 // instance-type split ImageGenerationHandler/AudioTranscriptionHandler use post-init
 // (StableDiffusion/WhisperEngine/everything else = LLM).
 private enum class EngineKind { LLM, STABLE_DIFFUSION, WHISPER }
+
+// SECURITY: strips the raw request body kotlinx.serialization appends to its own exception
+// messages (as "<reason>\nJSON input: <the body verbatim>") before an error path in start()
+// puts the message on the wire. Keeps the parse reason/offset -- useful to a developer -- and
+// drops the payload, which may contain sensitive request content.
+private fun sanitizeBadRequestMessage(cause: BadRequestException): String {
+    val raw = cause.cause?.message ?: cause.message ?: return "Malformed request body"
+    val reason = raw.substringBefore("\nJSON input:").trim()
+    return reason.ifBlank { "Malformed request body" }
+}
 
 private fun engineKindForTask(taskId: String): EngineKind = when (taskId) {
     BuiltInTaskId.IMAGE_GEN -> EngineKind.STABLE_DIFFUSION
@@ -549,6 +563,40 @@ class OpenAiServer(
                         ErrorEnvelope(ErrorBody(message = "Invalid or missing API key"))
                     )
                     finish()
+                }
+            }
+
+            // SECURITY/CONSISTENCY: maps request-body deserialization failures (malformed JSON,
+            // wrong field types, empty/untransformable body, unsupported content type), which
+            // Ktor's ContentNegotiation converts into BadRequestException /
+            // CannotTransformContentToTypeException / UnsupportedMediaTypeException, to the same
+            // ErrorEnvelope shape every other error path here uses -- 400 for the first, 415
+            // (unchanged) for the latter two. Uses StatusPages (the idiomatic Ktor mechanism for
+            // exception-to-response mapping) rather than a hand-rolled pipeline interceptor.
+            // Scoped to these three named types only -- never exception<Throwable> -- so it
+            // cannot affect the auth check above (401 via finish(), not a throw) or the
+            // busy-guard 429s (plain non-throwing call.respond() calls), neither of which throws
+            // through here. Messages are sanitised: kotlinx.serialization echoes the raw request
+            // body back after "JSON input:", and Ktor's own message for the transform failure
+            // names our internal request class -- neither may reach the client.
+            install(StatusPages) {
+                exception<BadRequestException> { call, cause ->
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ErrorEnvelope(ErrorBody(message = sanitizeBadRequestMessage(cause)))
+                    )
+                }
+                exception<CannotTransformContentToTypeException> { call, _ ->
+                    call.respond(
+                        HttpStatusCode.UnsupportedMediaType,
+                        ErrorEnvelope(ErrorBody(message = "Request body is missing or could not be parsed as JSON"))
+                    )
+                }
+                exception<UnsupportedMediaTypeException> { call, _ ->
+                    call.respond(
+                        HttpStatusCode.UnsupportedMediaType,
+                        ErrorEnvelope(ErrorBody(message = "Unsupported content type; expected application/json"))
+                    )
                 }
             }
 

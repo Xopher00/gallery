@@ -53,6 +53,7 @@ import com.google.ai.edge.gallery.data.markInitializationStarted
 import com.google.ai.edge.gallery.data.markInitialized
 import com.google.ai.edge.gallery.data.resetInitialization
 import com.google.ai.edge.gallery.proto.ImportedModel
+import com.google.ai.edge.gallery.relay.engine.InferenceEngineType
 import com.google.ai.edge.gallery.security.OfflineMode
 import com.google.ai.edge.litertlm.Contents
 import com.google.gson.Gson
@@ -822,6 +823,27 @@ constructor(
           BuiltInTaskId.LLM_PROMPT_LAB,
         )
     }
+    // Box: For imported models, downloadFileName carries the IMPORTS_DIR prefix (see
+    // ModelHelperExt.kt's Model.runtimeHelper), so strip it the same way before checking the
+    // extension.
+    val importedFileNameToCheck =
+      if (info.fileName.startsWith("$IMPORTS_DIR/")) {
+        info.fileName.substringAfter("$IMPORTS_DIR/")
+      } else {
+        info.fileName
+      }
+    // Box: A GGUF import is not a LiteRT model -- it runs through llama.cpp (see
+    // ModelHelperExt.kt's Model.runtimeHelper, which routes by file extension regardless of
+    // runtimeType). Tagging it LITERT_LM would make Model.supportModelBenchmark (data/Model.kt)
+    // true for it, which puts it on Google's benchmark screen; that screen calls the LiteRT-LM
+    // native benchmark API with the .gguf path and crashes. Tag it UNKNOWN instead so
+    // supportModelBenchmark stays false for GGUF imports.
+    val importedRuntimeType =
+      if (InferenceEngineType.fromModelPath(importedFileNameToCheck) == InferenceEngineType.LLAMA_CPP) {
+        RuntimeType.UNKNOWN
+      } else {
+        RuntimeType.LITERT_LM
+      }
     val model =
       Model(
         name = info.fileName,
@@ -841,7 +863,7 @@ constructor(
         accelerators = accelerators,
         // We assume all imported models are LLM for now.
         isLlm = true,
-        runtimeType = RuntimeType.LITERT_LM,
+        runtimeType = importedRuntimeType,
       )
     model.preProcess()
 

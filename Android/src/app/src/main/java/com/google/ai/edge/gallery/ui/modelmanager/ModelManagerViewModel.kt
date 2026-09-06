@@ -63,6 +63,7 @@ import com.google.ai.edge.gallery.firebaseAnalytics
 import com.google.ai.edge.gallery.huggingface.HuggingFaceApiClient
 // relay: this fork's own code. See relay/modelmanager/ModelRegistry.kt.
 import com.google.ai.edge.gallery.data.SD_IMPORTS_DIR
+import com.google.ai.edge.gallery.relay.engine.InferenceEngineType
 import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistry
 import com.google.ai.edge.gallery.relay.openai.OpenAiServerState
 import com.google.ai.edge.gallery.proto.AccessTokenData
@@ -1175,7 +1176,19 @@ constructor(
         accelerators = accelerators,
         // We assume all imported models are LLM for now.
         isLlm = true,
-        runtimeType = RuntimeType.LITERT_LM,
+        // Box: a GGUF import runs through llama.cpp, not LiteRT-LM (routing is by file
+        // extension, see ModelHelperExt.kt's Model.runtimeHelper); tag it UNKNOWN so
+        // Model.supportModelBenchmark stays false and it isn't offered on the LiteRT-LM-only
+        // benchmark screen (BenchmarkViewModel.kt), where it would crash.
+        runtimeType =
+          if (
+            InferenceEngineType.fromModelPath(info.fileName.removePrefix("$IMPORTS_DIR/")) ==
+              InferenceEngineType.LLAMA_CPP
+          ) {
+            RuntimeType.UNKNOWN
+          } else {
+            RuntimeType.LITERT_LM
+          },
       )
     model.preProcess()
 
