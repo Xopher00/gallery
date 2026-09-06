@@ -62,7 +62,7 @@ interface DataStoreRepository {
   fun readFirebaseAnalytics(): Boolean
 
   /**
-   * Saves the user's opt-in preference for whether [com.google.ai.edge.gallery.openai
+   * Saves the user's opt-in preference for whether [com.google.ai.edge.gallery.relay.openai
    * .OpenAiServerService] should be started automatically by
    * [com.google.ai.edge.gallery.notifications.BootReceiver] on `ACTION_BOOT_COMPLETED`.
    *

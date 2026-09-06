@@ -20,9 +20,9 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
-import com.google.ai.edge.gallery.modelmanager.ModelRegistryEntryPoint
-import com.google.ai.edge.gallery.openai.OpenAiServerService
-import com.google.ai.edge.gallery.openai.OpenAiServerState
+import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistryEntryPoint
+import com.google.ai.edge.gallery.relay.openai.OpenAiServerService
+import com.google.ai.edge.gallery.relay.openai.OpenAiServerState
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope

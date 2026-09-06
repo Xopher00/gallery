@@ -70,7 +70,6 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.fromHtml
 import androidx.compose.ui.text.style.TextAlign
@@ -81,6 +80,7 @@ import com.google.ai.edge.gallery.GalleryEvent
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.agent.PromptExpander
 import com.google.ai.edge.gallery.common.LOCAL_URL_BASE
+import com.google.ai.edge.gallery.relay.customtasks.agentchat.AgentChatEmptyState
 import com.google.ai.edge.gallery.data.AgentSkillsURLs
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Model
@@ -95,7 +95,6 @@ import com.google.ai.edge.gallery.tools.RequestPermissionToolAction
 import com.google.ai.edge.gallery.tools.SkillProgressToolAction
 import com.google.ai.edge.gallery.ui.common.BaseGalleryWebViewClient
 import com.google.ai.edge.gallery.ui.common.GalleryWebView
-import com.google.ai.edge.gallery.ui.common.buildTrackableUrlAnnotatedString
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessage
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageCollapsableProgressPanel
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageImage
@@ -504,54 +503,7 @@ fun AgentChatScreen(
         systemPromptUpdatedMessage = systemPromptUpdatedMessage,
       )
     },
-    emptyStateComposable = { _ ->
-      AnimatedVisibility(
-        !WindowInsets.isImeVisible,
-        enter = fadeIn(animationSpec = tween(200)),
-        exit = fadeOut(animationSpec = tween(200)),
-      ) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-          Column(
-            modifier =
-              Modifier.align(Alignment.Center)
-                .padding(horizontal = 48.dp)
-                .padding(bottom = 48.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-          ) {
-            Text(
-              stringResource(R.string.introducing),
-              style = MaterialTheme.typography.headlineSmall,
-            )
-            Text(
-              stringResource(R.string.agent_skills),
-              style =
-                MaterialTheme.typography.headlineLarge.copy(
-                  fontWeight = FontWeight.Medium,
-                  brush =
-                    Brush.linearGradient(colors = listOf(Color(0xFF85B1F8), Color(0xFF3174F1))),
-                ),
-              modifier = Modifier.padding(top = 12.dp, bottom = 16.dp),
-            )
-            Text(
-              buildAnnotatedString {
-                append("Use specialized, high-order reasoning by loading different skills or ")
-                append(
-                  buildTrackableUrlAnnotatedString(
-                    url = "https://github.com/google-ai-edge/gallery/tree/main/skills",
-                    linkText = "creating\u00A0your\u00A0own",
-                  )
-                )
-                append(".\n\nTry tapping a sample prompt below to see Agent Skills in action!")
-              },
-              style =
-                MaterialTheme.typography.headlineSmall.copy(fontSize = 16.sp, lineHeight = 22.sp),
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              textAlign = TextAlign.Center,
-            )
-          }
-        }
-      }
-    },
+    emptyStateComposable = { _ -> AgentChatEmptyState() },
     aboveInputComposable = { model ->
       val uiState by viewModel.uiState.collectAsState()
       val initStatus by model.initStatusFlow.collectAsState()

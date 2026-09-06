@@ -36,8 +36,7 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.SystemPromptRepository
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.awaitInitialization
-import com.google.ai.edge.gallery.data.local.ChatRepository
-import com.google.ai.edge.gallery.security.SecurityUtils
+import com.google.ai.edge.gallery.relay.data.local.ChatPersistence
 import com.google.ai.edge.gallery.tools.ToolAction
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageAudioClip
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageError
@@ -62,8 +61,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 private const val TAG = "AGLlmChatViewModel"
 
@@ -74,7 +71,7 @@ open class LlmChatViewModelBase(
   private val modelFeedbackRepository: Any? = null,
   override val runtimeExecutor: AgentRuntimeExecutor,
   override val llmSessionManager: LlmSessionManager? = null,
-  val chatRepository: ChatRepository,
+  private val chatPersistence: ChatPersistence,
 ) : ChatViewModel(chatSessionRepository, runtimeExecutor, llmSessionManager) {
   private val _uiSystemPrompt = MutableStateFlow("")
   val uiSystemPrompt = _uiSystemPrompt.asStateFlow()
@@ -83,51 +80,22 @@ open class LlmChatViewModelBase(
   // The current task ID for the session.
   private var currentTaskId: String = ""
 
-  // Box: Chat persistence state.
-  private var currentConversationId: String? = null
-  private val conversationMutex = Mutex()
+  // Box: Chat persistence — delegates to ChatPersistence (see
+  // data/local/fork/ChatPersistence.kt).
+  val currentSystemPrompt: StateFlow<String> = chatPersistence.currentSystemPrompt
 
-  private val _currentSystemPrompt = MutableStateFlow("")
-  val currentSystemPrompt: StateFlow<String> = _currentSystemPrompt.asStateFlow()
+  fun setCurrentSystemPrompt(prompt: String) = chatPersistence.setCurrentSystemPrompt(prompt)
 
-  fun setCurrentSystemPrompt(prompt: String) {
-    _currentSystemPrompt.value = prompt
-  }
-
-  fun updateSystemPrompt(prompt: String) {
-    _currentSystemPrompt.value = prompt
-    val convId = currentConversationId ?: return
-    viewModelScope.launch(Dispatchers.IO) {
-      try {
-        val conv = chatRepository.getConversationById(convId) ?: return@launch
-        chatRepository.updateConversation(conv.copy(systemPrompt = prompt))
-      } catch (e: Exception) {
-        Log.e(TAG, "Failed to persist system prompt", e)
-      }
-    }
-  }
+  fun updateSystemPrompt(prompt: String) = chatPersistence.updateSystemPrompt(viewModelScope, prompt)
 
   suspend fun getConversationById(conversationId: String) =
-    chatRepository.getConversationById(conversationId)
+    chatPersistence.getConversationById(conversationId)
 
-  /**
-   * Box: Set the current conversation ID for continuing an existing conversation
-   */
-  fun setCurrentConversationId(conversationId: String) {
-    currentConversationId = conversationId
-  }
+  fun setCurrentConversationId(conversationId: String) =
+    chatPersistence.setCurrentConversationId(conversationId)
 
-  /**
-   * Box: Look up the most recent conversation for a model (for auto-resume).
-   */
-  suspend fun getLatestConversationForModel(modelName: String): com.google.ai.edge.gallery.data.local.entities.Conversation? {
-    return try {
-      chatRepository.getLatestConversationForModel(modelName)
-    } catch (e: Exception) {
-      Log.e(TAG, "Failed to get latest conversation for model", e)
-      null
-    }
-  }
+  suspend fun getLatestConversationForModel(modelName: String) =
+    chatPersistence.getLatestConversationForModel(modelName)
 
   /**
    * Sets the system prompt in the UI.
@@ -190,107 +158,8 @@ open class LlmChatViewModelBase(
   /**
    * Box: Load conversation history for continuing a conversation
    */
-  suspend fun loadConversationHistory(conversationId: String): List<com.google.ai.edge.gallery.data.local.entities.Message>? {
-    return try {
-      chatRepository.getMessagesSync(conversationId)
-    } catch (e: Exception) {
-      Log.e(TAG, "Failed to load conversation history", e)
-      null
-    }
-  }
-
-  /**
-   * Box: Persist a user message to the encrypted database.
-   */
-  private fun persistUserMessage(model: Model, content: String) {
-    Log.d(TAG, "Attempting to persist user message for model: ${model.name}")
-    viewModelScope.launch(Dispatchers.IO) {
-      try {
-        // Use Mutex to ensure thread-safe conversation creation
-        conversationMutex.withLock {
-          // Get or create conversation ID
-          val convId = if (currentConversationId == null) {
-            Log.d(TAG, "Creating new conversation for model: ${model.name}")
-            val conv = chatRepository.createConversation(
-              title = content.take(50),
-              taskType = "llm_chat",
-              modelName = model.name,
-              systemPrompt = _currentSystemPrompt.value,
-            )
-            currentConversationId = conv.id
-            Log.d(TAG, "Created conversation with ID: ${conv.id}")
-            conv.id
-          } else {
-            currentConversationId!!
-          }
-
-          // Now save the message with the guaranteed conversation ID
-          try {
-            chatRepository.saveMessage(
-              conversationId = convId,
-              role = "user",
-              content = SecurityUtils.sanitizePrompt(content),
-            )
-            Log.d(TAG, "Successfully persisted user message to conversation: $convId")
-          } catch (fkException: android.database.sqlite.SQLiteConstraintException) {
-            Log.w(TAG, "Foreign key constraint failed, conversation might not be committed yet. Retrying...", fkException)
-            // Retry after a short delay to ensure conversation is committed
-            kotlinx.coroutines.delay(100)
-            chatRepository.saveMessage(
-              conversationId = convId,
-              role = "user",
-              content = SecurityUtils.sanitizePrompt(content),
-            )
-            Log.d(TAG, "Successfully persisted user message to conversation on retry: $convId")
-          }
-        }
-      } catch (e: Exception) {
-        Log.e(TAG, "Failed to persist user message", e)
-      }
-    }
-  }
-
-  /**
-   * Box: Persist an assistant response to the encrypted database.
-   */
-  private fun persistAssistantMessage(model: Model, content: String, latencyMs: Long = 0) {
-    Log.d(TAG, "Attempting to persist assistant message for model: ${model.name}")
-    viewModelScope.launch(Dispatchers.IO) {
-      try {
-        // Use Mutex to ensure thread-safe message saving
-        conversationMutex.withLock {
-          val convId = currentConversationId
-          if (convId == null) {
-            Log.w(TAG, "No conversation ID available for assistant message, skipping persistence")
-            return@withLock
-          }
-
-          try {
-            chatRepository.saveMessage(
-              conversationId = convId,
-              role = "assistant",
-              content = content,
-              latencyMs = latencyMs,
-            )
-            Log.d(TAG, "Successfully persisted assistant message to conversation: $convId")
-          } catch (fkException: android.database.sqlite.SQLiteConstraintException) {
-            Log.w(TAG, "Foreign key constraint failed for assistant message, conversation might not be committed yet. Retrying...", fkException)
-            // Retry after a short delay to ensure conversation is committed
-            kotlinx.coroutines.delay(100)
-            chatRepository.saveMessage(
-              conversationId = convId,
-              role = "assistant",
-              content = content,
-              latencyMs = latencyMs,
-            )
-            Log.d(TAG, "Successfully persisted assistant message to conversation on retry: $convId")
-          }
-        }
-      } catch (e: Exception) {
-        Log.e(TAG, "Failed to persist assistant message", e)
-      }
-    }
-  }
+  suspend fun loadConversationHistory(conversationId: String) =
+    chatPersistence.loadConversationHistory(conversationId)
 
   open fun generateResponse(
     model: Model,
@@ -309,7 +178,7 @@ open class LlmChatViewModelBase(
 
       // Box: Persist user message to encrypted DB
       if (input.isNotEmpty()) {
-        persistUserMessage(model, input)
+        chatPersistence.persistUserMessage(viewModelScope, model, input)
       }
 
       // Loading.
@@ -479,7 +348,12 @@ open class LlmChatViewModelBase(
             // Box: Persist assistant response to encrypted DB
             val assistantMsg = getLastMessageWithTypeAndSide(model, ChatMessageType.TEXT, ChatSide.AGENT)
             if (assistantMsg is ChatMessageText && assistantMsg.content.isNotEmpty()) {
-              persistAssistantMessage(model, assistantMsg.content, assistantMsg.latencyMs.toLong())
+              chatPersistence.persistAssistantMessage(
+                viewModelScope,
+                model,
+                assistantMsg.content,
+                assistantMsg.latencyMs.toLong(),
+              )
             }
           }
           is AgentEvent.Error -> {
@@ -641,10 +515,10 @@ constructor(
   chatSessionRepository: ChatSessionRepository,
   @AiChatExecutor runtimeExecutor: AgentRuntimeExecutor,
   llmSessionManager: LlmSessionManager,
-  chatRepository: ChatRepository,
+  chatPersistence: ChatPersistence,
 ) :
 LlmChatViewModelBase(systemPromptRepository, chatSessionRepository, null, runtimeExecutor,
-llmSessionManager, chatRepository)
+llmSessionManager, chatPersistence)
 
 @HiltViewModel
 class LlmAskImageViewModel
@@ -654,10 +528,10 @@ constructor(
   chatSessionRepository: ChatSessionRepository,
   @AiChatExecutor runtimeExecutor: AgentRuntimeExecutor,
   llmSessionManager: LlmSessionManager,
-  chatRepository: ChatRepository,
+  chatPersistence: ChatPersistence,
 ) :
 LlmChatViewModelBase(systemPromptRepository, chatSessionRepository, null, runtimeExecutor,
-llmSessionManager, chatRepository)
+llmSessionManager, chatPersistence)
 
 @HiltViewModel
 class LlmAskAudioViewModel
@@ -667,7 +541,7 @@ constructor(
   chatSessionRepository: ChatSessionRepository,
   @AiChatExecutor runtimeExecutor: AgentRuntimeExecutor,
   llmSessionManager: LlmSessionManager,
-  chatRepository: ChatRepository,
+  chatPersistence: ChatPersistence,
 ) :
 LlmChatViewModelBase(systemPromptRepository, chatSessionRepository, null, runtimeExecutor,
-llmSessionManager, chatRepository)
+llmSessionManager, chatPersistence)

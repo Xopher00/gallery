@@ -32,10 +32,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,12 +52,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.filled.ThumbDown
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.outlined.ThumbDown
+import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -88,7 +89,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -122,7 +122,7 @@ private const val TAG = "AGChatPanel"
 private const val SCROLL_ANIMATION_DURATION_MS = 300
 
 /** Composable function for the main chat panel, displaying messages and handling user input. */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatPanel(
   modelManagerViewModel: ModelManagerViewModel,
@@ -162,8 +162,6 @@ fun ChatPanel(
     remember(clipboard) {
       { text -> clipboard.setPrimaryClip(ClipData.newPlainText("message", text)) }
     }
-  val clipboardManager = LocalClipboardManager.current
-  val haptic = LocalHapticFeedback.current
   val imageCountToLastConfigChange =
     remember(messages) {
       var imageCount = 0
@@ -177,19 +175,18 @@ fun ChatPanel(
       }
       imageCount
     }
-
-  val audioClipMessageCountToLastConfigChange =
+  val audioClipMesssageCountToLastconfigChange =
     remember(messages) {
-      var audioClipCount = 0
+      var audioClipMessageCount = 0
       for (message in messages.reversed()) {
         if (message is ChatMessageConfigValuesChange) {
           break
         }
         if (message is ChatMessageAudioClip) {
-          audioClipCount += 1
+          audioClipMessageCount++
         }
       }
-      audioClipCount
+      audioClipMessageCount
     }
 
   var curMessage by remember { mutableStateOf("") } // Correct state
@@ -367,7 +364,6 @@ fun ChatPanel(
         ) {
           messages.forEachIndexed { index, message ->
             val imageHistoryCurIndex = remember { mutableIntStateOf(0) }
-            var showCopyButton by remember { mutableStateOf(false) }
             var hAlign: Alignment.Horizontal = Alignment.End
             var backgroundColor: Color = MaterialTheme.customColors.userBubbleBgColor
             var hardCornerAtLeftOrRight = false
@@ -489,15 +485,6 @@ fun ChatPanel(
                     }
                     messageBubbleModifier = messageBubbleModifier.background(backgroundColor)
                   }
-                  if (message is ChatMessageText && message.side == ChatSide.AGENT) {
-                    messageBubbleModifier = messageBubbleModifier.combinedClickable(
-                      onClick = { showCopyButton = false },
-                      onLongClick = {
-                        showCopyButton = true
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                      },
-                    )
-                  }
                   Box(modifier = messageBubbleModifier) {
                     when (message) {
                       // Text
@@ -557,16 +544,18 @@ fun ChatPanel(
                       horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                       LatencyText(message = message)
-                      if (message is ChatMessageText && message.content.isNotEmpty() && !uiState.inProgress && showCopyButton) {
-                        MessageActionButton(
-                          label = "Copy",
-                          icon = Icons.Outlined.ContentCopy,
-                          onClick = {
-                            clipboardManager.setText(AnnotatedString(message.content))
-                            showCopyButton = false
-                            scope.launch { snackbarHostState.showSnackbar("Copied") }
-                          },
-                        )
+                      if (message is ChatMessageText && !uiState.inProgress) {
+                        IconButton(
+                          onClick = { copyToClipboard(message.content) },
+                          modifier = Modifier.size(28.dp),
+                        ) {
+                          Icon(
+                            imageVector = Icons.Rounded.ContentCopy,
+                            contentDescription = stringResource(R.string.copy),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(18.dp),
+                          )
+                        }
                       }
                     }
                   } else if (message.side == ChatSide.USER) {
@@ -678,7 +667,7 @@ fun ChatPanel(
         isResettingSession = uiState.isResettingSession,
         modelPreparing = uiState.preparing,
         imageCount = imageCountToLastConfigChange,
-        audioClipMessageCount = audioClipMessageCountToLastConfigChange,
+        audioClipMessageCount = audioClipMesssageCountToLastconfigChange,
         skillCount = skillCount,
         mcpCount = mcpCount,
         modelInitializing = modelInitStatus is Model.InitializationStatus.Initializing,

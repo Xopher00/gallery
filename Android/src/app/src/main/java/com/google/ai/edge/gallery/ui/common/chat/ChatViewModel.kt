@@ -98,7 +98,7 @@ abstract class ChatViewModel(
     val newMessagesByModel = _uiState.value.messagesByModel.toMutableMap()
     val newMessages = newMessagesByModel[model.name]?.toMutableList() ?: mutableListOf()
     newMessagesByModel[model.name] = newMessages
-    // Remove prompt template message if it is to current last message.
+    // Remove prompt template message if it is the current last message.
     if (newMessages.size > 0 && newMessages.last().type == ChatMessageType.PROMPT_TEMPLATES) {
       newMessages.removeAt(newMessages.size - 1)
     }

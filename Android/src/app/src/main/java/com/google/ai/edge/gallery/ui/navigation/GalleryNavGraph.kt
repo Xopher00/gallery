@@ -89,6 +89,9 @@ import com.google.ai.edge.gallery.ui.modelmanager.GlobalModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.notifications.NotificationsScreen
+import com.google.ai.edge.gallery.relay.ui.navigation.ROUTE_CHAT_HISTORY
+import com.google.ai.edge.gallery.relay.ui.navigation.ROUTE_SERVER
+import com.google.ai.edge.gallery.relay.ui.navigation.relayRoutes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -100,7 +103,6 @@ private const val ROUTE_MODEL = "route_model"
 private const val ROUTE_BENCHMARK = "benchmark"
 private const val ROUTE_MODEL_MANAGER = "model_manager"
 private const val ROUTE_NOTIFICATIONS = "notifications"
-private const val ROUTE_CHAT_HISTORY = "chat_history"
 private const val ENTER_ANIMATION_DURATION_MS = 500
 private val ENTER_ANIMATION_EASING = EaseOutExpo
 private const val ENTER_ANIMATION_DELAY_MS = 100
@@ -191,7 +193,11 @@ fun GalleryNavHost(
     enterTransition = { EnterTransition.None },
     exitTransition = { ExitTransition.None },
   ) {
-    forkExtraRoutes(navController = navController)
+    relayRoutes(
+      navController = navController,
+      modelManagerViewModel = modelManagerViewModel,
+      disableHomeScreenAnimation = { enableHomeScreenAnimation = false },
+    )
 
     // Home screen.
     composable(route = ROUTE_HOMESCREEN) {
@@ -464,22 +470,6 @@ fun GalleryNavHost(
           navController.navigate("$ROUTE_BENCHMARK/${model.name}")
         },
         startImport = startImport,
-      )
-    }
-
-    // Box: Chat history page.
-    composable(
-      route = ROUTE_CHAT_HISTORY,
-      enterTransition = { slideUpEnter() },
-      exitTransition = { slideDownExit() },
-    ) {
-      com.google.ai.edge.gallery.ui.home.ChatHistoryScreen(
-        navigateUp = {
-          enableHomeScreenAnimation = false
-          navController.navigateUp()
-        },
-        navController = navController,
-        modelManagerViewModel = modelManagerViewModel,
       )
     }
 

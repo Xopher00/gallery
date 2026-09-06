@@ -29,9 +29,6 @@ class StableDiffusion {
     var isGenerating = false
         private set
 
-    @Volatile
-    private var cancelRequested = false
-
     data class GenerationParams(
         val prompt: String,
         val negativePrompt: String = "ugly, deformed, blurry, low quality",
@@ -71,7 +68,6 @@ class StableDiffusion {
 
         stateLock.withLock {
             isGenerating = true
-            cancelRequested = false
         }
 
         // Progress polling: read atomic counters updated by the C++ progress callback
@@ -111,14 +107,7 @@ class StableDiffusion {
                     bitmap = bitmap,
                 ))
             } else {
-                // generateImageNative returns null both on cancellation and on genuine failure;
-                // the native side already logs which one it was ("generation cancelled" vs
-                // "generate_image returned null"), so mirror that distinction here.
-                if (cancelRequested) {
-                    Log.i(TAG, "Generation cancelled")
-                } else {
-                    Log.e(TAG, "Generation returned null — model may have failed to load properly")
-                }
+                Log.e(TAG, "Generation returned null — model may have failed to load properly")
             }
         } catch (e: Exception) {
             pollJob.cancel()
@@ -126,13 +115,6 @@ class StableDiffusion {
         } finally {
             stateLock.withLock { isGenerating = false }
         }
-    }
-
-    /** Requests cancellation of any in-flight [generateImage] call. Native side aborts between
-     * ggml graph nodes (not mid-op), so the current node still runs to completion. */
-    fun cancelGeneration() {
-        cancelRequested = true
-        cancelGenerationNative()
     }
 
     /**
@@ -177,6 +159,5 @@ class StableDiffusion {
     ): ByteArray?
     private external fun getProgressStep(): Int
     private external fun getProgressTotal(): Int
-    private external fun cancelGenerationNative()
     private external fun freeContextNative(ctxHandle: Long)
 }

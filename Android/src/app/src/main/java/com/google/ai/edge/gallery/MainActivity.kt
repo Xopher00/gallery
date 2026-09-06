@@ -50,7 +50,7 @@ import androidx.core.net.toUri
 import androidx.core.os.bundleOf
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
-import com.google.ai.edge.gallery.openai.OpenAiServerState
+import com.google.ai.edge.gallery.relay.openai.OpenAiServerState
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.theme.GalleryTheme
 import com.google.ai.edge.litertlm.ExperimentalApi
@@ -77,7 +77,7 @@ class MainActivity : ComponentActivity() {
     // cannot start it directly. Starting it from inside the app process is always allowed, so
     // launching MainActivity with `--ez start_api_server true` boots the server with no UI taps.
     if (intent?.getBooleanExtra("start_api_server", false) == true) {
-      com.google.ai.edge.gallery.openai.OpenAiServerService.startService(applicationContext)
+      com.google.ai.edge.gallery.relay.openai.OpenAiServerService.startService(applicationContext)
     }
 
     // Scriptable headless load: `--es load_model <id> [--es accelerator <cpu|gpu|npu>]`

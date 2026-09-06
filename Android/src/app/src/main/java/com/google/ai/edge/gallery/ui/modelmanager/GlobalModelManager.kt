@@ -93,6 +93,7 @@ import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.supportModelBenchmark
+import com.google.ai.edge.gallery.relay.Flags
 import com.google.ai.edge.gallery.huggingface.extractHfUrlInfo
 import com.google.ai.edge.gallery.proto.HfModelItemProto
 import com.google.ai.edge.gallery.proto.ImportedModel
@@ -303,15 +304,14 @@ fun GlobalModelManager(
             enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }) + expandVertically(),
             exit = fadeOut() + shrinkVertically(),
           ) {
-            // Gemma 4 banner removed for Box app
-            /*
-            PromoBannerGm4(
-              onDismiss = {
-                showPromo = false
-                viewModel.dataStoreRepository.addViewedPromoId(promoId = promoId)
-              }
-            )
-            */
+            if (Flags.SHOW_GEMMA4_PROMO_BANNER) {
+              PromoBannerGm4(
+                onDismiss = {
+                  showPromo = false
+                  viewModel.dataStoreRepository.addViewedPromoId(promoId = promoId)
+                }
+              )
+            }
           }
         }
 

@@ -33,11 +33,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -61,11 +59,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.rounded.Error
-import androidx.compose.material.icons.rounded.Forum
-import androidx.compose.material.icons.rounded.AddComment
-import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Flag
-import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
@@ -80,7 +74,6 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -130,6 +123,8 @@ import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Category
 import com.google.ai.edge.gallery.data.CategoryInfo
 import com.google.ai.edge.gallery.data.Task
+import com.google.ai.edge.gallery.relay.ui.home.HomeApiServerDrawerItem
+import com.google.ai.edge.gallery.relay.ui.home.HomeQuickActionsRow
 import com.google.ai.edge.gallery.ui.common.RevealingText
 import com.google.ai.edge.gallery.ui.common.TaskIcon
 import com.google.ai.edge.gallery.ui.common.buildTrackableUrlAnnotatedString
@@ -337,29 +332,11 @@ fun HomeScreen(
                 )
               }
               Spacer(modifier = Modifier.height(16.dp))
-              Row(modifier = Modifier.fillMaxWidth()) {
-                SquareDrawerItem(
-                  label = "API Server",
-                  description = "Local OpenAI-compatible API server",
-                  icon = Icons.Rounded.Dns,
-                  onClick = {
-                    scope.launch { drawerState.close() }
-                    scope.launch {
-                      delay(50)
-                      onServerClicked()
-                    }
-                  },
-                  modifier = Modifier.weight(1f),
-                  iconBrush =
-                    linearGradient(
-                      colors =
-                        listOf(
-                          MaterialTheme.customColors.taskBgGradientColors[0][0],
-                          MaterialTheme.customColors.taskBgGradientColors[0][1],
-                        )
-                    ),
-                )
-              }
+              HomeApiServerDrawerItem(
+                scope = scope,
+                onServerClicked = onServerClicked,
+                closeDrawer = { scope.launch { drawerState.close() } },
+              )
             }
           }
         },
@@ -470,59 +447,11 @@ fun HomeScreen(
                 }
 
                 // Quick-action buttons row.
-                Row(
-                  modifier = Modifier
-                    .fillMaxWidth()
-                    .height(IntrinsicSize.Min)
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 16.dp),
-                  horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                  FilledTonalButton(
-                    onClick = onNewChatClicked,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                  ) {
-                    Icon(
-                      Icons.Rounded.AddComment,
-                      contentDescription = null,
-                      modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("New Chat", maxLines = 1)
-                  }
-                  FilledTonalButton(
-                    onClick = navigateToChatHistory,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                  ) {
-                    Icon(
-                      Icons.Rounded.Forum,
-                      contentDescription = null,
-                      modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("History", maxLines = 1)
-                  }
-                  FilledTonalButton(
-                    onClick = onImportModelClicked,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                  ) {
-                    Icon(
-                      Icons.Rounded.FolderOpen,
-                      contentDescription = null,
-                      modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Column {
-                      Text("Import", maxLines = 1)
-                      Text(
-                        "GGUF · LiteRT",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                      )
-                    }
-                  }
-                }
+                HomeQuickActionsRow(
+                  onNewChatClicked = onNewChatClicked,
+                  navigateToChatHistory = navigateToChatHistory,
+                  onImportModelClicked = onImportModelClicked,
+                )
 
                 // Tab header for categories.
                 //

@@ -16,10 +16,11 @@
 
 package com.google.ai.edge.gallery.runtime
 
+import com.google.ai.edge.gallery.relay.runtime.LlamaCppModelHelper
 import com.google.ai.edge.gallery.data.IMPORTS_DIR
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.RuntimeType
-import com.google.ai.edge.gallery.engine.InferenceEngineType
+import com.google.ai.edge.gallery.relay.engine.InferenceEngineType
 import com.google.ai.edge.gallery.runtime.aicore.AICoreModelHelper
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
 

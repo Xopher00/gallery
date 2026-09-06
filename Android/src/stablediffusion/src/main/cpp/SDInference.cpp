@@ -12,10 +12,6 @@
 
 static std::atomic<int> g_progress_step(0);
 static std::atomic<int> g_progress_total(0);
-static std::atomic<bool> g_cancelled(false);
-// Guards the "observed g_cancelled=true" log in progress_callback so it fires at most once per
-// generation instead of on every single progress tick. Reset at the start of each generation.
-static std::atomic<bool> g_cancel_logged(false);
 
 // Guards the whole body of generateImageNative and freeContextNative so free_sd_ctx() can never
 // run concurrently with an in-flight generate_image() call on the OpenMP threads (that race was
@@ -26,17 +22,6 @@ static std::mutex g_sd_mutex;
 static void progress_callback(int step, int steps, float /*time*/, void* /*data*/) {
     g_progress_step.store(step);
     g_progress_total.store(steps);
-    if (g_cancelled.load()) {
-        if (!g_cancel_logged.exchange(true)) {
-            LOGI("progress_callback observed g_cancelled=true (step=%d/%d)", step, steps);
-        }
-    }
-}
-
-// Polled by ggml between graph nodes (never mid-op) via sd_set_abort_callback(). Returning true
-// stops computation as soon as the current node finishes.
-static bool sd_abort_cb(void* /*data*/) {
-    return g_cancelled.load();
 }
 
 extern "C" {
@@ -44,11 +29,6 @@ extern "C" {
 JNIEXPORT jlong JNICALL
 Java_com_google_ai_edge_gallery_stablediffusion_StableDiffusion_loadModelNative(
         JNIEnv* env, jobject /*thiz*/, jstring modelPath, jint nThreads) {
-    // Loading is not itself cancellable, but a stale g_cancelled=true left over from an earlier
-    // cancelled generation must not leak into the abort callback that gets wired up below via
-    // sd_set_abort_callback() once the context exists.
-    g_cancelled.store(false);
-
     const char* path = env->GetStringUTFChars(modelPath, nullptr);
     LOGI("Loading SD model: %s (threads=%d)", path, nThreads);
 
@@ -77,7 +57,6 @@ Java_com_google_ai_edge_gallery_stablediffusion_StableDiffusion_loadModelNative(
         return 0L;
     }
 
-    sd_set_abort_callback(ctx, sd_abort_cb, nullptr);
     LOGI("SD model loaded successfully");
     return reinterpret_cast<jlong>(ctx);
 }
@@ -103,8 +82,6 @@ Java_com_google_ai_edge_gallery_stablediffusion_StableDiffusion_generateImageNat
 
     g_progress_step.store(0);
     g_progress_total.store(steps);
-    g_cancelled.store(false);
-    g_cancel_logged.store(false);
 
     sd_img_gen_params_t genParams;
     sd_img_gen_params_init(&genParams);
@@ -126,21 +103,6 @@ Java_com_google_ai_edge_gallery_stablediffusion_StableDiffusion_generateImageNat
 
     env->ReleaseStringUTFChars(prompt, promptStr);
     env->ReleaseStringUTFChars(negPrompt, negStr);
-
-    // Consume and clear the cancellation flag now that generate_image() has returned and the
-    // outcome has been observed, so it cannot leak into the next generateImageNative() call or
-    // into the abort callback ggml polls on a subsequent operation. Still holds g_sd_mutex here.
-    bool wasCancelled = g_cancelled.exchange(false);
-
-    if (wasCancelled) {
-        LOGI("generation cancelled");
-        if (result) {
-            if (result->data) free(result->data);
-            free(result);
-        }
-        LOGI("generate: released sd mutex");
-        return nullptr;
-    }
 
     if (!result) {
         LOGE("generate_image returned null");
@@ -184,13 +146,6 @@ JNIEXPORT jint JNICALL
 Java_com_google_ai_edge_gallery_stablediffusion_StableDiffusion_getProgressTotal(
         JNIEnv* /*env*/, jobject /*thiz*/) {
     return (jint)g_progress_total.load();
-}
-
-JNIEXPORT void JNICALL
-Java_com_google_ai_edge_gallery_stablediffusion_StableDiffusion_cancelGenerationNative(
-        JNIEnv* /*env*/, jobject /*thiz*/) {
-    g_cancelled.store(true);
-    LOGI("cancel: g_cancelled set true");
 }
 
 JNIEXPORT void JNICALL

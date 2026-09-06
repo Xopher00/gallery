@@ -80,6 +80,7 @@ import com.google.ai.edge.gallery.data.ModelAccessibility
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.Task
+import com.google.ai.edge.gallery.relay.Flags
 import com.google.ai.edge.gallery.huggingface.HuggingFaceApiClient
 import com.google.ai.edge.gallery.ui.common.tos.GemmaTermsOfUseDialog
 import com.google.ai.edge.gallery.ui.common.tos.TosViewModel
@@ -145,6 +146,7 @@ fun DownloadAndTryButton(
   var checkingToken by remember { mutableStateOf(false) }
   var showAgreementAckSheet by remember { mutableStateOf(false) }
   var showErrorDialog by remember { mutableStateOf(false) }
+  var showMemoryWarning by remember { mutableStateOf(false) }
   var showGemmaTermsOfUseDialog by remember { mutableStateOf(false) }
   var downloadStarted by remember { mutableStateOf(false) }
   val sheetState = rememberModalBottomSheetState()
@@ -307,7 +309,13 @@ fun DownloadAndTryButton(
     }
   }
 
-  val checkMemoryAndClickDownloadButton = { handleClickButton() }
+  val checkMemoryAndClickDownloadButton = {
+    if (Flags.MEMORY_WARNING_ENABLED && isMemoryLow(context = context, model = model)) {
+      showMemoryWarning = true
+    } else {
+      handleClickButton()
+    }
+  }
 
   if (!showDownloadProgress) {
     var buttonModifier: Modifier = modifier.height(42.dp)
@@ -530,6 +538,16 @@ fun DownloadAndTryButton(
       confirmButton = {
         TextButton(onClick = { showErrorDialog = false }) { Text(stringResource(R.string.close)) }
       },
+    )
+  }
+
+  if (showMemoryWarning) {
+    MemoryWarningAlert(
+      onProceeded = {
+        handleClickButton()
+        showMemoryWarning = false
+      },
+      onDismissed = { showMemoryWarning = false },
     )
   }
 
