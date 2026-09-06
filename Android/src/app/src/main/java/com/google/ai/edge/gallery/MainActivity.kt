@@ -24,7 +24,6 @@ import android.util.Log
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -40,6 +39,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,8 +49,13 @@ import androidx.core.animation.doOnEnd
 import androidx.core.net.toUri
 import androidx.core.os.bundleOf
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.ai.edge.gallery.relay.openai.OpenAiServerState
+import com.google.ai.edge.gallery.relay.ui.lock.AppLockScreen
+import com.google.ai.edge.gallery.security.AppLockManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.theme.GalleryTheme
 import com.google.ai.edge.litertlm.ExperimentalApi
@@ -61,7 +66,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
   private val modelManagerViewModel: ModelManagerViewModel by viewModels()
   private var splashScreenAboutToExit: Boolean = false
@@ -131,22 +136,45 @@ class MainActivity : ComponentActivity() {
 
       setContent {
         GalleryTheme {
+          // Box: gate all app content behind the biometric app lock. isUnlocked defaults to true
+          // and only flips false when the "Biometric lock" setting is on (see AppLockManager), so
+          // with the toggle off this collects a StateFlow that never changes and behaves exactly
+          // as before. Collecting here (not just checking once) means the gate reacts live,
+          // without a restart, to both re-locks on foreground and successful unlocks.
+          val isUnlocked by AppLockManager.isUnlocked.collectAsState()
+          // Box: gate app content a second way behind the DB-encryption decrypt prompt. Fully
+          // qualified names here (no new imports) keep this a single-hunk touch to a
+          // Google-owned file -- see relay/ui/lock/DatabaseUnlockScreen.kt's header for why this
+          // exists and why, unlike the app lock above, it never fails open.
+          val dbEncryptionEnabled by
+            com.google.ai.edge.gallery.security.BiometricEncryptionManager.isEnabledFlow
+              .collectAsState()
+          val passphraseReady by
+            com.google.ai.edge.gallery.security.PassphraseHolder.isSet.collectAsState()
           Surface(modifier = Modifier.fillMaxSize()) {
-            GalleryApp(modelManagerViewModel = modelManagerViewModel)
-
-            // Fade out a "mask" that has the same color as the background of the splash screen
-            // to reveal the actual app content.
-            var startMaskFadeout by remember { mutableStateOf(false) }
-            LaunchedEffect(Unit) { startMaskFadeout = true }
-            AnimatedVisibility(
-              !startMaskFadeout,
-              enter = fadeIn(animationSpec = snap(0)),
-              exit =
-                fadeOut(animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)),
-            ) {
-              Box(
-                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+            if (!isUnlocked) {
+              AppLockScreen(activity = this@MainActivity)
+            } else if (dbEncryptionEnabled && !passphraseReady) {
+              com.google.ai.edge.gallery.relay.ui.lock.DatabaseUnlockScreen(
+                activity = this@MainActivity
               )
+            } else {
+              GalleryApp(modelManagerViewModel = modelManagerViewModel)
+
+              // Fade out a "mask" that has the same color as the background of the splash screen
+              // to reveal the actual app content.
+              var startMaskFadeout by remember { mutableStateOf(false) }
+              LaunchedEffect(Unit) { startMaskFadeout = true }
+              AnimatedVisibility(
+                !startMaskFadeout,
+                enter = fadeIn(animationSpec = snap(0)),
+                exit =
+                  fadeOut(animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)),
+              ) {
+                Box(
+                  modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+                )
+              }
             }
           }
         }
@@ -214,6 +242,24 @@ class MainActivity : ComponentActivity() {
     }
     // Keep the screen on while the app is running for better demo experience.
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+    // Box: apply/clear FLAG_SECURE live as the "allow screenshots" setting changes, without
+    // requiring an app restart. repeatOnLifecycle(STARTED) re-subscribes on resume and cancels
+    // on pause/stop, so this stays correct across backgrounding too.
+    lifecycleScope.launch {
+      repeatOnLifecycle(Lifecycle.State.STARTED) {
+        AppLockManager.screenshotsEnabled.collect { screenshotsAllowed ->
+          if (screenshotsAllowed) {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+          } else {
+            window.setFlags(
+              WindowManager.LayoutParams.FLAG_SECURE,
+              WindowManager.LayoutParams.FLAG_SECURE,
+            )
+          }
+        }
+      }
+    }
   }
 
   override fun onNewIntent(intent: Intent) {

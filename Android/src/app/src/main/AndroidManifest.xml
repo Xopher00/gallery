@@ -88,9 +88,8 @@
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="uiMode"
+            android:filterTouchesWhenObscured="true"
             tools:ignore="DiscouragedApi,LockedOrientationActivity">
-            <!-- Security: FLAG_SECURE prevents screenshots/screen recording -->
-            <meta-data android:name="android.activity.windowSecure" android:value="true" />
             <!-- This is for putting the app into launcher -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

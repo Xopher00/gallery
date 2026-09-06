@@ -3,8 +3,10 @@ package com.google.ai.edge.gallery.security
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyInfo
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import android.util.Log
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -21,12 +23,20 @@ import javax.crypto.spec.GCMParameterSpec
 
 object BiometricEncryptionManager {
 
+    private const val TAG = "BoxBiometricEnc"
     private const val KEY_ALIAS = "box_db_enc_key"
     private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
     private const val PREFS_NAME = "box_db_enc"
     private const val KEY_ENABLED = "enabled"
     private const val KEY_ENC_PASSPHRASE = "enc_passphrase"
     private const val KEY_IV = "iv"
+
+    // Sentinel onError() code for promptDecrypt(), distinct from every code BiometricPrompt
+    // itself can emit (all >= 1 -- see androidx.biometric.BiometricPrompt.ERROR_*) and from the
+    // generic prepare-failure code (-1) used below. Lets a caller (the startup decrypt gate) tell
+    // "biometric enrollment changed since this key was created -- the data is gone" apart from
+    // every other prepare failure.
+    const val ERROR_KEY_PERMANENTLY_INVALIDATED = -1000
 
     private val _isEnabledFlow = MutableStateFlow(false)
     val isEnabledFlow: StateFlow<Boolean> = _isEnabledFlow.asStateFlow()
@@ -129,6 +139,13 @@ object BiometricEncryptionManager {
     ) {
         val cipher = try {
             getDecryptCipher(context)
+        } catch (e: KeyPermanentlyInvalidatedException) {
+            Log.e(TAG, "Database encryption key permanently invalidated by biometric enrollment change", e)
+            onError(
+                ERROR_KEY_PERMANENTLY_INVALIDATED,
+                "Biometric enrollment changed; the database key is permanently unusable.",
+            )
+            return
         } catch (e: Exception) {
             onError(-1, "Failed to prepare decryption: ${e.message}")
             return

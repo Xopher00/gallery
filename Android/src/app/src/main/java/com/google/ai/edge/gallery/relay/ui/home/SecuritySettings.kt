@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.google.ai.edge.gallery.security.AppLockManager
 import com.google.ai.edge.gallery.security.BiometricEncryptionManager
+import com.google.ai.edge.gallery.security.BiometricHelper
 import com.google.ai.edge.gallery.security.OfflineMode
 import com.google.ai.edge.gallery.security.PassphraseHolder
 import com.google.ai.edge.gallery.security.SecurityUtils
@@ -93,7 +94,7 @@ fun SecuritySettingsSection(context: Context) {
       style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
     )
     Text(
-      "Allow the app to appear in screenshots and screen recordings. Off by default for privacy.",
+      "Allow the app to appear in screenshots and screen recordings. Allowed by default; turn off to block them.",
       style = MaterialTheme.typography.bodySmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -180,6 +181,9 @@ private fun BiometricEncryptionSection(context: Context) {
         }
         ctx as? FragmentActivity
     }
+    val biometricStatus = remember(activity) {
+        activity?.let { BiometricHelper(it).canAuthenticate() }
+    }
     var isEnabled by remember { mutableStateOf(BiometricEncryptionManager.isEnabled(context)) }
     var hardwareLevel by remember {
         mutableStateOf(if (isEnabled) BiometricEncryptionManager.getHardwareLevel() else "")
@@ -198,6 +202,28 @@ private fun BiometricEncryptionSection(context: Context) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (!isEnabled) {
+            val unavailableReason = if (activity == null) {
+                "Couldn't check biometric availability right now."
+            } else {
+                when (biometricStatus) {
+                    BiometricHelper.BiometricStatus.AVAILABLE -> null
+                    BiometricHelper.BiometricStatus.NOT_ENROLLED ->
+                        "Set up a screen lock and fingerprint in your phone's Settings to use this."
+                    BiometricHelper.BiometricStatus.NO_HARDWARE ->
+                        "This device does not support biometric authentication."
+                    BiometricHelper.BiometricStatus.UNAVAILABLE, null ->
+                        "Biometric authentication is temporarily unavailable on this device."
+                }
+            }
+            if (unavailableReason != null) {
+                Text(
+                    unavailableReason,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         if (isEnabled && hardwareLevel.isNotEmpty()) {
             Spacer(modifier = Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -232,6 +258,7 @@ private fun BiometricEncryptionSection(context: Context) {
             )
             Switch(
                 checked = isEnabled,
+                enabled = isEnabled || biometricStatus == BiometricHelper.BiometricStatus.AVAILABLE,
                 onCheckedChange = {
                     statusText = ""
                     if (it) showEnableDialog = true else showDisableDialog = true
@@ -255,13 +282,16 @@ private fun BiometricEncryptionSection(context: Context) {
             confirmButton = {
                 TextButton(onClick = {
                     showEnableDialog = false
-                    if (activity == null) return@TextButton
+                    if (activity == null) {
+                        statusText = "Couldn't start biometric setup — try reopening Settings."
+                        return@TextButton
+                    }
                     BiometricEncryptionManager.promptEncrypt(
                         activity = activity,
                         onSuccess = { cipher ->
-                            val plain = SecurityUtils.getOrCreatePlainPassphrase(context)
+                            val plain = SecurityUtils.getOrCreatePassphrase(context)
                             BiometricEncryptionManager.storeEncryptedPassphrase(context, cipher, plain)
-                            SecurityUtils.clearPlainPassphrase(context)
+                            SecurityUtils.clearPassphrase(context)
                             PassphraseHolder.set(plain)
                             isEnabled = true
                             hardwareLevel = BiometricEncryptionManager.getHardwareLevel()
@@ -289,13 +319,16 @@ private fun BiometricEncryptionSection(context: Context) {
             confirmButton = {
                 TextButton(onClick = {
                     showDisableDialog = false
-                    if (activity == null) return@TextButton
+                    if (activity == null) {
+                        statusText = "Couldn't start biometric check — try reopening Settings."
+                        return@TextButton
+                    }
                     BiometricEncryptionManager.promptDecrypt(
                         activity = activity,
                         context = context,
                         onSuccess = { cipher ->
                             val plain = BiometricEncryptionManager.decryptPassphrase(context, cipher)
-                            SecurityUtils.storePlainPassphrase(context, plain)
+                            SecurityUtils.storePassphrase(context, plain)
                             BiometricEncryptionManager.disable(context)
                             PassphraseHolder.clear()
                             isEnabled = false

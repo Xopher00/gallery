@@ -2,10 +2,8 @@ package com.google.ai.edge.gallery.security
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleObserver
+import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.OnLifecycleEvent
 import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,7 +22,7 @@ object AppLockManager {
     private val _isUnlocked = MutableStateFlow(true)
     val isUnlocked: StateFlow<Boolean> = _isUnlocked.asStateFlow()
 
-    private val _screenshotsEnabled = MutableStateFlow(false)
+    private val _screenshotsEnabled = MutableStateFlow(true)
     val screenshotsEnabled: StateFlow<Boolean> = _screenshotsEnabled.asStateFlow()
 
     private var isBiometricLockEnabled = false
@@ -32,12 +30,11 @@ object AppLockManager {
     fun init(context: Context) {
         val prefs = getPrefs(context)
         isBiometricLockEnabled = prefs.getBoolean(KEY_BIOMETRIC_LOCK, false)
-        _screenshotsEnabled.value = prefs.getBoolean(KEY_SCREENSHOTS_ENABLED, false)
+        _screenshotsEnabled.value = prefs.getBoolean(KEY_SCREENSHOTS_ENABLED, true)
         
         // Observe app lifecycle
-        ProcessLifecycleOwner.get().lifecycle.addObserver(object : LifecycleObserver {
-            @OnLifecycleEvent(Lifecycle.Event.ON_START)
-            fun onAppForegrounded() {
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
                 if (isBiometricLockEnabled) {
                     _isUnlocked.value = false
                     SecurityAuditLog.log(context, "APP_LOCKED")

@@ -1,0 +1,23 @@
+Source repository: https://github.com/jegly/OfflineLLM
+Commit: e81091e86013c0605381d15a1ad7276a4be0b92b (full 40-char SHA)
+Commit date: 2026-08-17
+Fetched: 2026-09-06
+
+Vendored files (pristine, byte-identical to upstream at the pinned commit):
+- BiometricHelper.kt
+  original path: app/src/main/java/com/jegly/offlineLLM/utils/BiometricHelper.kt
+  lines: 61
+- SignatureVerifier.kt
+  original path: app/src/main/java/com/jegly/offlineLLM/utils/SignatureVerifier.kt
+  lines: 39
+- SettingsRepository.kt
+  original path: app/src/main/java/com/jegly/offlineLLM/data/repository/SettingsRepository.kt
+  lines: 262
+
+License: Apache License, Version 2.0. Full text vendored verbatim in ./LICENSE (fetched from
+the upstream repository's LICENSE file at the same pinned commit; do not rely on GitHub's
+repository-level license API field for this repo, as it reports NOASSERTION due to an
+ASCII-art banner defeating SPDX detection — the LICENSE file itself is genuine Apache-2.0).
+
+These copies are pristine references, excluded from the build, kept only to diff against.
+Adapted derivatives live under Android/src/app/src/main/java/com/google/ai/edge/gallery/security/.

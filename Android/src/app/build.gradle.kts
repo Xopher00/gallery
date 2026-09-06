@@ -50,6 +50,16 @@ android {
 
     buildConfigField("String", "FEEDBACK_API_KEY", "\"\"")
 
+    // Expected SHA-256 digest of the release signing certificate, checked by
+    // SignatureVerifier at startup to detect repackaging/re-signing. Empty by
+    // default: only the "release" build type below overrides this, and only
+    // when keystore.properties is present (see the signing block below). A
+    // fresh clone or CI build has no keystore.properties, falls back to the
+    // debug signing config, and must not carry this expectation -- otherwise
+    // every such build would log a mismatch that looks like a tamper alarm
+    // but is not one.
+    buildConfigField("String", "TRUSTED_SIGNING_CERT_SHA256", "\"\"")
+
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
     // arm64-v8a only. The native modules set this too, but that governs only
@@ -90,6 +100,17 @@ android {
       signingConfig =
           if (ksProps != null) signingConfigs.getByName("release")
           else signingConfigs.getByName("debug")
+      // Only set the expected cert digest when this build is actually signed
+      // with our release keystore. When keystore.properties is absent (fresh
+      // clone, CI) this build type falls back to the debug signing config
+      // above, so the digest must stay empty -- see the defaultConfig field.
+      if (ksProps != null) {
+        buildConfigField(
+            "String",
+            "TRUSTED_SIGNING_CERT_SHA256",
+            "\"1aeb98ca8785dd7b997a6a5ae887fff1feb9e75c268ddcae6b9328d8016b9f87\"",
+        )
+      }
     }
   }
   compileOptions {
@@ -165,6 +186,9 @@ dependencies {
 
   // Box: Biometric authentication (StrongBox)
   implementation(libs.androidx.biometric)
+  // Box: FragmentActivity is referenced directly by MainActivity (BiometricPrompt requires it);
+  // declared explicitly rather than relying on it arriving transitively via androidx.biometric.
+  implementation(libs.androidx.fragment.ktx)
 
   // Box: Encrypted Room database for chat persistence
   implementation(libs.androidx.room.runtime)
