@@ -13,6 +13,15 @@ android {
         minSdk = 31
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
+        // Without this the NDK builds every ABI it supports (arm64-v8a,
+        // armeabi-v7a, x86, x86_64), compiling llama.cpp four times. Only
+        // arm64-v8a runs on any device this project targets, and the LiteRT/QNN
+        // accelerator libraries in app/src/main/jniLibs are arm64-v8a only --
+        // so the other three could never reach an NPU even on a device that
+        // ran them. Same block in stablediffusion/ and whisper/.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
         externalNativeBuild {
             cmake {
                 cppFlags += listOf()
@@ -22,6 +31,14 @@ android {
                 arguments += "-DLLAMA_BUILD_COMMON=ON"
                 arguments += "-DLLAMA_CURL=OFF"
                 arguments += "-DGGML_LLAMAFILE=OFF"
+                // Opt-in ccache compiler launcher for the native build. Only
+                // enabled when the "useCcache" Gradle property is set, which
+                // CI passes explicitly (-PuseCcache) -- local builds never set
+                // it and are unaffected.
+                if (project.hasProperty("useCcache")) {
+                    arguments += "-DCMAKE_C_COMPILER_LAUNCHER=ccache"
+                    arguments += "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+                }
             }
         }
     }

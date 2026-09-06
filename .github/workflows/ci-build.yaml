@@ -1,0 +1,140 @@
+# This workflow exists because Google's `.github/workflows/build_android.yaml`
+# checks out with `actions/checkout@v3` and NO submodule fetching. Our fork
+# needs three git submodules (llama.cpp, stable-diffusion.cpp, whisper.cpp)
+# for the native Gradle modules (:smollm, :stablediffusion, :whisper), so
+# Google's workflow cannot build our tree. `build_android.yaml` is kept
+# byte-identical to upstream on purpose and MUST NOT be edited or replaced by
+# this file — this is a separate, additive workflow for the fork's own CI.
+name: Build (fork)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'Android/**'
+      - '.github/workflows/ci-build.yaml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'Android/**'
+      - '.github/workflows/ci-build.yaml'
+
+jobs:
+  build_apk:
+    name: Build Android APK (with submodules)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./Android/src
+    env:
+      # Fixed, workspace-local ccache dir so the cache step below can target
+      # a stable path across runs/runners.
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      # NDK cross-compiles produce object files whose embedded compiler
+      # invocation differs run-to-run in ways that don't affect the output
+      # (timestamps, absolute include paths under a fresh checkout dir);
+      # without these, ccache's default strict mode misses on every run.
+      CCACHE_SLOPPINESS: time_macros,include_file_mtime,include_file_ctime,file_macro
+      # NDK clang invocations include a full toolchain path that already
+      # varies by runner image; hash the compiler's actual content instead of
+      # its mtime/path so a same-version NDK still hits.
+      CCACHE_COMPILERCHECK: content
+      # Cap the cache so actions/cache doesn't grow unbounded across weeks of
+      # runs; 2G comfortably covers three native modules' object files.
+      CCACHE_MAXSIZE: 2G
+    steps:
+      - name: Checkout the source code (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      # ubuntu-latest's preinstalled software list does not include ccache,
+      # so it must be installed explicitly. Installed via apt (first-party
+      # Ubuntu package) rather than a third-party Action, per this repo's
+      # supply-chain rule.
+      - name: Install ccache
+        run: sudo apt-get update && sudo apt-get install -y ccache
+
+      # The native sources are pinned git submodules (llama.cpp,
+      # stable-diffusion.cpp, whisper.cpp) checked out above, so their commit
+      # SHAs -- not any file content in this repo -- are what actually
+      # determines whether a previous ccache is still valid. Write them to a
+      # workspace file so hashFiles() (which only reads files under
+      # GITHUB_WORKSPACE) can key on them below.
+      - name: Record submodule SHAs for cache key
+        working-directory: .
+        run: git submodule status > ci-submodule-shas.txt
+
+      # Caches the Gradle wrapper, dependency, and configuration-cache
+      # artifacts between runs so native (CMake/NDK) rebuilds aren't paid
+      # for on every push.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK Platform 37
+        run: echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-37.0"
+
+      # The NDK is ~2.5 GB and takes 1-2 min to download every run. Cache it
+      # keyed on the exact version, so only the first run after a version bump
+      # pays for it.
+      - name: Cache Android NDK
+        id: ndk-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+          key: android-ndk-27.2.12479018
+
+      # Pinned to the exact ndkVersion declared identically in
+      # Android/src/{smollm,stablediffusion,whisper}/build.gradle.kts.
+      # Explicit install rather than relying on the runner's default NDK,
+      # since the native modules require this specific version.
+      - name: Install Android NDK 27.2.12479018
+        if: steps.ndk-cache.outputs.cache-hit != 'true'
+        run: echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;27.2.12479018"
+
+      # Keyed on the pinned native submodules' commit SHAs (captured above)
+      # plus this workflow file, so a submodule bump or a workflow change
+      # invalidates the cache instead of silently reusing stale objects. The
+      # restore-keys prefix lets a partial/older cache still seed the build
+      # (a warm-but-not-exact cache beats a fully cold one) when the exact key
+      # misses.
+      - name: Cache ccache directory
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ runner.os }}-${{ hashFiles('ci-submodule-shas.txt', '.github/workflows/ci-build.yaml') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
+      # arm64-v8a is enforced by abiFilters in app/, smollm/, stablediffusion/
+      # and whisper/ build.gradle.kts (commit 5ceff67), so no CLI flag is needed.
+      # An earlier version passed -Pandroid.injected.build.abi here instead;
+      # that DID restrict the build, but it also relocates the APK away from
+      # outputs/apk/release/, so the upload step then found nothing and the run
+      # failed with a green build (run 34039804822). abiFilters keeps the normal
+      # output path -- verified locally: 424 MB APK, arm64-v8a as the only lib/ dir.
+      - name: Build
+        run: ./gradlew assembleRelease --no-daemon -PuseCcache
+
+      # Prints ccache's hit/miss counters to the run log -- the only way to
+      # confirm the cache above is actually being used rather than silently
+      # missing every time.
+      - name: Show ccache stats
+        run: ccache -s
+
+      # keystore.properties is gitignored and absent in CI, so
+      # app/build.gradle.kts (lines ~59-83) falls back to the debug signing
+      # config automatically — no signing secrets are needed or added here.
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallery-fork-release-apk
+          path: Android/src/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error

@@ -11,6 +11,10 @@ android {
 
     defaultConfig {
         minSdk = 30
+        // arm64-v8a only -- see the note in smollm/build.gradle.kts.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
         externalNativeBuild {
             cmake {
                 cppFlags += listOf("-std=c++17")
@@ -33,6 +37,16 @@ android {
                     "-DGGML_LLAMAFILE=OFF",
                     "-DBUILD_SHARED_LIBS=OFF",
                 )
+                // Opt-in ccache compiler launcher for the native build. Only
+                // enabled when the "useCcache" Gradle property is set, which
+                // CI passes explicitly (-PuseCcache) -- local builds never set
+                // it and are unaffected.
+                if (project.hasProperty("useCcache")) {
+                    arguments += listOf(
+                        "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
+                        "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
+                    )
+                }
             }
         }
     }

@@ -51,6 +51,16 @@ android {
     buildConfigField("String", "FEEDBACK_API_KEY", "\"\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    // arm64-v8a only. The native modules set this too, but that governs only
+    // what they compile; prebuilt AAR dependencies (MediaPipe, LiteRT, androidx)
+    // ship every ABI and are packaged regardless. Without this the APK carries
+    // ~108 MB of armeabi-v7a/x86/x86_64 code that no target device executes --
+    // and the LiteRT/QNN accelerator libraries in jniLibs are arm64-v8a only, so
+    // those variants could not reach an NPU even on a device that ran them.
+    ndk {
+      abiFilters += listOf("arm64-v8a")
+    }
   }
 
   // Sign release builds with the project keystore when keystore.properties is present, so a build

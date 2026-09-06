@@ -1,0 +1,219 @@
+# Manually-triggered assisted merge from upstream (google-ai-edge/gallery)
+# into a sync branch, never into `main` directly.
+#
+# IMPORTANT: this workflow never pushes to `main` and never merges the PR it
+# opens. It only prepares a draft PR with the conflict list and build result
+# so a human can do the post-merge compile-and-fix pass — that pass needs
+# human judgement (resolving conflicts, reconciling API-shape changes in the
+# watchlist files, etc.) and is deliberately not automated here.
+name: Assisted upstream merge
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: 'Upstream ref to merge (as fetched under the upstream remote)'
+        required: false
+        default: 'upstream/main'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  assisted_merge:
+    name: Attempt merge and open draft PR
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./Android/src
+    steps:
+      - name: Checkout main (with submodules, for a real build attempt)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Configure git identity for the bot
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add and fetch upstream
+        working-directory: .
+        run: |
+          git remote add upstream https://github.com/google-ai-edge/gallery.git
+          git fetch upstream
+
+      - name: Create sync branch
+        id: branch
+        working-directory: .
+        run: |
+          set -euo pipefail
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          BRANCH="sync/upstream-${SHORT_SHA}"
+          git checkout -b "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Attempt merge (do not fail the job on conflicts)
+        id: merge
+        working-directory: .
+        run: |
+          set -euo pipefail
+          UPSTREAM_REF="${{ github.event.inputs.upstream_ref }}"
+          UPSTREAM_REF="${UPSTREAM_REF:-upstream/main}"
+
+          if git merge --no-edit "$UPSTREAM_REF"; then
+            echo "clean=true" >> "$GITHUB_OUTPUT"
+            echo "conflict_files=" >> "$GITHUB_OUTPUT"
+            # A clean merge can still be a no-op: if upstream_ref is already
+            # an ancestor of main (or identical to it), "git merge" reports
+            # success ("Already up to date") but HEAD gains no commits main
+            # doesn't already have. rev-list is the direct test for that --
+            # without it, the sync branch is byte-identical to main and both
+            # "git push" and "gh pr create" fail downstream (no commits
+            # between base and head).
+            NEW_COMMITS=$(git rev-list --count main..HEAD)
+            if [ "$NEW_COMMITS" -eq 0 ]; then
+              echo "has_new_commits=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            # Record conflicts, then abort so the working tree is left clean
+            # and no partial/unresolved merge is ever pushed.
+            git diff --name-only --diff-filter=U > /tmp/conflict_files.txt || true
+            git merge --abort
+            echo "clean=false" >> "$GITHUB_OUTPUT"
+            echo "has_new_commits=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save conflict list
+        if: steps.merge.outputs.clean == 'false'
+        run: cp /tmp/conflict_files.txt /tmp/conflict_files_saved.txt || touch /tmp/conflict_files_saved.txt
+
+      # arm64-v8a is enforced by abiFilters in the build files, so this needs no
+      # flag; see the note in ci-build.yaml about -Pandroid.injected.build.abi.
+      - name: Build (only if merge was clean and non-empty)
+        id: build
+        if: steps.merge.outputs.clean == 'true' && steps.merge.outputs.has_new_commits == 'true'
+        run: |
+          set -euo pipefail
+          if ./gradlew assembleRelease --no-daemon; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+        continue-on-error: true
+
+      # On a conflict, or a clean-but-empty merge (nothing new to bring in),
+      # the sync branch points at the exact same commit as main. GitHub
+      # refuses a PR with no commits between base and head, so both paths
+      # must stop here rather than push/open a PR — they report via the job
+      # summary instead (see "Report conflict to job summary" and "Report
+      # up-to-date to job summary").
+      - name: Push sync branch
+        if: steps.merge.outputs.clean == 'true' && steps.merge.outputs.has_new_commits == 'true'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          git push origin "${{ steps.branch.outputs.branch }}"
+
+      - name: Assemble PR body
+        if: steps.merge.outputs.clean == 'true' && steps.merge.outputs.has_new_commits == 'true'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          {
+            echo "## Assisted upstream merge"
+            echo
+            echo "Merged ref: \`${{ github.event.inputs.upstream_ref || 'upstream/main' }}\`"
+            echo
+            echo "### Merge result: clean"
+            echo
+            echo "### Build result (\`assembleRelease\`)"
+            if [ "${{ steps.build.outputs.passed }}" = "true" ]; then
+              echo "**PASSED**"
+            else
+              echo "**FAILED** — see the workflow run logs for the failure."
+            fi
+            echo
+            echo "---"
+            echo "This PR was opened as a **draft** by an automated workflow. It is never"
+            echo "auto-merged and \`main\` is never pushed to directly — a human must"
+            echo "resolve any build failures (including reconciling the watchlist files:"
+            echo "ModelManagerViewModel, LlmChatViewModel, LlmChatScreen, MessageInputText,"
+            echo "ChatPanel, AgentChatScreen) before merging."
+          } > /tmp/pr_body.md
+
+      - name: Open draft PR
+        if: steps.merge.outputs.clean == 'true' && steps.merge.outputs.has_new_commits == 'true'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          gh pr create \
+            --repo "${{ github.repository }}" \
+            --base main \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --draft \
+            --title "Assisted upstream merge: ${{ steps.branch.outputs.branch }}" \
+            --body-file /tmp/pr_body.md
+
+      # Clean-but-empty path: the merge succeeded ("Already up to date")
+      # but produced no commits main doesn't already have, so there is
+      # nothing to build, push, or open a PR for. This is a successful
+      # outcome (we ARE up to date with upstream), not a failure — report it
+      # and end the job green, same as the conflict path below.
+      - name: Report up-to-date to job summary
+        if: steps.merge.outputs.clean == 'true' && steps.merge.outputs.has_new_commits == 'false'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          UPSTREAM_REF="${{ github.event.inputs.upstream_ref || 'upstream/main' }}"
+          {
+            echo "## Assisted upstream merge — up to date"
+            echo
+            echo "Merged ref: \`$UPSTREAM_REF\`"
+            echo
+            echo "Already up to date with \`$UPSTREAM_REF\` — nothing to merge."
+            echo "No branch was pushed and no PR was opened (a branch identical to"
+            echo "\`main\` cannot carry a PR)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Conflict path: no branch is pushed and no PR is opened (see note
+      # above the "Push sync branch" step) — a detected conflict is a
+      # successful detection, not a workflow failure, so this reports to the
+      # job summary and the job still ends green.
+      - name: Report conflict to job summary
+        if: steps.merge.outputs.clean == 'false'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          UPSTREAM_REF="${{ github.event.inputs.upstream_ref || 'upstream/main' }}"
+          {
+            echo "## Assisted upstream merge — CONFLICTS"
+            echo
+            echo "Merged ref: \`$UPSTREAM_REF\`"
+            echo
+            echo "- Our \`main\`: \`$(git rev-parse main)\`"
+            echo "- Upstream (\`$UPSTREAM_REF\`): \`$(git rev-parse "$UPSTREAM_REF")\`"
+            echo
+            echo "Merge was attempted and **aborted** — the working tree was left clean,"
+            echo "and no branch was pushed and no PR was opened (a branch identical to"
+            echo "\`main\` cannot carry a PR)."
+            echo
+            echo "### Conflicting files"
+            echo '```'
+            cat /tmp/conflict_files_saved.txt 2>/dev/null || echo "(list unavailable)"
+            echo '```'
+            echo
+            echo "A human must resolve this conflict manually (including reconciling the"
+            echo "watchlist files: ModelManagerViewModel, LlmChatViewModel, LlmChatScreen,"
+            echo "MessageInputText, ChatPanel, AgentChatScreen) — this workflow does not"
+            echo "attempt conflict resolution."
+          } >> "$GITHUB_STEP_SUMMARY"

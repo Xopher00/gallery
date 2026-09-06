@@ -1,0 +1,183 @@
+# Daily check for how far `main` (our fork) has drifted from
+# `upstream/main` (google-ai-edge/gallery). Reports commit count, a
+# merge-tree conflict preview, and watchlist-file changes into ONE reusable
+# GitHub issue (labelled `upstream-drift`) that this workflow edits in place
+# on every run, rather than filing a new issue each time.
+name: Upstream drift check
+
+on:
+  schedule:
+    # Daily at 03:17 UTC. Off the hour deliberately: GitHub queues scheduled
+    # workflows and on-the-hour slots are the most contended, so an odd minute
+    # tends to start closer to on time.
+    #
+    # Daily rather than weekly because upstream averages ~58 commits/month --
+    # roughly a push every other day -- so a weekly cadence could let a week of
+    # divergence pile up before anyone saw it. The run costs ~15 seconds (no
+    # submodules, no build) and edits one reusable issue in place instead of
+    # opening a new one, so daily adds negligible cost and no extra noise.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  DRIFT_LABEL: upstream-drift
+
+jobs:
+  check_drift:
+    name: Check upstream drift
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main (no submodules needed for a text/log diff)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git identity for the bot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add and fetch upstream
+        run: |
+          git remote add upstream https://github.com/google-ai-edge/gallery.git
+          git fetch upstream main
+
+      - name: Compute drift facts
+        id: drift
+        run: |
+          set -euo pipefail
+
+          MERGE_BASE=$(git merge-base main upstream/main)
+          OUR_SHA=$(git rev-parse main)
+          UPSTREAM_SHA=$(git rev-parse upstream/main)
+
+          AHEAD_COUNT=$(git rev-list --count main..upstream/main)
+          UPSTREAM_DATE=$(git log -1 --format=%cI upstream/main)
+
+          # Conflict preview: merge-tree does not touch the working tree or
+          # require a real merge/checkout.
+          MERGE_TREE_OUT=$(git merge-tree --write-tree --messages main upstream/main || true)
+          CONFLICT_FILES=$(echo "$MERGE_TREE_OUT" | grep '^CONFLICT' || true)
+          CONFLICT_COUNT=$(echo "$CONFLICT_FILES" | grep -c '^CONFLICT' || true)
+
+          # Watchlist: files heavily edited on both sides. An upstream change
+          # to any of these is an early warning EVEN IF the merge-tree above
+          # shows zero conflicts, because API-shape changes often merge
+          # textually clean and then fail to compile.
+          WATCHLIST='ModelManagerViewModel LlmChatViewModel LlmChatScreen MessageInputText ChatPanel AgentChatScreen'
+          CHANGED_SINCE_BASE=$(git diff --name-only "$MERGE_BASE" upstream/main)
+
+          WATCHLIST_HITS=""
+          for f in $WATCHLIST; do
+            hits=$(echo "$CHANGED_SINCE_BASE" | grep -F "$f" || true)
+            if [ -n "$hits" ]; then
+              WATCHLIST_HITS="${WATCHLIST_HITS}${hits}
+          "
+            fi
+          done
+
+          {
+            echo "merge_base=$MERGE_BASE"
+            echo "our_sha=$OUR_SHA"
+            echo "upstream_sha=$UPSTREAM_SHA"
+            echo "ahead_count=$AHEAD_COUNT"
+            echo "upstream_date=$UPSTREAM_DATE"
+            echo "conflict_count=$CONFLICT_COUNT"
+          } >> "$GITHUB_OUTPUT"
+
+          # Multi-line values go to files; body assembly step reads them back.
+          echo "$CONFLICT_FILES" > /tmp/conflict_files.txt
+          echo "$WATCHLIST_HITS" > /tmp/watchlist_hits.txt
+
+      - name: Assemble issue body
+        id: body
+        run: |
+          set -euo pipefail
+          RUN_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          {
+            echo "## Upstream drift report"
+            echo
+            echo "- Run: $RUN_TS (workflow run ${{ github.run_id }})"
+            echo "- Our \`main\`: \`${{ steps.drift.outputs.our_sha }}\`"
+            echo "- \`upstream/main\`: \`${{ steps.drift.outputs.upstream_sha }}\` (newest commit: ${{ steps.drift.outputs.upstream_date }})"
+            echo "- Merge base: \`${{ steps.drift.outputs.merge_base }}\`"
+            echo "- Upstream is **${{ steps.drift.outputs.ahead_count }} commits** ahead of us"
+            echo
+            echo "### Merge-tree conflict preview"
+            echo "Conflict count: **${{ steps.drift.outputs.conflict_count }}**"
+            echo
+            if [ -s /tmp/conflict_files.txt ]; then
+              echo '```'
+              cat /tmp/conflict_files.txt
+              echo '```'
+            else
+              echo "_None reported by \`git merge-tree\`._"
+            fi
+            echo
+            echo "### Watchlist files changed upstream since merge base"
+            echo
+            echo "Reported regardless of the conflict count above: these files are"
+            echo "heavily edited on both sides, and API-shape changes often merge"
+            echo "textually clean and then fail to compile. A clean merge-tree is"
+            echo "not proof of a working merge."
+            echo
+            if [ -s /tmp/watchlist_hits.txt ]; then
+              echo '```'
+              cat /tmp/watchlist_hits.txt
+              echo '```'
+            else
+              echo "_No watchlist file changed upstream since the merge base._"
+            fi
+          } > /tmp/issue_body.md
+
+          cat /tmp/issue_body.md
+
+      # The label does not exist in the repo yet, and `gh issue create
+      # --label <nonexistent>` errors out — so the very first run would fail
+      # without this. `--force` makes re-runs a no-op update once it exists.
+      - name: Ensure the drift label exists
+        run: |
+          set -euo pipefail
+          gh label create "$DRIFT_LABEL" \
+            --repo "${{ github.repository }}" \
+            --description "Automated upstream drift tracker" \
+            --color 0E8A16 \
+            --force
+
+      - name: Find or create the reusable drift issue
+        id: issue
+        run: |
+          set -euo pipefail
+          EXISTING=$(gh issue list \
+            --repo "${{ github.repository }}" \
+            --label "$DRIFT_LABEL" \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')
+          echo "number=$EXISTING" >> "$GITHUB_OUTPUT"
+
+      - name: Create issue (first run only)
+        if: steps.issue.outputs.number == ''
+        run: |
+          set -euo pipefail
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "Upstream drift tracker (google-ai-edge/gallery)" \
+            --label "$DRIFT_LABEL" \
+            --body-file /tmp/issue_body.md
+
+      - name: Update existing issue in place
+        if: steps.issue.outputs.number != ''
+        run: |
+          set -euo pipefail
+          NUM="${{ steps.issue.outputs.number }}"
+          gh issue edit "$NUM" --repo "${{ github.repository }}" --body-file /tmp/issue_body.md
+          gh issue comment "$NUM" --repo "${{ github.repository }}" \
+            --body "Drift check run $(date -u +"%Y-%m-%dT%H:%M:%SZ"): ${{ steps.drift.outputs.ahead_count }} commits behind, ${{ steps.drift.outputs.conflict_count }} conflicting files. See updated issue body above."
