@@ -157,7 +157,19 @@ fun ChatView(
     val existingMessages = viewModel.uiState.value.messagesByModel[selectedModel.name]
     if (!existingMessages.isNullOrEmpty()) return@LaunchedEffect  // already loaded for this model
 
-    val taskSessions = viewModel.historySessions.value.filter { it.taskId == task.id }
+    // Fetch sessions with a suspending one-shot read instead of sampling
+    // viewModel.historySessions.value: that StateFlow's initialValue is an empty
+    // list until its underlying DataStore-backed flow has emitted for the first
+    // time (see ChatViewModel.historySessions), and this effect's keys (sessionId,
+    // selectedModel.name) don't change on that later emission -- so a bare
+    // `.value` read here races the DataStore load and can permanently miss a
+    // session that does exist. getAllChatSessions() suspends until the
+    // DataStore has produced its current value, so it cannot observe that gap,
+    // and it terminates by construction (a single fetch, not a loop) whether or
+    // not a match is found.
+    val allSessions =
+      viewModel.chatSessionRepository?.getAllChatSessions() ?: viewModel.historySessions.value
+    val taskSessions = allSessions.filter { it.taskId == task.id }
     val sessionToResume =
       if (sessionId != null) {
         taskSessions.firstOrNull { it.sessionId == sessionId }

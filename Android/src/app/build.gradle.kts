@@ -121,12 +121,14 @@ android {
     compose = true
     buildConfig = true
   }
-  // API server (ported from api-server branch): Netty on Android fails the resource
-  // merge without these pickFirsts.
+  // API server (ported from api-server branch): resource-merge pickFirsts.
+  // io.netty.versions.properties was Netty-only and is removed now that the
+  // embedded server uses the CIO engine. INDEX.LIST and *.kotlin_module are
+  // not Netty-specific (other Kotlin/JVM dependencies can emit them too) and
+  // are left in place.
   packaging {
     resources {
       pickFirsts += "META-INF/INDEX.LIST"
-      pickFirsts += "META-INF/io.netty.versions.properties"
       pickFirsts += "META-INF/*.kotlin_module"
     }
   }
@@ -214,11 +216,12 @@ dependencies {
   implementation(libs.ktor.client.android)
   implementation(libs.ktor.client.core)
   implementation(libs.ktor.server.core)
-  implementation(libs.ktor.server.netty)
+  implementation(libs.ktor.server.cio)
   implementation(libs.ktor.server.content.negotiation)
   implementation(libs.ktor.serialization.kotlinx.json)
   implementation(libs.ktor.server.cors)
   implementation(libs.ktor.server.status.pages)
+  implementation(libs.tink.android)
   implementation(libs.tasks.vision)
   implementation(libs.mlkit.text.recognition)
 }

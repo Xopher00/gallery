@@ -7,8 +7,10 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
@@ -36,6 +38,8 @@ class OpenAiServerService : Service() {
 
     private var server: OpenAiServer? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     companion object {
         val isRunning: StateFlow<Boolean> = OpenAiServerState.isRunning
@@ -59,6 +63,10 @@ class OpenAiServerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_SERVER) {
+            // onDestroy() (triggered by stopSelf()) also calls releaseLocks(); calling it here
+            // too is redundant but harmless (releaseLocks() is idempotent) and makes this exit
+            // route explicit rather than relying solely on the lifecycle callback firing later.
+            releaseLocks()
             stopSelf()
             return START_NOT_STICKY
         }
@@ -159,6 +167,7 @@ class OpenAiServerService : Service() {
                         // running.
                         OpenAiServerState.setRunning(true, local = local)
                         updateNotification(notificationText(local))
+                        acquireLocks()
                     } else {
                         Log.w(TAG, "ModelRegistry has no downloaded/imported models yet; server cannot start")
                         // The service must not claim to be running (no setRunning(true), no
@@ -174,6 +183,8 @@ class OpenAiServerService : Service() {
                         )
                         OpenAiServerState.setRunning(false)
                         OpenAiServerState.setLiveBoundHost(null)
+                        releaseLocks()
+                        stopForeground(STOP_FOREGROUND_REMOVE)
                         stopSelf()
                     }
                 } else {
@@ -198,6 +209,8 @@ class OpenAiServerService : Service() {
                 OpenAiServerState.setRunning(false)
                 OpenAiServerState.setLiveBoundHost(null)
                 updateNotification("Server not started: $message")
+                releaseLocks()
+                stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
         }
@@ -218,10 +231,48 @@ class OpenAiServerService : Service() {
         serviceScope.cancel()
         OpenAiServerState.setRunning(false)
         OpenAiServerState.setLiveBoundHost(null)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        releaseLocks()
         Log.i(TAG, "OpenAI API Server Service stopped")
         if (stoppingServer != null) {
             CoroutineScope(Dispatchers.IO).launch { stoppingServer.stop() }
         }
+    }
+
+    /**
+     * Acquires the [PowerManager.PARTIAL_WAKE_LOCK] and [WifiManager.WIFI_MODE_FULL_HIGH_PERF]
+     * locks needed to keep serving requests while the device is dozing/asleep or Wi-Fi would
+     * otherwise be allowed to drop to a low-power state. Called only after the server has
+     * actually started (see onStartCommand's success branch) so a failed start attempt never
+     * leaks a lock.
+     */
+    private fun acquireLocks() {
+        if (wakeLock == null) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "OpenAiApiServer::WakeLock"
+            ).apply { acquire() }
+        }
+        if (wifiLock == null) {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            wifiLock = wifiManager.createWifiLock(
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                "OpenAiApiServer::WifiLock"
+            ).apply { acquire() }
+        }
+    }
+
+    /**
+     * Releases both locks acquired by [acquireLocks], if held. Idempotent and null-safe: safe to
+     * call from every exit route (including ones where the locks were never acquired, e.g. a
+     * failed start) without risking a double-release exception.
+     */
+    private fun releaseLocks() {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
+        wifiLock?.let { if (it.isHeld) it.release() }
+        wifiLock = null
     }
 
     private fun notificationText(local: String): String {

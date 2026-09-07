@@ -40,7 +40,7 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
-import io.ktor.server.netty.*
+import io.ktor.server.cio.*
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.CannotTransformContentToTypeException
 import io.ktor.server.plugins.UnsupportedMediaTypeException
@@ -161,7 +161,7 @@ class OpenAiServer(
     private val context: Context,
     private val modelRegistry: ModelRegistry
 ) {
-    private var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
+    private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     private val modelMutexes = ConcurrentHashMap<String, Mutex>()
 
     // Set inside start() from the values actually used to bind/authenticate this running
@@ -521,7 +521,7 @@ class OpenAiServer(
         boundHost = host
         apiKeyFingerprint = OpenAiServerState.fingerprint(apiKey)
 
-        server = embeddedServer(Netty, port = port, host = host) {
+        server = embeddedServer(CIO, port = port, host = host) {
             install(ContentNegotiation) {
                 json(Json {
                     prettyPrint = true

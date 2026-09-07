@@ -27,11 +27,9 @@ import dagger.multibindings.IntoSet
 @Module
 @InstallIn(SingletonComponent::class)
 internal object TinyGardenTaskModule {
-  /*
   @Provides
   @IntoSet
   fun provideTask(@ApplicationContext context: Context): CustomTask {
     return TinyGardenTask(context)
   }
-  */
 }

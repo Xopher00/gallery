@@ -69,8 +69,8 @@ internal object AppModule {
   // Provides the UserDataSerializer
   @Provides
   @Singleton
-  fun provideUserDataSerializer(): Serializer<UserData> {
-    return UserDataSerializer
+  fun provideUserDataSerializer(@ApplicationContext context: Context): Serializer<UserData> {
+    return com.google.ai.edge.gallery.relay.security.EncryptedUserDataSerializer.create(context)
   }
 
   // Provides the BenchmarkResultsSerializer

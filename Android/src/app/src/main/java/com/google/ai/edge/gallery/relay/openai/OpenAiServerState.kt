@@ -6,6 +6,8 @@ package com.google.ai.edge.gallery.relay.openai
 import android.content.Context
 import android.util.Base64
 import android.util.Log
+import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
+import dagger.hilt.android.EntryPointAccessors
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.security.MessageDigest
@@ -16,7 +18,16 @@ import kotlinx.coroutines.flow.asStateFlow
 object OpenAiServerState {
     private const val TAG = "AGOpenAiServerState"
     private const val PREFS_NAME = "openai_server_prefs"
+    // Old, plaintext-SharedPreferences home of the API key -- superseded by SECRET_KEY_API_KEY
+    // below (DataStoreRepository's secrets store, UserData.secrets, encrypted at rest by the
+    // parallel Tink task on that proto). Kept only as the source for the one-time migration in
+    // apiKey(): read here once, copied over, then removed.
     private const val KEY_API_KEY = "api_key"
+    // Key name under DataStoreRepository's generic secret store (UserData.secrets). Reached via
+    // DataStoreRepositoryEntryPoint (the same EntryPointAccessors.fromApplication() pattern
+    // ModelRegistryEntryPoint/NotificationScheduleManagerEntryPoint use elsewhere in this tree)
+    // since this is a plain Kotlin `object`, not a Hilt-injected class.
+    private const val SECRET_KEY_API_KEY = "openai_server_api_key"
     private const val KEY_BIND_MODE = "bind_mode"
     private const val KEY_SELECTED_INTERFACE = "selected_interface_name"
     private const val KEY_ALLOWED_TOOLS = "agent_allowed_tools"
@@ -354,27 +365,71 @@ object OpenAiServerState {
     }
 
     /**
-     * Returns the persisted API key, generating and persisting a new 32-byte
-     * base64url key on first access.
+     * Reaches DataStoreRepository from this plain `object` via the same
+     * EntryPointAccessors.fromApplication() pattern ModelRegistryEntryPoint /
+     * NotificationScheduleManagerEntryPoint use. readSecret/saveSecret/deleteSecret on the
+     * returned repository are ordinary (non-suspend) functions that runBlocking internally --
+     * safe to call from apiKey()/regenerateApiKey()'s existing synchronous signatures, called
+     * only at server start / first use / explicit regenerate, never per-request (see
+     * OpenAiServer.start(), which resolves the key once into a local val captured by the
+     * per-request auth interceptor closure).
      */
-    fun apiKey(context: Context): String {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val existing = prefs.getString(KEY_API_KEY, null)
-        if (existing != null) return existing
+    private fun dataStoreRepository(context: Context) =
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            DataStoreRepositoryEntryPoint::class.java,
+        ).dataStoreRepository()
 
+    private fun generateKey(): String {
         val bytes = ByteArray(32)
         SecureRandom().nextBytes(bytes)
-        val key = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-        prefs.edit().putString(KEY_API_KEY, key).apply()
+        return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    }
+
+    /**
+     * Returns the persisted API key, generating and persisting a new 32-byte base64url key on
+     * first access.
+     *
+     * Storage: DataStoreRepository's secret store (UserData.secrets), keyed by
+     * [SECRET_KEY_API_KEY] -- encrypted at rest there instead of plain SharedPreferences.
+     *
+     * One-time migration: if no secret is stored yet but the old `openai_server_prefs` /
+     * "api_key" entry holds a non-blank value, that value is copied into the secret store and
+     * the old plaintext entry is removed, so an existing client's key keeps working and the
+     * plaintext copy does not linger.
+     *
+     * Uses `isNotBlank()` (not `!= null`) to decide whether to reuse a stored value: a persisted
+     * empty string is treated as absent and regenerated, closing the latent gap where `!= null`
+     * would have returned an empty key unchanged.
+     */
+    fun apiKey(context: Context): String {
+        val repo = dataStoreRepository(context)
+        val existing = repo.readSecret(SECRET_KEY_API_KEY)
+        if (existing != null && existing.isNotBlank()) return existing
+
+        // Migrate a pre-existing plaintext key from the old prefs entry, if any.
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val legacy = prefs.getString(KEY_API_KEY, null)
+        if (legacy != null && legacy.isNotBlank()) {
+            repo.saveSecret(SECRET_KEY_API_KEY, legacy)
+            prefs.edit().remove(KEY_API_KEY).apply()
+            return legacy
+        }
+
+        val key = generateKey()
+        repo.saveSecret(SECRET_KEY_API_KEY, key)
         return key
     }
 
     fun regenerateApiKey(context: Context): String {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val bytes = ByteArray(32)
-        SecureRandom().nextBytes(bytes)
-        val key = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-        prefs.edit().putString(KEY_API_KEY, key).apply()
+        val repo = dataStoreRepository(context)
+        val key = generateKey()
+        repo.saveSecret(SECRET_KEY_API_KEY, key)
+
+        // Defensive: if an unmigrated plaintext copy still exists (shouldn't after apiKey() has
+        // ever run), don't leave it behind holding a now-stale key.
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().remove(KEY_API_KEY).apply()
 
         // The live server (if any) captured the old key once at start() and won't see this
         // write. Nudge the service so it rebinds with the new key -- see

@@ -1,9 +1,12 @@
 package com.google.ai.edge.gallery.security
 
 import android.content.Context
+import android.util.Base64
 import android.util.Log
-import androidx.security.crypto.EncryptedFile
-import androidx.security.crypto.MasterKey
+import com.google.crypto.tink.Aead
+import com.google.crypto.tink.KeyTemplates
+import com.google.crypto.tink.aead.AeadConfig
+import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -14,15 +17,12 @@ import java.util.Locale
  * Logs biometric auth attempts, security violations, etc.
  * No network — everything stays on device.
  *
- * EncryptedFile (androidx.security-crypto) has no append mode: openFileOutput()
- * truncates, and it throws if the target file already exists. To keep a
- * single rolling log under that constraint, every write does a full
- * read-decrypt -> append in memory -> delete -> re-encrypt-write cycle. This
- * is O(n) per log call in the size of the existing log, which is acceptable
- * only because MAX_LOG_SIZE bounds that size to 512 KB and this is a
- * low-volume audit log (auth attempts / lock events), not a high-frequency
- * trace. A log call must never crash the app, so every path stays inside
- * try/catch, matching the previous plain-file behavior.
+ * Tink [Aead] (unlike the deprecated encrypted-file API this replaces, which had no append mode)
+ * lets each log entry be encrypted independently, so the log is genuinely append-only: every entry is
+ * `aead.encrypt(line)` -> Base64 -> one line appended to a plain `File`. There is no
+ * read-decrypt-append-rewrite cycle and therefore no O(n)-per-write cost or rotation-on-write
+ * requirement. A log call must never crash the app, so every path stays inside try/catch, matching
+ * the previous behavior.
  */
 object SecurityAuditLog {
 
@@ -31,29 +31,32 @@ object SecurityAuditLog {
     private const val LEGACY_LOG_FILE = "box_security_audit.log"
     private const val MAX_LOG_SIZE = 512 * 1024 // 512 KB max
 
+    private const val KEYSET_NAME = "relay_audit_log_keyset"
+    private const val PREF_FILE = "relay_audit_log_keyset_prefs"
+    private const val MASTER_KEY_URI = "android-keystore://relay_audit_log"
+    private val ASSOCIATED_DATA = "box_security_audit".toByteArray(Charsets.UTF_8)
+
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ", Locale.US)
 
-    private fun masterKey(context: Context) =
-        MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-
-    private fun encryptedFile(context: Context, file: File): EncryptedFile =
-        EncryptedFile.Builder(
-            context,
-            file,
-            masterKey(context),
-            EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB,
-        ).build()
+    private fun aead(context: Context): Aead {
+        AeadConfig.register()
+        val keysetHandle =
+            AndroidKeysetManager.Builder()
+                .withSharedPref(context, KEYSET_NAME, PREF_FILE)
+                .withKeyTemplate(KeyTemplates.get("AES256_GCM"))
+                .withMasterKeyUri(MASTER_KEY_URI)
+                .build()
+                .keysetHandle
+        return keysetHandle.getPrimitive(Aead::class.java)
+    }
 
     /**
      * One-time migration: a device may already have the old plaintext log on
-     * disk from before this file used EncryptedFile. That log was never
+     * disk from before this file was encrypted at all. That log was never
      * really protected (it rationalized "encrypted at rest via filesystem
      * encryption" while writing plain appendText), so rather than trust its
-     * contents by copying them into the new encrypted file, it is securely
-     * deleted. Best-effort: failures here must not block writing the new
-     * entry.
+     * contents, it is securely deleted. Best-effort: failures here must not
+     * block writing the new entry.
      */
     private fun migrateLegacyLogIfPresent(context: Context) {
         try {
@@ -67,64 +70,56 @@ object SecurityAuditLog {
     }
 
     /**
-     * Read the current decrypted log contents, or "" if there is none yet.
-     * Any failure to decrypt (corrupt file, key mismatch) is treated as an
-     * empty log rather than propagated, so a write can always proceed.
-     */
-    private fun readExisting(context: Context, logFile: File): String {
-        if (!logFile.exists()) return ""
-        return try {
-            encryptedFile(context, logFile).openFileInput().use { input ->
-                input.readBytes().toString(Charsets.UTF_8)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to decrypt existing audit log; discarding it", e)
-            ""
-        }
-    }
-
-    /**
-     * Append a security event to the encrypted audit log.
+     * Append a security event to the encrypted audit log. Genuinely append-only: the existing
+     * file is never read, decrypted, or rewritten -- only one new encrypted line is added.
      */
     fun log(context: Context, event: String) {
         try {
             migrateLegacyLogIfPresent(context)
 
             val logFile = File(context.filesDir, LOG_FILE)
-            val entry = "${dateFormat.format(Date())} | $event\n"
 
-            var existing = readExisting(context, logFile)
-
-            // Rotate if too large: drop the old contents rather than let the
-            // decrypt/append/rewrite cycle grow unbounded.
-            if (existing.toByteArray(Charsets.UTF_8).size > MAX_LOG_SIZE) {
-                existing = ""
-            }
-
-            // EncryptedFile has no append mode and refuses to write over an
-            // existing file, so the old encrypted file must be removed
-            // before the combined contents can be written back.
-            if (logFile.exists()) {
+            // Rotate if too large: drop the old log rather than grow it unbounded. There is no
+            // decrypt/append/rewrite cycle to bound the cost of, but the log is still meant to be
+            // a small rolling window, not an unbounded trace.
+            if (logFile.exists() && logFile.length() > MAX_LOG_SIZE) {
                 SecurityUtils.secureDelete(logFile)
             }
 
-            encryptedFile(context, logFile).openFileOutput().use { output ->
-                output.write((existing + entry).toByteArray(Charsets.UTF_8))
-            }
+            val entry = "${dateFormat.format(Date())} | $event"
+            val ciphertext = aead(context).encrypt(entry.toByteArray(Charsets.UTF_8), ASSOCIATED_DATA)
+            val line = Base64.encodeToString(ciphertext, Base64.NO_WRAP) + "\n"
+            logFile.appendText(line, Charsets.UTF_8)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to write audit log", e)
         }
     }
 
     /**
-     * Read the audit log contents.
+     * Read the audit log contents: each line is Base64-decoded and decrypted independently. A
+     * line that fails to decrypt (corrupt entry, key mismatch) is skipped rather than failing the
+     * whole read.
      */
     fun readLog(context: Context): String {
         return try {
             val logFile = File(context.filesDir, LOG_FILE)
             if (!logFile.exists()) return "(empty)"
-            val contents = readExisting(context, logFile)
-            if (contents.isEmpty()) "(empty)" else contents
+
+            val cipher = aead(context)
+            val lines =
+                logFile
+                    .readLines(Charsets.UTF_8)
+                    .filter { it.isNotBlank() }
+                    .mapNotNull { line ->
+                        try {
+                            val ciphertext = Base64.decode(line, Base64.NO_WRAP)
+                            String(cipher.decrypt(ciphertext, ASSOCIATED_DATA), Charsets.UTF_8)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to decrypt audit log line; skipping", e)
+                            null
+                        }
+                    }
+            if (lines.isEmpty()) "(empty)" else lines.joinToString("\n")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to read audit log", e)
             "(error reading log)"
