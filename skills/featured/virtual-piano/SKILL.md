@@ -11,7 +11,7 @@ A playable, horizontally-scrolling virtual piano keyboard that uses web audio.
 
 ## Files
 - `index.html`: The local entry point that loads the script.
-- `index.js`: Returns the webview URL pointing to the GitHub-hosted UI.
+- `index.js`: Returns the webview URL for `ui.html`, bundled with this skill.
 
 ## Prompts / Triggers
 - "Open virtual piano"

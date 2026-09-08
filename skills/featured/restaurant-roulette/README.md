@@ -1,7 +1,27 @@
-Restaurant Roulette Skill
-========
+# Restaurant Roulette
 
-This skill searches for up to 10 restaurants matching a specific cuisine and location in a spin wheel.
+Asks Gemini for up to 10 restaurants for a cuisine and location, then shows them on a
+spin wheel in a webview.
+
+## API key
+
+Required. Get a key at https://ai.google.dev/gemini-api/docs/api-key. The app passes
+it to the skill as its secret. `scripts/index.js` reads it from the `secret` argument
+into `GEMINI_API_KEY`.
+
+## What the skill does
+
+`scripts/index.js` takes `location` and `cuisine`. It sends a prompt to
+`gemini-2.5-flash` with a response schema that forces a JSON array of names. It
+shuffles the names and passes them to `assets/ui.html` as the wheel segments.
+
+The names come from the model, not from a places API. They are not checked against
+real restaurants.
+
+`SKILL.md` tells the model not to pick a winner. The user spins the wheel.
+
+If the Gemini call fails, the wheel still renders. Its segments are then `Error:`, the
+error message, `Check` and `Console`.
 
 Copyright 2026 Google LLC
 

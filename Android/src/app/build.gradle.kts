@@ -75,7 +75,7 @@ android {
 
   // Sign release builds with the project keystore when keystore.properties is present, so a build
   // installs over an existing one. Without it, fall back to the debug key (CI, fresh clones).
-  // keystore.properties is gitignored; see PATCHES.md.
+  // keystore.properties is gitignored; see DEVELOPMENT.md.
   val ksPropsFile =
       rootProject.file("keystore.properties").takeIf { it.exists() }
           ?: file("keystore.properties").takeIf { it.exists() }

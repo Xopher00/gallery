@@ -1,87 +1,119 @@
-# Google AI Edge Gallery ✨
+# Google AI Edge Gallery
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/google-ai-edge/gallery)](https://github.com/google-ai-edge/gallery/releases)
 
-**Explore, Experience, and Evaluate the Future of On-Device Generative AI with Google AI Edge.**
+An Android app that runs open-source language, image and speech models on the device,
+offline.
 
-AI Edge Gallery is the premier destination for running the world's most powerful open-source Large Language Models (LLMs) on your mobile device. Experience high-performance Generative AI directly on your hardware—fully offline, private, and lightning-fast.
+This repository is a fork of [`google-ai-edge/gallery`](https://github.com/google-ai-edge/gallery),
+merged with [`jegly/Box`](https://github.com/jegly/Box). Google's project provides the
+app, the LiteRT runtime and the model catalogue. The Box fork added image generation,
+audio transcription and GGUF inference. This fork adds an OpenAI-compatible API server,
+model discovery on HuggingFace and an app lock. The app name, application id and package
+are unchanged from upstream. Upstream changes are merged with the workflows described in
+[DEVELOPMENT.md](DEVELOPMENT.md).
 
-**Now Featuring: Gemma 4**
+## Install
 
-The latest version brings official support for the newly released Gemma 4 family. As the centerpiece of this release, Gemma 4 allows you to test the cutting edge of on-device AI. Experience advanced reasoning, logic, and creative capabilities without ever sending your data to a server.
+This fork has no releases and is not on any app store. Build it from source. See
+[DEVELOPMENT.md](DEVELOPMENT.md). The app needs Android 12 or later on an arm64 device.
 
-
-| **Install the app today from Google Play** | **Install the app today from App Store** | **Download for macOS** |
-| :--- | :--- | :--- |
-| <a href='https://play.google.com/store/apps/details?id=com.google.ai.edge.gallery'><img alt='Get it on Google Play' height="120" src='https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png'/></a> | <a href="https://apps.apple.com/us/app/google-ai-edge-gallery/id6749645337?itscg=30200&itsct=apps_box_badge&mttnsubad=6749645337" style="display: inline-block;"> <img src="https://toolbox.marketingtools.apple.com/api/v2/badges/download-on-the-app-store/black/en-us?releaseDate=1771977600" alt="Download on the App Store" style="width: 244px; height: 88px; vertical-align: middle; object-fit: contain;" /></a> | <a href="https://dl.google.com/google-ai-edge-gallery/macos/dmg/GoogleAIEdgeGallery-0.1.0.dmg"><img alt='Download for macOS' width="257" height="97" src="https://github.com/user-attachments/assets/29c70795-93b3-4e8b-8752-0cad4e413182" /></a> |
-
-For users without Google Play access, install the apk from the [**latest release**](https://github.com/google-ai-edge/gallery/releases/latest/)
-
+The Play Store and App Store carry Google's build of the upstream app. That build does
+not include the features added by the Box fork or by this fork.
 
 ## App Preview
 
-<img width="480" alt="01" src="https://github.com/user-attachments/assets/a809ad78-aef4-4169-91ee-de7213cbb3bd" />
-<img width="480" alt="02" src="https://github.com/user-attachments/assets/1effd10d-f45a-4f7b-9435-f50f1bdd36b6" />
-<img width="480" alt="03" src="https://github.com/user-attachments/assets/e5089e41-2c18-4fbe-9011-ebe9e5a02044" />
-<img width="480" alt="04" src="https://github.com/user-attachments/assets/0f39d3ed-7403-4606-a7c6-b2c7e51ba6c1" />
-<img width="480" alt="05" src="https://github.com/user-attachments/assets/8c229e96-b598-4735-9f60-e96907e1d5d5" />
-<img width="480" alt="06" src="https://github.com/user-attachments/assets/ac9fb77b-81de-4197-9ed3-f6fe58290b3e" />
-<img width="480" alt="07" src="https://github.com/user-attachments/assets/bc86ba07-2eaf-49b1-980f-8a87a85c596f" />
-<img width="480" alt="08" src="https://github.com/user-attachments/assets/1ccf3c95-a195-4a38-ad53-4b9c7b8b3c50" />
+| Home | AI Chat | Model Manager |
+|:--:|:--:|:--:|
+| <img width="240" src="images/box_screenshots/Home_Chat_Tab.png" /> | <img width="240" src="images/box_screenshots/AI_Chat.png" /> | <img width="240" src="images/box_screenshots/Model_Manager.png" /> |
 
-## ✨ Core Features
+| Image Generation | Audio Transcription | MCP Server |
+|:--:|:--:|:--:|
+| <img width="240" src="images/box_screenshots/Image_Gen.png" /> | <img width="240" src="images/box_screenshots/Whisper_Scribe.png" /> | <img width="240" src="images/box_screenshots/MCP_Add_Server.png" /> |
 
-* **Agent Skills**: Transform your LLM from a conversationalist into a proactive assistant. Use the Agent Skills tile to augment model capabilities with tools like Wikipedia for fact-grounding, interactive maps, and rich visual summary cards. You can even load modular skills from a URL or browse community contributions on GitHub Discussions.
+## Core Features
 
-* **AI Chat with Thinking Mode**: Engage in fluid, multi-turn conversations and toggle the new Thinking Mode to peek "under the hood." This feature allows you to see the model’s step-by-step reasoning process, which is perfect for understanding complex problem-solving. Note: Thinking Mode currently works with supported models, starting with the Gemma 4 family.
+* **AI Chat with Thinking Mode**: Multi-turn conversation. Thinking Mode shows the
+  model's reasoning steps on models that support it, starting with the Gemma 4 family.
 
-* **Ask Image**: Use multimodal power to identify objects, solve visual puzzles, or get detailed descriptions using your device’s camera or photo gallery.
+* **Agent Skills and MCP**: Give the model tools. Bundled skills add Wikipedia lookup,
+  maps and summary cards, and you can load a skill from a URL. MCP connects the model
+  to an external server. See [skills/README.md](skills/README.md) and
+  [mcp/README.md](mcp/README.md).
 
-* **Audio Scribe**: Transcribe and translate voice recordings into text in real-time using high-efficiency on-device language models.
+* **Ask Image**: Describe an image or answer a question about it from the camera or the
+  photo gallery, on models with image input.
 
-* **Prompt Lab**: A dedicated workspace to test different prompts and single-turn use cases with granular control over model parameters like temperature and top-k.
+* **Audio Scribe**: Transcribe and translate voice recordings with on-device models.
 
-* **Mobile Actions**: Unlock offline device controls and automated tasks powered entirely by a finetune of FunctionGemma 270m.
+* **Prompt Lab**: Test single-turn prompts with control over temperature, top-k and
+  top-p.
 
-* **Tiny Garden**: A fun, experimental mini-game that uses natural language to plant and harvest a virtual garden using a finetune of FunctionGemma 270m.
+* **Mobile Actions**: Control device functions from natural language with a finetune of
+  FunctionGemma 270m.
 
-* **Model Management & Benchmark**: Gallery is a flexible sandbox for a wide variety of open-source models. Easily download models from the list or load your own custom models. Manage your model library effortlessly and run benchmark tests to understand exactly how each model performs on your specific hardware.
+* **Tiny Garden**: A game that plants and harvests a virtual garden from natural
+  language, with a finetune of FunctionGemma 270m.
 
-* **100% On-Device Privacy**: All model inferences happen directly on your device hardware. No internet is required, ensuring total privacy for your prompts, images, and sensitive data.
+* **Model Management and Benchmark**: Download models from the catalogue or import your
+  own, and measure how each model performs on your hardware.
 
-## 🏁 Get Started in Minutes!
+* **Image Generation**: Generate images with stable-diffusion.cpp. Added by the Box fork.
 
-1. **Check OS Requirement**: Android 12 and up, and iOS 17 and up.
-2.  **Download the App:**
-    - Install the app from [Google Play](https://play.google.com/store/apps/details?id=com.google.ai.edge.gallery) or [App Store](https://apps.apple.com/us/app/google-ai-edge-gallery/id6749645337).
-    - For users without Google Play access: install the apk from the [**latest release**](https://github.com/google-ai-edge/gallery/releases/latest/)
-3.  **Install & Explore:** For detailed installation instructions (including for corporate devices) and a full user guide, head over to our [**Project Wiki**](https://github.com/google-ai-edge/gallery/wiki)!
+* **Audio Transcription**: Transcribe audio with whisper.cpp. Added by the Box fork.
 
-## 🛠️ Technology Highlights
+* **GGUF Models**: Run GGUF models with llama.cpp, beside the LiteRT models from the
+  catalogue. Added by the Box fork.
 
-*   **Google AI Edge:** Core APIs and tools for on-device ML.
-*   **LiteRT:** Lightweight runtime for optimized model execution.
-*   **Hugging Face Integration:** For model discovery and download.
+* **Chat History**: Save conversations and resume them later. Added by the Box fork.
 
-## ⌨️ Development
+* **API Server**: An OpenAI-compatible HTTP server on the device, with chat completions,
+  transcription, image generation and vision endpoints behind a bearer token. Added by
+  this fork.
 
-Check out the [development notes](DEVELOPMENT.md) for instructions about how to build the app locally.
+* **Model Discovery**: Search HuggingFace for LiteRT and GGUF models from inside the app.
+  Added by this fork.
 
-## 🤝 Feedback
+* **App Lock**: A biometric lock, encrypted storage and an offline mode. Added by this
+  fork.
 
-This is an **experimental Beta release**, and your input is crucial!
+* **On-Device Inference**: All inference runs on the device. The app uses the network
+  to download models and the model catalogue, and for any MCP server or skill you
+  configure.
 
-*   🐞 **Found a bug?** [Report it here!](https://github.com/google-ai-edge/gallery/issues/new?assignees=&labels=bug&template=bug_report.md&title=%5BBUG%5D)
-*   💡 **Have an idea?** [Suggest a feature!](https://github.com/google-ai-edge/gallery/issues/new?assignees=&labels=enhancement&template=feature_request.md&title=%5BFEATURE%5D)
+## Get Started
 
-## 📄 License
+1. Check the OS requirement: Android 12 or later, arm64.
+2. Build and install the app. See [DEVELOPMENT.md](DEVELOPMENT.md).
+3. Open the app and download a model from a task page or from the Model Manager.
 
-Licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE) file for details.
+For a user guide, see the [upstream project wiki](https://github.com/google-ai-edge/gallery/wiki).
+It documents the upstream app. The features added by the Box fork and by this fork are
+not covered there.
 
-## 🔗 Useful Links
+## Technology
 
-*   [**Project Wiki (Detailed Guides)**](https://github.com/google-ai-edge/gallery/wiki)
-*   [Hugging Face LiteRT Community](https://huggingface.co/litert-community)
-*   [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM)
-*   [Google AI Edge Documentation](https://ai.google.dev/edge)
+* **Google AI Edge** and **LiteRT**: On-device model execution for `.litertlm` models.
+* **llama.cpp**, **stable-diffusion.cpp** and **whisper.cpp**: Native modules for GGUF
+  inference, image generation and transcription.
+* **Hugging Face**: Model discovery and download.
+
+## Development
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the build, the submodules and upstream syncing.
+
+## Feedback
+
+* Found a bug? [Open an issue](../../issues/new?labels=bug).
+* Have an idea? [Open an issue](../../issues/new?labels=enhancement).
+
+## License
+
+Apache License, Version 2.0. See [LICENSE](LICENSE).
+
+## Links
+
+* [Upstream project wiki](https://github.com/google-ai-edge/gallery/wiki)
+* [Hugging Face LiteRT Community](https://huggingface.co/litert-community)
+* [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM)
+* [Google AI Edge Documentation](https://ai.google.dev/edge)

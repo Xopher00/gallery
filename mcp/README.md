@@ -2,7 +2,7 @@
 
 ## Overview
 
-Google AI Edge Gallery leverages on-device machine learning models to deliver low-latency, privacy-preserving inference. However, standalone on-device models inherently lack access to real-time data, web services, and dynamic action execution. To solve this limitation, Google AI Edge Gallery integrates the [**Model Context Protocol (MCP)**](https://modelcontextprotocol.io/docs/getting-started/intro), an open standard establishing secure, universal communication between AI models and external systems. By adopting this standardized client-server architecture, the app decouples its on-device models (the client) from external tools and data sources (the servers), creating a single unified interface for dynamic context retrieval and tool execution. 
+On-device models have no access to live data or external services. The app uses the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/docs/getting-started/intro) to connect them to external tools.
 
 * **Dynamic Tool Discovery:** The app connects to configured MCP servers, dynamically loading and parsing JSON schemas for available tools.
 * **Contextual Injection:** Discovered tool descriptions and schemas are directly injected into the on-device model's prompt context.
@@ -10,6 +10,9 @@ Google AI Edge Gallery leverages on-device machine learning models to deliver lo
 
 > [!IMPORTANT]
 > MCP integration is currently experimental.
+
+This repository is a fork of `google-ai-edge/gallery`, merged with `jegly/Box`. The MCP
+code described here comes from upstream and the fork has not changed it.
 
 ## Add a Local MCP Server
 
@@ -57,6 +60,10 @@ The command will output a unique public HTTPS URL (e.g., `https://<random-string
 2. Click **Add MCP Server** and enter your server URL. Make sure to append the `/mcp` endpoint path:
 
     <img width="320" alt="add_server_url" src="screenshots/add_server_url.png" />
+
+    The app approves only `googleapis.com` hosts without a prompt. For any other host,
+    including the tunnel URL from Step 2, the app shows a third-party disclaimer that you
+    must accept before it adds the server.
 
 3. Once connected, the app will automatically detect the tools provided by the MCP server, and you can also toggle servers and tools.
 

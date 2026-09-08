@@ -1,9 +1,18 @@
-Virtual Piano Skill
-========
+# Virtual Piano
 
-allows Agent chat to create virtual piano keyboard
+Shows a playable 88-key piano in a webview.
 
-piano sound are from https://github.com/fuhton/piano-mp3 under MIT license
+The skill needs no API key and makes no network requests.
+
+## What the skill does
+
+`scripts/index.js` ignores its input and returns a webview URL for `assets/ui.html`.
+That page renders a scrolling 88-key keyboard with the Web Audio API. The notes play
+from the 88 local samples in `assets/assets/1.mp3` to `88.mp3`.
+
+The piano samples are credited to https://github.com/fuhton/piano-mp3 under the MIT
+license. This credit comes from the original README and was not checked against that
+project.
 
 Copyright 2026 Google LLC
 

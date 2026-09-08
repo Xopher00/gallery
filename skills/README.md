@@ -378,7 +378,7 @@ Call the `run_intent` tool with the following exact parameters:
 > app's source code. To add new capabilities, such as opening the camera,
 > setting alarms, etc., you must define the logic within the app's codebase.
 > Developers can refer to
-> [IntentHandler.kt](https://github.com/google-ai-edge/gallery/tree/main/Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/agentchat/IntentHandler.kt)
+> [IntentHandler.kt](../Android/src/app/src/main/java/com/google/ai/edge/gallery/intents/IntentHandler.kt)
 > to see how existing intents are mapped and to learn how to register new custom
 > intents for the LLM to invoke.
 
