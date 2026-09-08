@@ -16,9 +16,7 @@
 
 package com.google.ai.edge.gallery.ui.common
 
-import android.app.ActivityManager
 import android.content.Context
-import android.os.Build
 import android.util.Log
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -27,6 +25,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.relay.capability.DeviceProfileEntryPoint
+import dagger.hilt.android.EntryPointAccessors
 
 private const val TAG = "AGMemoryWarning"
 private const val BYTES_IN_GB = 1024f * 1024 * 1024
@@ -49,24 +49,18 @@ fun MemoryWarningAlert(onProceeded: () -> Unit, onDismissed: () -> Unit) {
 
 /** Checks if the device's memory is lower than the required minimum for the given model. */
 fun isMemoryLow(context: Context, model: Model): Boolean {
-  val activityManager =
-    context.getSystemService(android.app.Activity.ACTIVITY_SERVICE) as? ActivityManager
-  val minDeviceMemoryInGb = model.minDeviceMemoryInGb
-  return if (activityManager != null && minDeviceMemoryInGb != null) {
-    val memoryInfo = ActivityManager.MemoryInfo()
-    activityManager.getMemoryInfo(memoryInfo)
-    var deviceMemInGb = memoryInfo.totalMem / BYTES_IN_GB
-    // API 34+ uses advertisedMem instead of totalMem for better accuracy.
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-      deviceMemInGb = memoryInfo.advertisedMem / BYTES_IN_GB
-    }
-    Log.d(
-      TAG,
-      "Device memory (GB): $deviceMemInGb. " +
-        "Model's required min device memory (GB): $minDeviceMemoryInGb.",
-    )
-    deviceMemInGb < minDeviceMemoryInGb
-  } else {
-    false
-  }
+  val minDeviceMemoryInGb = model.minDeviceMemoryInGb ?: return false
+  val deviceProfile =
+    EntryPointAccessors.fromApplication(
+        context.applicationContext,
+        DeviceProfileEntryPoint::class.java,
+      )
+      .deviceProfile()
+  val deviceMemInGb = deviceProfile.totalRamBytes() / BYTES_IN_GB
+  Log.d(
+    TAG,
+    "Device memory (GB): $deviceMemInGb. " +
+      "Model's required min device memory (GB): $minDeviceMemoryInGb.",
+  )
+  return deviceMemInGb < minDeviceMemoryInGb
 }

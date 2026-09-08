@@ -25,6 +25,7 @@ import com.google.ai.edge.gallery.proto.HfSiblingProto
 import com.google.ai.edge.gallery.proto.HfSortOptionProto
 import com.google.ai.edge.gallery.proto.hfModelItemProto
 import com.google.ai.edge.gallery.proto.hfSiblingProto
+import com.google.ai.edge.gallery.relay.discovery.hasGgufFiles
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.net.HttpURLConnection
@@ -32,11 +33,16 @@ import java.net.URL
 import java.net.URLEncoder
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 
 private const val TAG = "AGHfApiClient"
 private const val HF_API_BASE_URL = "https://huggingface.co/api"
 private const val USER_AGENT = "AIEdgeGallery/1.0 (Android)"
+// HF's `filter` query param is AND-combined server-side, so litert-lm and gguf repos
+// require two separate requests, merged client-side (see fetchModels).
+private const val FILTER_LITERT_LM = "litert-lm"
+private const val FILTER_GGUF = "gguf"
 
 open class HuggingFaceApiClient
 @Inject
@@ -62,15 +68,39 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
     accessToken: String? = null,
   ): List<HfModelItemProto> =
     withContext(ioDispatcher) {
-      val urlString = buildApiUrl(query = query, limit = limit)
-      val responseText = executeGetRequest(urlString = urlString, accessToken = accessToken)
-
-      if (responseText.isNullOrEmpty()) {
-        return@withContext emptyList()
+      // Two independent HF requests (AND-combined filter can't do both in one): run concurrently.
+      val litertModels = async {
+        fetchModelsForFilter(
+          filterTag = FILTER_LITERT_LM,
+          query = query,
+          limit = limit,
+          accessToken = accessToken,
+        )
       }
-
-      return@withContext parseModelListJson(responseText)
+      val ggufModels = async {
+        fetchModelsForFilter(
+          filterTag = FILTER_GGUF,
+          query = query,
+          limit = limit,
+          accessToken = accessToken,
+        )
+      }
+      return@withContext (litertModels.await() + ggufModels.await()).distinctBy { it.id }
     }
+
+  private fun fetchModelsForFilter(
+    filterTag: String,
+    query: String,
+    limit: Int,
+    accessToken: String?,
+  ): List<HfModelItemProto> {
+    val urlString = buildApiUrl(query = query, limit = limit, filterTag = filterTag)
+    val responseText = executeGetRequest(urlString = urlString, accessToken = accessToken)
+    if (responseText.isNullOrEmpty()) {
+      return emptyList()
+    }
+    return parseModelListJson(responseText)
+  }
 
   private fun parseModelListJson(responseText: String): List<HfModelItemProto> {
     val jsonElement =
@@ -87,13 +117,13 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
     val models = jsonArray.mapNotNull { element ->
       if (element.isJsonObject) parseHfModelItemProto(element.asJsonObject) else null
     }
-    return models.filter { it.hasCompatibleModelFiles() }
+    return models.filter { it.hasCompatibleModelFiles() || it.hasGgufFiles() }
   }
 
-  private fun buildApiUrl(query: String, limit: Int): String {
+  private fun buildApiUrl(query: String, limit: Int, filterTag: String): String {
     val queryParams =
       mutableListOf(
-        "filter" to "litert-lm",
+        "filter" to filterTag,
         "limit" to limit.toString(),
         "expand" to "siblings",
         "expand" to "tags",
@@ -197,6 +227,27 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
     }
 
   /**
+   * Fetches a repo's model card (README.md) with YAML frontmatter stripped. Gated repos return
+   * HTTP 401 without [accessToken].
+   */
+  open suspend fun fetchModelCard(modelId: String, accessToken: String? = null): String? =
+    withContext(ioDispatcher) {
+      val urlString = "https://huggingface.co/$modelId/raw/main/README.md"
+      val responseText =
+        executeGetRequest(urlString = urlString, accessToken = accessToken)
+          ?: return@withContext null
+      stripFrontmatter(responseText)
+    }
+
+  private fun stripFrontmatter(markdown: String): String {
+    if (!markdown.startsWith("---")) return markdown
+    val end = markdown.indexOf("\n---", startIndex = 3)
+    if (end == -1) return markdown
+    val afterDelimiter = markdown.indexOf('\n', startIndex = end + 1)
+    return if (afterDelimiter == -1) "" else markdown.substring(afterDelimiter + 1).trimStart('\n')
+  }
+
+  /**
    * Opens and configures an [HttpURLConnection] with default headers and optional authorization.
    */
   protected open fun openHttpConnection(
@@ -237,7 +288,6 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
   private fun parseHfModelItemProto(jsonObj: JsonObject): HfModelItemProto = hfModelItemProto {
     jsonObj.getOrNull("id")?.let { id = it.asString }
     jsonObj.getOrNull("author")?.let { author = it.asString }
-    jsonObj.getOrNull("description")?.let { description = it.asString }
     jsonObj.getOrNull("downloads")?.let { downloads = it.asLong }
     jsonObj.getOrNull("likes")?.let { likes = it.asLong }
     jsonObj.getOrNull("lastModified")?.let { lastModified = it.asString }
@@ -246,6 +296,11 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
       .getAsJsonArray("tags")
       ?.filterNot { it.isJsonNull }
       ?.forEach { tag -> tags += tag.asString }
+
+    // No pipeline_tag field in the proto: fold it into tags (deduped) so type resolution sees it.
+    jsonObj.getOrNull("pipeline_tag")?.asString?.let { pipelineTag ->
+      if (pipelineTag !in tags) tags += pipelineTag
+    }
 
     // For each file (sibling) in the model, add a sibling proto to the model proto.
     jsonObj

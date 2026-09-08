@@ -16,12 +16,14 @@
 
 package com.google.ai.edge.gallery.huggingface
 
-import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
 import com.google.ai.edge.gallery.data.SOC
 import com.google.ai.edge.gallery.proto.HfModelItemProto
 import com.google.ai.edge.gallery.proto.HfSortOptionProto
+import com.google.ai.edge.gallery.relay.capability.DeviceProfileEntryPoint
+import com.google.ai.edge.gallery.relay.discovery.getGgufFiles
+import dagger.hilt.android.EntryPointAccessors
 import java.net.URI
 
 /**
@@ -41,13 +43,24 @@ fun HfModelItemProto.getCompatibleModelFiles(): List<String> {
   return siblingsList.map { it.rfilename }.filter { isLiteRtLmFileName(it) }
 }
 
+// LiteRT files pass the vendor/SoC heuristic; GGUF has no per-SoC build so presence is enough.
+fun HfModelItemProto.runnableFileNames(): List<String> {
+  return getCompatibleModelFiles().filter { isFileCompatibleWithDevice(it) } + getGgufFiles()
+}
+
 /** Checks if the model card has at least one file compatible with current device hardware. */
 fun HfModelItemProto.isDeviceCompatible(): Boolean {
-  val files = getCompatibleModelFiles()
-  if (files.isEmpty()) {
+  return runnableFileNames().isNotEmpty()
+}
+
+// Unknown sizes (0L, not yet fetched via the detail endpoint) pass permissively.
+fun HfModelItemProto.fitsDeviceMemory(deviceRamBytes: Long?): Boolean {
+  val names = runnableFileNames()
+  if (names.isEmpty()) {
     return false
   }
-  return files.any { isFileCompatibleWithDevice(it) }
+  val sizeByName = siblingsList.associate { it.rfilename to it.size }
+  return names.any { name -> !isFileTooLarge(sizeByName[name] ?: 0L, deviceRamBytes) }
 }
 
 /** Returns true if model is published by the official litert-community org. */
@@ -55,41 +68,15 @@ fun HfModelItemProto.isCommunityRecommended(): Boolean {
   return author.equals("litert-community", ignoreCase = true) || id.startsWith("litert-community/")
 }
 
-/** Thread-safe process-level cache for physical RAM info. */
-private object DeviceMemoryCache {
-  @Volatile private var cachedTotalRamBytes: Long? = null
-  @Volatile private var isFetched: Boolean = false
-
-  fun getTotalRamBytes(context: Context): Long? {
-    if (isFetched) {
-      return cachedTotalRamBytes
-    }
-    synchronized(this) {
-      if (isFetched) {
-        return cachedTotalRamBytes
-      }
-      val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-      val memoryInfo = ActivityManager.MemoryInfo()
-      activityManager?.getMemoryInfo(memoryInfo)
-      val totalRam =
-        if (activityManager != null && memoryInfo.totalMem > 0L) {
-          memoryInfo.totalMem
-        } else {
-          null
-        }
-      cachedTotalRamBytes = totalRam
-      isFetched = true
-      return totalRam
-    }
-  }
-}
-
-/**
- * Determines total physical RAM on Android dynamically via ActivityManager (cached once per
- * process). Returns null if unavailable.
- */
+// Reached via EntryPointAccessors: callers are plain (non-Hilt) code with no injected instance.
 fun getDeviceTotalRamBytes(context: Context): Long? {
-  return DeviceMemoryCache.getTotalRamBytes(context)
+  val deviceProfile =
+    EntryPointAccessors.fromApplication(
+        context.applicationContext,
+        DeviceProfileEntryPoint::class.java,
+      )
+      .deviceProfile()
+  return deviceProfile.totalRamBytes().takeIf { it > 0L }
 }
 
 /**
@@ -183,7 +170,7 @@ data class HfUrlInfo(
   val isDirectModelFile: Boolean = false,
 ) {
   companion object {
-    private val MODEL_FILE_EXTENSIONS = setOf(".litertlm", ".task")
+    private val MODEL_FILE_EXTENSIONS = setOf(".litertlm", ".task", ".gguf")
     private val HF_ACTION_KEYWORDS = setOf("resolve", "blob", "tree", "raw")
 
     private fun String.isModelFileName(): Boolean = MODEL_FILE_EXTENSIONS.any {

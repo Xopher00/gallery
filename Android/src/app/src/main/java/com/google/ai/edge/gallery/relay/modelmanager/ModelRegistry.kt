@@ -382,12 +382,16 @@ constructor(
    * interactive import flow, same reasoning as [createModelFromImportedModelInfo] below: a plain
    * data-conversion function with no task-attachment side effect of its own. SD import support was
    * added in relay, so it stays defined here rather than being ported anywhere.
+   *
+   * [url] defaults to empty for a local-file import (the original, still-supported case); a
+   * Discovery-originated import passes the real download URL so [downloadFileName] under
+   * [SD_IMPORTS_DIR] gets populated by the normal download path instead of already existing on disk.
    */
-  fun createImportedSdModel(fileName: String, fileSize: Long): Model =
+  fun createImportedSdModel(fileName: String, fileSize: Long, url: String = ""): Model =
     Model(
         name = fileName,
         info = "Imported SD GGUF model",
-        url = "",
+        url = url,
         sizeInBytes = fileSize,
         downloadFileName = "$SD_IMPORTS_DIR${File.separator}$fileName",
         configs =
@@ -868,6 +872,7 @@ constructor(
     val model =
       Model(
         name = info.fileName,
+        info = info.modelCardText,
         url = info.url,
         configs = configs,
         sizeInBytes = info.fileSize,

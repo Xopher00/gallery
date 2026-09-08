@@ -89,6 +89,7 @@ import com.google.ai.edge.gallery.ui.modelmanager.GlobalModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.notifications.NotificationsScreen
+import com.google.ai.edge.gallery.relay.ui.discovery.DiscoveryScreen
 import com.google.ai.edge.gallery.relay.ui.navigation.ROUTE_CHAT_HISTORY
 import com.google.ai.edge.gallery.relay.ui.navigation.ROUTE_SERVER
 import com.google.ai.edge.gallery.relay.ui.navigation.relayRoutes
@@ -103,6 +104,7 @@ private const val ROUTE_MODEL = "route_model"
 private const val ROUTE_BENCHMARK = "benchmark"
 private const val ROUTE_MODEL_MANAGER = "model_manager"
 private const val ROUTE_NOTIFICATIONS = "notifications"
+private const val ROUTE_DISCOVERY = "discovery"
 private const val ENTER_ANIMATION_DURATION_MS = 500
 private val ENTER_ANIMATION_EASING = EaseOutExpo
 private const val ENTER_ANIMATION_DELAY_MS = 100
@@ -212,9 +214,15 @@ fun GalleryNavHost(
             tosViewModel = hiltViewModel(),
             enableAnimation = enableHomeScreenAnimation,
             navigateToTaskScreen = { task ->
-              pickedTask = task
-              enableModelListAnimation = true
-              navController.navigate(ROUTE_MODEL_LIST)
+              // No models to show: route to Discovery scoped to this task instead of the
+              // (empty) model list, which would immediately bounce the user back out.
+              if (task.models.isEmpty()) {
+                navController.navigate("$ROUTE_DISCOVERY?taskId=${task.id}")
+              } else {
+                pickedTask = task
+                enableModelListAnimation = true
+                navController.navigate(ROUTE_MODEL_LIST)
+              }
               firebaseAnalytics?.logEvent(
                 GalleryEvent.CAPABILITY_SELECT.id,
                 Bundle().apply { putString("capability_name", task.id) },
@@ -235,9 +243,7 @@ fun GalleryNavHost(
                 navController.navigate(ROUTE_MODEL_LIST)
               }
             },
-            onImportModelClicked = {
-              navController.navigate("$ROUTE_MODEL_MANAGER?startImport=true")
-            },
+            onImportModelClicked = { navController.navigate(ROUTE_DISCOVERY) },
             onServerClicked = { navController.navigate(ROUTE_SERVER) },
           )
         }
@@ -427,9 +433,17 @@ fun GalleryNavHost(
 
     // Global model manager page.
     composable(
-      route = "$ROUTE_MODEL_MANAGER?startImport={startImport}",
+      route =
+        "$ROUTE_MODEL_MANAGER?startImport={startImport}&importUrl={importUrl}" +
+          "&importIsImageGen={importIsImageGen}",
       arguments = listOf(
-        navArgument("startImport") { type = NavType.BoolType; defaultValue = false }
+        navArgument("startImport") { type = NavType.BoolType; defaultValue = false },
+        navArgument("importUrl") {
+          type = NavType.StringType
+          nullable = true
+          defaultValue = null
+        },
+        navArgument("importIsImageGen") { type = NavType.BoolType; defaultValue = false },
       ),
       enterTransition = {
         if (
@@ -453,6 +467,8 @@ fun GalleryNavHost(
       },
     ) { backStackEntry ->
       val startImport = backStackEntry.arguments?.getBoolean("startImport") ?: false
+      val importUrl = backStackEntry.arguments?.getString("importUrl")
+      val importIsImageGen = backStackEntry.arguments?.getBoolean("importIsImageGen") ?: false
       GlobalModelManager(
         viewModel = modelManagerViewModel,
         navigateUp = {
@@ -470,6 +486,33 @@ fun GalleryNavHost(
           navController.navigate("$ROUTE_BENCHMARK/${model.name}")
         },
         startImport = startImport,
+        importUrl = importUrl,
+        importIsImageGen = importIsImageGen,
+      )
+    }
+
+    // Hugging Face model discovery page.
+    composable(
+      route = "$ROUTE_DISCOVERY?taskId={taskId}",
+      arguments =
+        listOf(
+          navArgument("taskId") {
+            type = NavType.StringType
+            nullable = true
+            defaultValue = null
+          }
+        ),
+      enterTransition = { slideUpEnter() },
+      exitTransition = { slideDownExit() },
+    ) { backStackEntry ->
+      DiscoveryScreen(
+        navigateUp = { navController.navigateUp() },
+        onImportUrl = { encodedUrl, isImageGen ->
+          navController.navigate(
+            "$ROUTE_MODEL_MANAGER?importUrl=$encodedUrl&importIsImageGen=$isImageGen"
+          )
+        },
+        taskId = backStackEntry.arguments?.getString("taskId"),
       )
     }
 

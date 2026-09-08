@@ -47,6 +47,7 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.Task
+import com.google.ai.edge.gallery.data.supportModelBenchmark
 import com.google.ai.edge.gallery.ui.common.DownloadAndTryButton
 import com.google.ai.edge.gallery.ui.common.tos.TosViewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
@@ -82,7 +83,13 @@ fun DownloadModelPanel(
       }
 
       val downloadSucceeded = downloadStatus == ModelDownloadStatusType.SUCCEEDED
-      if (showBenchmarkActionButton && downloadSucceeded && model.isLlm) {
+      // model.isLlm alone doesn't gate this -- GGUF imports are isLlm=true but UNKNOWN runtime.
+      if (
+        showBenchmarkActionButton &&
+          downloadSucceeded &&
+          model.isLlm &&
+          model.supportModelBenchmark
+      ) {
         val expandBenchmarkButton = isExpanded && !model.updatable
         // Benchmark button.
         var buttonModifier: Modifier = Modifier.height(42.dp)

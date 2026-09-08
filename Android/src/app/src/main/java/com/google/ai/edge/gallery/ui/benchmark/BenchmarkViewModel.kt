@@ -23,6 +23,7 @@ import com.google.ai.edge.gallery.BuildConfig
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.RuntimeType
+import com.google.ai.edge.gallery.data.supportModelBenchmark
 import com.google.ai.edge.gallery.proto.BenchmarkResult
 import com.google.ai.edge.gallery.proto.LlmBenchmarkBasicInfo
 import com.google.ai.edge.gallery.proto.LlmBenchmarkResult
@@ -74,6 +75,7 @@ data class BenchmarkUiState(
   val running: Boolean = false,
   val totalRunCount: Int = 0,
   val completedRunCount: Int = 0,
+  val unsupportedModelError: Boolean = false,
 )
 
 @HiltViewModel
@@ -102,6 +104,13 @@ constructor(
     decodeTokens: Int,
     runCount: Int,
   ) {
+    // Fail safe regardless of how this screen was reached -- only LiteRT-LM models can hit the
+    // native benchmark API without crashing (see supportModelBenchmark).
+    if (!model.supportModelBenchmark) {
+      Log.w(TAG, "Refusing to benchmark unsupported model: ${model.name} (${model.runtimeType})")
+      setUnsupportedModelError(unsupportedModelError = true)
+      return
+    }
     viewModelScope.launch(Dispatchers.Default) {
       setRunning(running = true)
       setRunProgress(completedRunCount = 0)
@@ -218,6 +227,10 @@ constructor(
 
   fun setShowResultsViewer(showResultsViewer: Boolean) {
     _uiState.update { _uiState.value.copy(showResultsViewer = showResultsViewer) }
+  }
+
+  fun setUnsupportedModelError(unsupportedModelError: Boolean) {
+    _uiState.update { _uiState.value.copy(unsupportedModelError = unsupportedModelError) }
   }
 
   fun setRunning(running: Boolean) {

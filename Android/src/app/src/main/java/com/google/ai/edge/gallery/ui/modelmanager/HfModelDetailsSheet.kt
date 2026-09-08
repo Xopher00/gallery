@@ -49,8 +49,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -77,6 +75,8 @@ import com.google.ai.edge.gallery.huggingface.isFileCompatibleWithDevice
 import com.google.ai.edge.gallery.huggingface.isFileTooLarge
 import com.google.ai.edge.gallery.huggingface.modelName
 import com.google.ai.edge.gallery.proto.HfModelItemProto
+import com.google.ai.edge.gallery.relay.discovery.getGgufFiles
+import com.google.ai.edge.gallery.relay.discovery.isGgufFileName
 import com.google.ai.edge.gallery.ui.common.formatCount
 import com.google.ai.edge.gallery.ui.common.formatLastModifiedDate
 import com.google.ai.edge.gallery.ui.common.humanReadableSize
@@ -91,7 +91,6 @@ private val ITEM_SPACING_XXSMALL = 4.dp
 private val BADGE_VERTICAL_SPACING = 6.dp
 private val BADGE_ICON_SIZE = 16.dp
 private val CARD_CORNER_RADIUS = 12.dp
-private const val DISABLED_CONTENT_ALPHA = 0.6f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -131,36 +130,40 @@ fun HfModelDetailsContent(
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
   val clipboard = LocalClipboard.current
-  val files = remember(modelItem) { modelItem.getCompatibleModelFiles() }
+  val files =
+    remember(modelItem) { modelItem.getCompatibleModelFiles() + modelItem.getGgufFiles() }
   val totalRam = remember(context) { getDeviceTotalRamBytes(context) }
 
   val fileInfos =
     remember(files, modelItem, totalRam) {
       files.map { fileName ->
-        val isCompatible = isFileCompatibleWithDevice(fileName)
+        // GGUF has no per-SoC build, so the LiteRT vendor heuristic doesn't apply to it.
+        val isCompatible = isGgufFileName(fileName) || isFileCompatibleWithDevice(fileName)
         val sibling = modelItem.siblingsList.firstOrNull { it.rfilename == fileName }
         val fileSize = sibling?.size ?: 0L
         val isTooLarge = isFileTooLarge(sizeBytes = fileSize, deviceRamBytes = totalRam)
-        val isDisabled = !isCompatible || isTooLarge
         ModelFileInfo(
           fileName = fileName,
           fileSize = fileSize,
           isCompatible = isCompatible,
           isTooLarge = isTooLarge,
-          isDisabled = isDisabled,
         )
       }
     }
 
-  val compatibleFiles = remember(fileInfos) { fileInfos.filter { !it.isDisabled } }
-  val otherFiles = remember(fileInfos) { fileInfos.filter { it.isDisabled } }
+  // Wrong-vendor litert files never appear here: only files the user can actually run are shown.
+  val compatibleFiles = remember(fileInfos) { fileInfos.filter { it.isCompatible } }
 
   var selectedFileName by
-    remember(modelItem) { mutableStateOf(compatibleFiles.firstOrNull()?.fileName) }
+    remember(modelItem) {
+      mutableStateOf(
+        (compatibleFiles.firstOrNull { !it.isTooLarge } ?: compatibleFiles.firstOrNull())
+          ?.fileName
+      )
+    }
   val snackbarHostState = remember { SnackbarHostState() }
 
   val urlCopiedMessage = stringResource(R.string.url_copied)
-  val incompatiblePrompt = stringResource(R.string.incompatible_file_selection_prompt)
 
   Box(modifier = modifier.fillMaxWidth()) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -238,53 +241,11 @@ fun HfModelDetailsContent(
               )
             }
           }
-
-          // Other Files section
-          if (otherFiles.isNotEmpty()) {
-            if (compatibleFiles.isNotEmpty()) {
-              Spacer(modifier = Modifier.height(SECTION_SPACING))
-            }
-            Text(
-              text = stringResource(R.string.other_files_header, otherFiles.size),
-              style = MaterialTheme.typography.titleMedium,
-              fontWeight = FontWeight.Bold,
-            )
-            Spacer(modifier = Modifier.height(ITEM_SPACING_XXSMALL))
-            Text(
-              text = stringResource(R.string.other_files_subheader),
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.height(ITEM_SPACING_XSMALL))
-
-            for (fileInfo in otherFiles) {
-              ModelFileItemRow(
-                fileInfo = fileInfo,
-                isSelected = fileInfo.fileName == selectedFileName,
-                modelId = modelItem.id,
-                onSelect = {
-                  scope.launch {
-                    snackbarHostState.currentSnackbarData?.dismiss()
-                    snackbarHostState.showSnackbar(
-                      message = incompatiblePrompt,
-                      withDismissAction = true,
-                      duration = SnackbarDuration.Long,
-                    )
-                  }
-                },
-                onCopyUrl = { modelUrl ->
-                  val clipData = ClipData.newPlainText("model_url", modelUrl)
-                  scope.launch { clipboard.setClipEntry(clipData.toClipEntry()) }
-                  Toast.makeText(context, urlCopiedMessage, Toast.LENGTH_SHORT).show()
-                },
-              )
-            }
-          }
         }
       }
 
       // Always-visible Import Selected Model button at bottom
-      if (files.isNotEmpty()) {
+      if (compatibleFiles.isNotEmpty()) {
         Surface(color = BottomSheetDefaults.ContainerColor, modifier = Modifier.fillMaxWidth()) {
           Column(modifier = Modifier.fillMaxWidth()) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -327,7 +288,6 @@ private data class ModelFileInfo(
   val fileSize: Long,
   val isCompatible: Boolean,
   val isTooLarge: Boolean,
-  val isDisabled: Boolean,
 )
 
 @Composable
@@ -342,12 +302,7 @@ private fun ModelFileItemRow(
   val modelUrl = "https://huggingface.co/$modelId/resolve/main/${fileInfo.fileName}?download=true"
   Surface(
     shape = RoundedCornerShape(CARD_CORNER_RADIUS),
-    color =
-      if (fileInfo.isDisabled) {
-        MaterialTheme.colorScheme.surfaceContainer.copy(alpha = DISABLED_CONTENT_ALPHA)
-      } else {
-        MaterialTheme.colorScheme.surfaceContainer
-      },
+    color = MaterialTheme.colorScheme.surfaceContainer,
     modifier =
       modifier.fillMaxWidth().padding(vertical = ITEM_SPACING_XXSMALL).clickable { onSelect() },
   ) {
@@ -355,31 +310,14 @@ private fun ModelFileItemRow(
       modifier = Modifier.fillMaxWidth().padding(ITEM_SPACING_MEDIUM),
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      RadioButton(
-        selected = isSelected,
-        onClick = null,
-        colors =
-          if (fileInfo.isDisabled) {
-            RadioButtonDefaults.colors(
-              unselectedColor =
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = DISABLED_CONTENT_ALPHA)
-            )
-          } else {
-            RadioButtonDefaults.colors()
-          },
-      )
+      RadioButton(selected = isSelected, onClick = null)
       Spacer(modifier = Modifier.width(ITEM_SPACING_XSMALL))
       Column(modifier = Modifier.weight(1f)) {
         Text(
           text = fileInfo.fileName,
           style = MaterialTheme.typography.bodyLarge,
           fontWeight = FontWeight.Medium,
-          color =
-            if (fileInfo.isDisabled) {
-              MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = DISABLED_CONTENT_ALPHA)
-            } else {
-              MaterialTheme.colorScheme.onSurface
-            },
+          color = MaterialTheme.colorScheme.onSurface,
           modifier = Modifier.fillMaxWidth(),
         )
         if (fileInfo.fileSize > 0L) {
@@ -390,13 +328,7 @@ private fun ModelFileItemRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
         }
-        if (!fileInfo.isCompatible) {
-          Text(
-            text = stringResource(R.string.incompatible_device_warning),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.error,
-          )
-        } else if (fileInfo.isTooLarge) {
+        if (fileInfo.isTooLarge) {
           Text(
             text = stringResource(R.string.file_too_large_warning),
             style = MaterialTheme.typography.labelSmall,

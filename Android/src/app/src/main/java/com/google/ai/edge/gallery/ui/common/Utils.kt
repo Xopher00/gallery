@@ -222,12 +222,17 @@ fun checkNotificationPermissionAndStartDownload(
   modelManagerViewModel: ModelManagerViewModel,
   task: Task?,
   model: Model,
+  bypassStorageCheck: Boolean = false,
 ) {
   // Check permission
   when (PackageManager.PERMISSION_GRANTED) {
     // Already got permission. Call the lambda.
     ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) -> {
-      modelManagerViewModel.downloadModel(task = task, model = model)
+      modelManagerViewModel.downloadModel(
+        task = task,
+        model = model,
+        bypassStorageCheck = bypassStorageCheck,
+      )
     }
 
     // Otherwise, ask for permission

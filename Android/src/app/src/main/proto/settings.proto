@@ -50,6 +50,8 @@ message ImportedModel {
   }
   // Only set for models imported from url.
   string url = 4;
+  // Model card (README) text fetched for a url import; empty if never fetched.
+  string model_card_text = 5;
 }
 
 message LlmConfig {

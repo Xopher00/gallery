@@ -26,7 +26,7 @@ object Flags {
    * Google's low-memory warning before a model pick/download (`ModelPicker.kt`,
    * `DownloadAndTryButton.kt`). Previously deleted outright; restored and gated here per
    * `reference/2026-09-05-merge-friction-reduction.md` §2.1 (item 12/15) so Google's code stays
-   * in place. `false` preserves this project's existing behaviour (no warning shown).
+   * in place. Accuracy rests on each model's allowlist `minDeviceMemoryInGb`, which we don't set.
    */
-  const val MEMORY_WARNING_ENABLED: Boolean = false
+  const val MEMORY_WARNING_ENABLED: Boolean = true
 }

@@ -81,12 +81,14 @@ import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.relay.Flags
+import com.google.ai.edge.gallery.relay.capability.DeviceProfileEntryPoint
 import com.google.ai.edge.gallery.huggingface.HuggingFaceApiClient
 import com.google.ai.edge.gallery.ui.common.tos.GemmaTermsOfUseDialog
 import com.google.ai.edge.gallery.ui.common.tos.TosViewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.modelmanager.TokenRequestResultType
 import com.google.ai.edge.gallery.ui.modelmanager.TokenStatus
+import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -147,9 +149,21 @@ fun DownloadAndTryButton(
   var showAgreementAckSheet by remember { mutableStateOf(false) }
   var showErrorDialog by remember { mutableStateOf(false) }
   var showMemoryWarning by remember { mutableStateOf(false) }
+  var showStorageWarning by remember { mutableStateOf(false) }
   var showGemmaTermsOfUseDialog by remember { mutableStateOf(false) }
   var downloadStarted by remember { mutableStateOf(false) }
+  // Must outlive the async notification-permission request, so it can't be a plain local.
+  var pendingBypassStorageCheck by remember { mutableStateOf(false) }
   val sheetState = rememberModalBottomSheetState()
+  // Constructed directly (not via hiltViewModel()): DeviceProfile is a plain @Singleton, not a
+  // ViewModel, and this Composable has no other Hilt entry point in scope.
+  val deviceProfile = remember(context) {
+    EntryPointAccessors.fromApplication(
+        context.applicationContext,
+        DeviceProfileEntryPoint::class.java,
+      )
+      .deviceProfile()
+  }
 
   val needToDownloadFirst =
     (downloadStatus == ModelDownloadStatusType.NOT_DOWNLOADED ||
@@ -165,7 +179,11 @@ fun DownloadAndTryButton(
   // A launcher for requesting notification permission.
   val permissionLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-      modelManagerViewModel.downloadModel(task = task, model = model)
+      modelManagerViewModel.downloadModel(
+        task = task,
+        model = model,
+        bypassStorageCheck = pendingBypassStorageCheck,
+      )
     }
 
   // Function to kick off download.
@@ -179,6 +197,7 @@ fun DownloadAndTryButton(
       modelManagerViewModel = modelManagerViewModel,
       task = task,
       model = model,
+      bypassStorageCheck = pendingBypassStorageCheck,
     )
   }
 
@@ -317,6 +336,16 @@ fun DownloadAndTryButton(
     }
   }
 
+  // Estimate only: sizeBytes come from the allowlist/HF metadata, not a live probe.
+  val checkStorageAndClickDownloadButton = {
+    if (model.totalBytes > 0L && model.totalBytes > deviceProfile.freeStorageBytes()) {
+      showStorageWarning = true
+    } else {
+      pendingBypassStorageCheck = false
+      checkMemoryAndClickDownloadButton()
+    }
+  }
+
   if (!showDownloadProgress) {
     var buttonModifier: Modifier = modifier.height(42.dp)
     if (!compact) {
@@ -352,7 +381,7 @@ fun DownloadAndTryButton(
         ) {
           showGemmaTermsOfUseDialog = true
         } else {
-          checkMemoryAndClickDownloadButton()
+          checkStorageAndClickDownloadButton()
         }
       },
     ) {
@@ -551,12 +580,44 @@ fun DownloadAndTryButton(
     )
   }
 
+  if (showStorageWarning) {
+    AlertDialog(
+      title = { Text(stringResource(R.string.storage_warning_title)) },
+      text = {
+        Text(
+          stringResource(
+            R.string.storage_warning_content,
+            model.totalBytes.humanReadableSize(),
+            deviceProfile.freeStorageBytes().humanReadableSize(),
+          )
+        )
+      },
+      onDismissRequest = { showStorageWarning = false },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            showStorageWarning = false
+            pendingBypassStorageCheck = true
+            checkMemoryAndClickDownloadButton()
+          }
+        ) {
+          Text(stringResource(R.string.storage_warning_proceed_anyway))
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { showStorageWarning = false }) {
+          Text(stringResource(R.string.cancel))
+        }
+      },
+    )
+  }
+
   if (showGemmaTermsOfUseDialog) {
     GemmaTermsOfUseDialog(
       onTosAccepted = {
         showGemmaTermsOfUseDialog = false
         tosViewModel.acceptGemmaTermsOfUse()
-        checkMemoryAndClickDownloadButton()
+        checkStorageAndClickDownloadButton()
       },
       onCancel = { showGemmaTermsOfUseDialog = false },
     )

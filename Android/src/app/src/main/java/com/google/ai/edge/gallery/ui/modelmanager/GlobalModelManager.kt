@@ -63,6 +63,7 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -94,13 +95,17 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.supportModelBenchmark
 import com.google.ai.edge.gallery.relay.Flags
+import com.google.ai.edge.gallery.relay.capability.DeviceProfileEntryPoint
+import com.google.ai.edge.gallery.relay.discovery.isKnownPublisherNamespace
 import com.google.ai.edge.gallery.huggingface.extractHfUrlInfo
 import com.google.ai.edge.gallery.proto.HfModelItemProto
 import com.google.ai.edge.gallery.proto.ImportedModel
 import com.google.ai.edge.gallery.ui.common.TaskIcon
+import com.google.ai.edge.gallery.ui.common.humanReadableSize
 import com.google.ai.edge.gallery.ui.common.isHttpOrHttps
 import com.google.ai.edge.gallery.ui.common.modelitem.ModelItem
 import com.google.ai.edge.gallery.ui.common.tos.TosViewModel
+import dagger.hilt.android.EntryPointAccessors
 import kotlin.text.endsWith
 import kotlin.text.lowercase
 import kotlinx.coroutines.delay
@@ -118,6 +123,8 @@ fun GlobalModelManager(
   modifier: Modifier = Modifier,
   tosViewModel: TosViewModel? = null,
   startImport: Boolean = false,
+  importUrl: String? = null,
+  importIsImageGen: Boolean = false,
 ) {
   val uiState by viewModel.uiState.collectAsState()
   val builtInModels = remember { mutableStateListOf<Model>() }
@@ -135,11 +142,25 @@ fun GlobalModelManager(
   val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
   var showImportDialog by remember { mutableStateOf(false) }
   var showImportingDialog by remember { mutableStateOf(false) }
+  var showUntrustedPublisherWarning by remember { mutableStateOf(false) }
+  var untrustedPublisherName by remember { mutableStateOf("") }
+  val pendingUntrustedImportUri = remember { mutableStateOf<Uri?>(null) }
+  // Mutually exclusive with pendingUntrustedImportUri: (fileName, url) for an SD import pending
+  // the same warning, resumed via addImportedSdModel rather than ModelImportDialog.
+  val pendingImageGenImport = remember { mutableStateOf<Pair<String, String>?>(null) }
   var selectedModelForDetails by remember { mutableStateOf<HfModelItemProto?>(null) }
   var showModelDetailsSheet by remember { mutableStateOf(false) }
   var isLoadingModelCardDetails by remember { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
+  // Plain @Singleton, not a ViewModel -- no hiltViewModel() entry point for it here.
+  val deviceProfile = remember(context) {
+    EntryPointAccessors.fromApplication(
+        context.applicationContext,
+        DeviceProfileEntryPoint::class.java,
+      )
+      .deviceProfile()
+  }
   val snackbarHostState = remember { SnackbarHostState() }
   val modelItemExpandedStates = remember { mutableStateMapOf<String, Boolean>() }
 
@@ -147,6 +168,15 @@ fun GlobalModelManager(
   var showPromo by remember { mutableStateOf(false) }
   LaunchedEffect(Unit) {
     showPromo = !viewModel.dataStoreRepository.hasViewedPromo(promoId = promoId)
+  }
+
+  // Local (non-URL) imports are user-chosen and skip the publisher check entirely; returns null
+  // for those and for a known-publisher HF URL, else the (possibly blank) owner namespace.
+  fun computeUntrustedPublisher(uri: Uri): String? {
+    if (!isHttpOrHttps(uri)) return null
+    val owner =
+      extractHfUrlInfo(uri.toString()).modelId?.substringBefore("/", missingDelimiterValue = "")
+    return if (isKnownPublisherNamespace(owner)) null else owner.orEmpty()
   }
 
   val processModelUri: (Uri, Boolean) -> Unit = { uri, isWebImport ->
@@ -159,14 +189,41 @@ fun GlobalModelManager(
         showUnsupportedModelDialog = true
       },
       onValidModelUri = { validUri ->
-        selectedLocalModelFileUri.value = validUri
-        showImportDialog = true
+        val untrustedPublisher = computeUntrustedPublisher(validUri)
+        if (untrustedPublisher != null) {
+          pendingUntrustedImportUri.value = validUri
+          untrustedPublisherName = untrustedPublisher
+          showUntrustedPublisherWarning = true
+        } else {
+          selectedLocalModelFileUri.value = validUri
+          showImportDialog = true
+        }
       },
     )
   }
 
   LaunchedEffect(startImport) {
     if (startImport) showImportModelSheet = true
+  }
+
+  // Discovery hands off a resolved HF file URL. Image-gen skips ModelImportDialog: it must land
+  // under SD_IMPORTS_DIR with SD configs, not __imports as a text model.
+  LaunchedEffect(importUrl) {
+    if (importUrl == null) return@LaunchedEffect
+    val uri = importUrl.toUri()
+    if (importIsImageGen) {
+      val fileName = uri.lastPathSegment ?: importUrl.substringAfterLast('/')
+      val untrustedPublisher = computeUntrustedPublisher(uri)
+      if (untrustedPublisher != null) {
+        pendingImageGenImport.value = fileName to importUrl
+        untrustedPublisherName = untrustedPublisher
+        showUntrustedPublisherWarning = true
+      } else {
+        viewModel.addImportedSdModel(fileName = fileName, fileSize = 0L, url = importUrl)
+      }
+    } else {
+      processModelUri(uri, /* isWebImport= */ true)
+    }
   }
 
   val filePickerLauncher: ActivityResultLauncher<Intent> =
@@ -504,6 +561,92 @@ fun GlobalModelManager(
     }
   }
 
+  // Unrecognized-publisher warning, gating web imports before the import dialog opens. Never
+  // blocks: "cancel" just returns to where the user was, "continue" proceeds to import.
+  if (showUntrustedPublisherWarning) {
+    AlertDialog(
+      title = { Text(stringResource(R.string.untrusted_publisher_dialog_title)) },
+      text = {
+        Text(
+          stringResource(
+            R.string.untrusted_publisher_dialog_message,
+            untrustedPublisherName.ifBlank {
+              stringResource(R.string.untrusted_publisher_unknown_fallback)
+            },
+          )
+        )
+      },
+      onDismissRequest = {
+        showUntrustedPublisherWarning = false
+        pendingUntrustedImportUri.value = null
+        pendingImageGenImport.value = null
+      },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            showUntrustedPublisherWarning = false
+            pendingUntrustedImportUri.value?.let { uri ->
+              selectedLocalModelFileUri.value = uri
+              showImportDialog = true
+            }
+            pendingUntrustedImportUri.value = null
+            pendingImageGenImport.value?.let { (fileName, url) ->
+              viewModel.addImportedSdModel(fileName = fileName, fileSize = 0L, url = url)
+            }
+            pendingImageGenImport.value = null
+          }
+        ) {
+          Text(stringResource(R.string.untrusted_publisher_dialog_continue))
+        }
+      },
+      dismissButton = {
+        TextButton(
+          onClick = {
+            showUntrustedPublisherWarning = false
+            pendingUntrustedImportUri.value = null
+            pendingImageGenImport.value = null
+          }
+        ) {
+          Text(stringResource(R.string.cancel))
+        }
+      },
+    )
+  }
+
+  // Storage warning for a download auto-started outside DownloadAndTryButton (imported model
+  // discovery), gated at the ModelManagerViewModel.downloadModel choke point.
+  val storageConfirmationModel =
+    uiState.modelNeedingStorageConfirmation?.let { viewModel.getModelByName(it) }
+  if (storageConfirmationModel != null) {
+    AlertDialog(
+      title = { Text(stringResource(R.string.storage_warning_title)) },
+      text = {
+        Text(
+          stringResource(
+            R.string.storage_warning_content,
+            storageConfirmationModel.totalBytes.humanReadableSize(),
+            deviceProfile.freeStorageBytes().humanReadableSize(),
+          )
+        )
+      },
+      onDismissRequest = { viewModel.dismissStorageConfirmation() },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            viewModel.proceedWithDownloadDespiteStorageWarning(model = storageConfirmationModel)
+          }
+        ) {
+          Text(stringResource(R.string.storage_warning_proceed_anyway))
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { viewModel.dismissStorageConfirmation() }) {
+          Text(stringResource(R.string.cancel))
+        }
+      },
+    )
+  }
+
   // Import dialog
   if (showImportDialog) {
     selectedLocalModelFileUri.value?.let { uri ->
@@ -642,7 +785,8 @@ private fun validateAndProcessModelUri(
   Log.d(TAG, "Validating URI: $uri, fileName: $fileName, isWebImport: $isWebImport")
   val hasValidExtension =
     if (isWebImport) {
-      fileName != null && fileName.endsWith(".litertlm")
+      fileName != null &&
+        (fileName.endsWith(".litertlm") || fileName.endsWith(".gguf", ignoreCase = true))
     } else {
       fileName != null &&
         (fileName.endsWith(".task") ||

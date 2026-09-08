@@ -63,6 +63,7 @@ import com.google.ai.edge.gallery.firebaseAnalytics
 import com.google.ai.edge.gallery.huggingface.HuggingFaceApiClient
 // relay: this fork's own code. See relay/modelmanager/ModelRegistry.kt.
 import com.google.ai.edge.gallery.data.SD_IMPORTS_DIR
+import com.google.ai.edge.gallery.relay.capability.DeviceProfile
 import com.google.ai.edge.gallery.relay.engine.InferenceEngineType
 import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistry
 import com.google.ai.edge.gallery.proto.AccessTokenData
@@ -147,6 +148,9 @@ data class ModelManagerUiState(
    * by model name.
    */
   val downloadOptionalComponents: Map<String, Boolean> = mapOf(),
+
+  /** Name of a model whose download exceeds free storage and awaits user confirmation. */
+  val modelNeedingStorageConfirmation: String? = null,
 ) {
   fun isModelInitialized(model: Model): Boolean {
     return model.initStatusFlow.value is Model.InitializationStatus.Initialized
@@ -198,6 +202,7 @@ constructor(
   private val systemPromptRepository: SystemPromptRepository,
   private val modelRegistry: ModelRegistry,
   val huggingFaceApiClient: HuggingFaceApiClient,
+  private val deviceProfile: DeviceProfile,
   @ApplicationContext private val context: Context,
 ) :
   ViewModel()
@@ -332,7 +337,19 @@ constructor(
     task: Task?,
     model: Model,
     includeExtraDataFiles: Boolean = isDownloadOptionalComponentsEnabled(model.name),
+    bypassStorageCheck: Boolean = false,
   ) {
+    // Choke point for the storage check: a size of 0 means unknown/unresolved and must never
+    // warn, or every auto-started import (unresolved size at start) would prompt spuriously.
+    if (
+      !bypassStorageCheck &&
+        model.totalBytes > 0L &&
+        model.totalBytes > deviceProfile.freeStorageBytes()
+    ) {
+      _uiState.update { it.copy(modelNeedingStorageConfirmation = model.name) }
+      return
+    }
+
     // Update status.
     setDownloadStatus(
       curModel = model,
@@ -387,6 +404,17 @@ constructor(
       includeExtraDataFiles = includeExtraDataFiles,
       onStatusUpdated = this::setDownloadStatus,
     )
+  }
+
+  /** Clears a pending storage-confirmation prompt without starting the download. */
+  fun dismissStorageConfirmation() {
+    _uiState.update { it.copy(modelNeedingStorageConfirmation = null) }
+  }
+
+  /** User chose "proceed anyway" on the storage warning; start the download regardless. */
+  fun proceedWithDownloadDespiteStorageWarning(model: Model, task: Task? = null) {
+    _uiState.update { it.copy(modelNeedingStorageConfirmation = null) }
+    downloadModel(task = task, model = model, bypassStorageCheck = true)
   }
 
   fun cancelDownloadModel(model: Model) {
@@ -718,7 +746,6 @@ constructor(
       )
     }
 
-    // Add to data store.
     val importedModels = dataStoreRepository.readImportedModels().toMutableList()
     val importedModelIndex = importedModels.indexOfFirst { info.fileName == it.fileName }
     if (importedModelIndex >= 0) {
@@ -727,12 +754,54 @@ constructor(
     }
     importedModels.add(info)
     dataStoreRepository.saveImportedModels(importedModels = importedModels)
+
+    // A local file import has no URL and is already SUCCEEDED above; only a real
+    // remote import needs the download kicked off automatically. Main dispatcher is required:
+    // downloadModel observes WorkManager LiveData, and this runs on IO for a web import.
+    if (model.url.isNotEmpty()) {
+      viewModelScope.launch(Dispatchers.Main) { downloadModel(task = null, model = model) }
+    }
+
+    // Card backfill (url imports only): async, off the durability path above; a failed or
+    // empty fetch leaves the already-persisted entry untouched -- no second write.
+    if (info.url.isNotEmpty()) {
+      viewModelScope.launch(Dispatchers.IO) {
+        val modelId = info.url.substringAfter("huggingface.co/", "").substringBefore("/resolve/")
+        if (modelId.isEmpty()) return@launch
+        val modelCardText =
+          try {
+            huggingFaceApiClient.fetchModelCard(
+              modelId = modelId,
+              accessToken = dataStoreRepository.readAccessTokenData()?.accessToken,
+            ) ?: ""
+          } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch model card for $modelId", e)
+            ""
+          }
+        if (modelCardText.isEmpty()) return@launch
+
+        val infoToPersist = info.toBuilder().setModelCardText(modelCardText).build()
+        val currentModels = dataStoreRepository.readImportedModels().toMutableList()
+        val currentIndex = currentModels.indexOfFirst { infoToPersist.fileName == it.fileName }
+        if (currentIndex >= 0) {
+          currentModels[currentIndex] = infoToPersist
+        } else {
+          currentModels.add(infoToPersist)
+        }
+        dataStoreRepository.saveImportedModels(importedModels = currentModels)
+      }
+    }
   }
 
   // Box: imported Stable-Diffusion GGUF models. The Model factory itself lives in
   // relay/modelmanager/ModelRegistry.kt so the API server and the UI build identical SD models.
-  fun addImportedSdModel(fileName: String, fileSize: Long) {
-    val model = modelRegistry.createImportedSdModel(fileName = fileName, fileSize = fileSize)
+  //
+  // [url] empty (default) is the original local-file import: the file already exists on disk, so
+  // status is SUCCEEDED immediately. A non-empty [url] (Discovery import) instead kicks off a real
+  // download, mirroring addImportedLlmModel's url-vs-local branch above.
+  fun addImportedSdModel(fileName: String, fileSize: Long, url: String = "") {
+    val model =
+      modelRegistry.createImportedSdModel(fileName = fileName, fileSize = fileSize, url = url)
 
     val task = getTasksByIds(ids = setOf(BuiltInTaskId.IMAGE_GEN)).firstOrNull() ?: return
     val existingIndex = task.models.indexOfFirst { it.name == model.name && it.imported }
@@ -743,11 +812,15 @@ constructor(
 
     val modelDownloadStatus = uiState.value.modelDownloadStatus.toMutableMap()
     modelDownloadStatus[model.name] =
-      ModelDownloadStatus(
-        status = ModelDownloadStatusType.SUCCEEDED,
-        receivedBytes = fileSize,
-        totalBytes = fileSize,
-      )
+      if (model.url.isNotEmpty()) {
+        getModelDownloadStatus(model = model)
+      } else {
+        ModelDownloadStatus(
+          status = ModelDownloadStatusType.SUCCEEDED,
+          receivedBytes = fileSize,
+          totalBytes = fileSize,
+        )
+      }
 
     _uiState.update {
       uiState.value.copy(
@@ -755,6 +828,10 @@ constructor(
         modelDownloadStatus = modelDownloadStatus,
         modelImportingUpdateTrigger = System.currentTimeMillis(),
       )
+    }
+
+    if (model.url.isNotEmpty()) {
+      viewModelScope.launch(Dispatchers.Main) { downloadModel(task = null, model = model) }
     }
   }
 

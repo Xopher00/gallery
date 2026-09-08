@@ -11,7 +11,6 @@
 package com.google.ai.edge.gallery.relay.ui.home
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -25,8 +24,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddComment
 import androidx.compose.material.icons.rounded.Dns
-import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,7 +33,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush.Companion.linearGradient
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.ui.home.SquareDrawerItem
 import com.google.ai.edge.gallery.ui.theme.customColors
 import kotlinx.coroutines.CoroutineScope
@@ -78,6 +79,9 @@ fun HomeApiServerDrawerItem(
   }
 }
 
+// Default button padding is 24dp a side, which clips the longest label at one-third width.
+private val QUICK_ACTION_PADDING = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+
 /**
  * Box's quick-action row (New Chat / History / Import) shown under the home screen's intro text.
  */
@@ -97,7 +101,11 @@ fun HomeQuickActionsRow(
         .padding(bottom = 16.dp),
     horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
-    FilledTonalButton(onClick = onNewChatClicked, modifier = Modifier.weight(1f).fillMaxHeight()) {
+    FilledTonalButton(
+      onClick = onNewChatClicked,
+      modifier = Modifier.weight(1f).fillMaxHeight(),
+      contentPadding = QUICK_ACTION_PADDING,
+    ) {
       Icon(Icons.Rounded.AddComment, contentDescription = null, modifier = Modifier.size(16.dp))
       Spacer(modifier = Modifier.width(4.dp))
       Text("New Chat", maxLines = 1)
@@ -105,6 +113,7 @@ fun HomeQuickActionsRow(
     FilledTonalButton(
       onClick = navigateToChatHistory,
       modifier = Modifier.weight(1f).fillMaxHeight(),
+      contentPadding = QUICK_ACTION_PADDING,
     ) {
       Icon(Icons.Rounded.Forum, contentDescription = null, modifier = Modifier.size(16.dp))
       Spacer(modifier = Modifier.width(4.dp))
@@ -113,18 +122,11 @@ fun HomeQuickActionsRow(
     FilledTonalButton(
       onClick = onImportModelClicked,
       modifier = Modifier.weight(1f).fillMaxHeight(),
-      contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+      contentPadding = QUICK_ACTION_PADDING,
     ) {
-      Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+      Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(16.dp))
       Spacer(modifier = Modifier.width(4.dp))
-      Column {
-        Text("Import", maxLines = 1)
-        Text(
-          "GGUF · LiteRT",
-          style = MaterialTheme.typography.labelSmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
+      Text(stringResource(R.string.home_quick_action_discover), maxLines = 1)
     }
   }
 }

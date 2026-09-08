@@ -297,6 +297,23 @@ fun BenchmarkScreen(
     }
   }
 
+  // Shown when the ViewModel refuses to benchmark a model whose format/runtime isn't supported.
+  if (uiState.unsupportedModelError) {
+    AlertDialog(
+      title = { Text(stringResource(R.string.benchmark_unsupported_format_title)) },
+      text = { Text(stringResource(R.string.benchmark_unsupported_format_error)) },
+      onDismissRequest = { viewModel.setUnsupportedModelError(unsupportedModelError = false) },
+      confirmButton = {
+        Button(
+          onClick = { viewModel.setUnsupportedModelError(unsupportedModelError = false) },
+          contentPadding = SMALL_BUTTON_CONTENT_PADDING,
+        ) {
+          Text(stringResource(R.string.ok))
+        }
+      },
+    )
+  }
+
   // Confirmation dialog for running benchmark.
   if (showRunBenchmarkConfirmationDialog) {
     AlertDialog(
