@@ -8,34 +8,36 @@
  *    dispatch: LiteRT-LM / llama.cpp / AICore) instead of a hardcoded LlmChatModelHelper
  *  - bearer API key auth required on all v1 routes; health is open
  */
-package com.google.ai.edge.gallery.relay.openai
+package com.google.ai.edge.gallery.openai
 
 import android.content.Context
 import android.util.Log
 import com.google.ai.edge.gallery.data.Accelerator
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.ConfigKeys
+import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
-import com.google.ai.edge.gallery.relay.openai.handlers.NO_BUSY_GUARD_TIMEOUT_MS
-import com.google.ai.edge.gallery.relay.openai.handlers.ON_DEMAND_MODEL_LOAD_TIMEOUT_MS
-import com.google.ai.edge.gallery.relay.openai.handlers.BusyResult
-import com.google.ai.edge.gallery.relay.openai.handlers.handleAgentRun
-import com.google.ai.edge.gallery.relay.openai.handlers.handleAgentTools
-import com.google.ai.edge.gallery.relay.openai.handlers.handleAnthropicMessages
-import com.google.ai.edge.gallery.relay.openai.handlers.handleAudioTranscriptions
-import com.google.ai.edge.gallery.relay.openai.handlers.handleChatCompletion
-import com.google.ai.edge.gallery.relay.openai.handlers.handleCompletion
-import com.google.ai.edge.gallery.relay.openai.handlers.handleImageEdits
-import com.google.ai.edge.gallery.relay.openai.handlers.handleImageGenerations
-import com.google.ai.edge.gallery.relay.openai.handlers.handleOcr
-import com.google.ai.edge.gallery.relay.openai.handlers.handleVisionDetect
-import com.google.ai.edge.gallery.relay.openai.handlers.handleVisionSegment
-import com.google.ai.edge.gallery.relay.openai.handlers.withBusyGuard
+import com.google.ai.edge.gallery.openai.handlers.NO_BUSY_GUARD_TIMEOUT_MS
+import com.google.ai.edge.gallery.openai.handlers.ON_DEMAND_MODEL_LOAD_TIMEOUT_MS
+import com.google.ai.edge.gallery.openai.handlers.BusyResult
+import com.google.ai.edge.gallery.openai.handlers.handleAgentRun
+import com.google.ai.edge.gallery.openai.handlers.handleAgentTools
+import com.google.ai.edge.gallery.openai.handlers.handleAnthropicMessages
+import com.google.ai.edge.gallery.openai.handlers.handleAudioTranscriptions
+import com.google.ai.edge.gallery.openai.handlers.handleChatCompletion
+import com.google.ai.edge.gallery.openai.handlers.handleCompletion
+import com.google.ai.edge.gallery.openai.handlers.handleImageEdits
+import com.google.ai.edge.gallery.openai.handlers.handleImageGenerations
+import com.google.ai.edge.gallery.openai.handlers.handleOcr
+import com.google.ai.edge.gallery.openai.handlers.handleVisionDetect
+import com.google.ai.edge.gallery.openai.handlers.handleVisionSegment
+import com.google.ai.edge.gallery.openai.handlers.withBusyGuard
 import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistry
 import com.google.ai.edge.gallery.relay.runtime.LlamaCppModelHelper
 import com.google.ai.edge.gallery.runtime.aicore.AICoreModelHelper
 import com.google.ai.edge.gallery.runtime.runtimeHelper
+import dagger.hilt.android.EntryPointAccessors
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -65,6 +67,10 @@ private const val TAG = "AGOpenAiServer"
 // by the runtime to gate task-scoped capabilities (e.g. speculative decoding); a stable
 // constant is fine since the OpenAI API surface doesn't have its own task concept.
 private const val API_TASK_ID = "openai_api"
+
+// Holder id this server registers with ModelRegistry.acquireHold/releaseHold for every model it
+// keeps loaded (POST /v1/models/{id}/load).
+private const val HOLDER_API = "api"
 
 // Outcome of OpenAiServer.loadModel(), mapped to HTTP status codes by the
 // POST /v1/models/{id}/load route and by the on-demand load call sites in ChatHandler/
@@ -159,10 +165,29 @@ private fun constantTimeEquals(a: String, b: String): Boolean =
 
 class OpenAiServer(
     private val context: Context,
-    private val modelRegistry: ModelRegistry
+    private val modelRegistry: ModelRegistry,
+    private val llmSessionManager: com.google.ai.edge.gallery.agent.sessions.LlmSessionManager,
 ) {
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     private val modelMutexes = ConcurrentHashMap<String, Mutex>()
+
+    private val dataStoreRepository by lazy {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            DataStoreRepositoryEntryPoint::class.java,
+        ).dataStoreRepository()
+    }
+
+    // Persists (name, accelerator) as the boot-preload target for BootReceiver.
+    private fun pinLastModel(name: String, accelerator: String?) {
+        dataStoreRepository.saveServerLastPinned(name, accelerator)
+    }
+
+    // Only clears the persisted pin if it currently points at this model.
+    private fun unpinIfPinned(name: String) {
+        val (pinnedName, _) = dataStoreRepository.readServerLastPinned()
+        if (pinnedName == name) dataStoreRepository.saveServerLastPinned(null, null)
+    }
 
     // Set inside start() from the values actually used to bind/authenticate this running
     // server -- not re-derived from prefs, which may have changed since. checkConfig()
@@ -325,10 +350,10 @@ class OpenAiServer(
             // nothing left would ever unpin it.
             model.configValues =
                 model.configValues + (ConfigKeys.ACCELERATOR.label to previousAcceleratorLabel)
-            // Also pass context so a failed reinit clears this model as the persisted boot-
-            // preload target if it was pinned for one -- a boot should not retry a configuration
-            // known to have just failed.
-            OpenAiServerState.unpin(model.name, context)
+            // A failed reinit also clears the persisted boot-preload target if it was pinned for
+            // one -- a boot should not retry a configuration known to have just failed.
+            modelRegistry.releaseHold(model.name, HOLDER_API)
+            unpinIfPinned(model.name)
             throw IllegalStateException(
                 "Failed to reinitialize model '${model.name}' on ${accelerator.label}: $error"
             )
@@ -341,7 +366,7 @@ class OpenAiServer(
 
     // Resolves `name` against every task's model list (not just initialized ones), initializes
     // it via the existing ensureAccelerator/reinitializeModel path if needed, and pins it
-    // (OpenAiServerState.pin) so ModelManagerViewModel.cleanupModel no-ops for it until
+    // (pinLastModel) so ModelManagerViewModel.cleanupModel no-ops for it until
     // unloadModel()/server-stop unpins it again. Called both from the POST /v1/models/{id}/load
     // route and on-demand from ChatHandler/ImageGenerationHandler/AudioTranscriptionHandler when
     // a request names a model that isn't loaded yet. `timeoutMs` bounds how long a caller waits
@@ -362,10 +387,10 @@ class OpenAiServer(
         }
 
         if (model.instance != null) {
-            // Already loaded (by the UI, or a previous API call) -- pin it and report success
+            // Already loaded (by the UI, or a previous API call) -- hold it and report success
             // rather than re-triggering initialization.
-            // Persist (name, accelerator) as the boot-preload target.
-            OpenAiServerState.pin(name, context, currentAcceleratorLabel(model))
+            modelRegistry.acquireHold(name, HOLDER_API)
+            pinLastModel(name, currentAcceleratorLabel(model))
             return LoadResult.Loaded(name, currentAcceleratorLabel(model))
         }
 
@@ -375,14 +400,14 @@ class OpenAiServer(
             return LoadResult.NotFound("Model '$name' is not downloaded")
         }
 
-        // One pinned model per engine kind: refuse a second LLM/StableDiffusion/Whisper load
-        // while another model of the same kind is still pinned, rather than silently evicting it.
+        // One held model per engine kind: refuse a second LLM/StableDiffusion/Whisper load
+        // while another model of the same kind is still held, rather than silently evicting it.
         val kind = engineKindForTask(task.id)
-        val conflicting = OpenAiServerState.pinnedModels.value
+        val conflicting = modelRegistry.heldModelNames()
             .filter { it != name }
-            .firstOrNull { pinnedName ->
-                val pinnedTask = tasks.find { t -> t.models.any { it.name == pinnedName } }
-                pinnedTask != null && engineKindForTask(pinnedTask.id) == kind
+            .firstOrNull { heldName ->
+                val heldTask = tasks.find { t -> t.models.any { it.name == heldName } }
+                heldTask != null && engineKindForTask(heldTask.id) == kind
             }
         if (conflicting != null) {
             return LoadResult.Conflict("Unload '$conflicting' first")
@@ -439,8 +464,8 @@ class OpenAiServer(
                         "Failed to initialize model '$name': ${error ?: "unknown error"}"
                     ) as LoadResult
                 } else {
-                    // Persist (name, accelerator) as the boot-preload target.
-                    OpenAiServerState.pin(name, context, currentAcceleratorLabel(model))
+                    modelRegistry.acquireHold(name, HOLDER_API)
+                    pinLastModel(name, currentAcceleratorLabel(model))
                     LoadResult.Loaded(name, currentAcceleratorLabel(model)) as LoadResult
                 }
             } else {
@@ -450,8 +475,8 @@ class OpenAiServer(
                             "may use the NPU at a time on this device."
                     ) as LoadResult
                     is AcceleratorResult.Ok -> {
-                        // Persist (name, accelerator) as the boot-preload target.
-                        OpenAiServerState.pin(name, context, currentAcceleratorLabel(model))
+                        modelRegistry.acquireHold(name, HOLDER_API)
+                        pinLastModel(name, currentAcceleratorLabel(model))
                         LoadResult.Loaded(name, currentAcceleratorLabel(model)) as LoadResult
                     }
                 }
@@ -470,16 +495,16 @@ class OpenAiServer(
     private fun currentAcceleratorLabel(model: Model): String =
         model.getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = honestDefaultAcceleratorLabel(model))
 
-    // Unpins `name` first (so cleanupModel's pin guard doesn't just no-op this) then routes
-    // through the app's single teardown chokepoint, same as the UI's navigate-up.
+    // Releases the hold first so cleanupModel's holder guard doesn't no-op this, then awaits
+    // teardown so the caller (POST /v1/models/{id}/unload) doesn't return until the native free
+    // actually completes.
     suspend fun unloadModel(name: String) {
-        // Explicit unload also clears the persisted "last pinned" boot target if it matches, so
-        // a rebooted phone doesn't reload a model the client just deliberately unloaded.
-        OpenAiServerState.unpin(name, context)
+        modelRegistry.releaseHold(name, HOLDER_API)
+        unpinIfPinned(name)
         val task = modelRegistry.tasks.find { t -> t.models.any { it.name == name } }
             ?: return
         val model = task.models.find { it.name == name } ?: return
-        modelRegistry.cleanupModel(context = context, task = task, model = model)
+        modelRegistry.cleanupModelAwait(context = context, task = task, model = model)
     }
 
     // Outcome of comparing this running server's actual bind host/API key against the current
@@ -493,19 +518,16 @@ class OpenAiServer(
         data class BindUnavailable(val message: String) : ConfigCheck()
     }
 
-    // Wraps bindHost() in try/catch since it throws for INTERFACE mode when the selected
-    // interface isn't ready. Previously that throw was swallowed into "does not match", which
-    // made the caller stop a running server over a transient interface blip -- now it is
-    // reported as BindUnavailable instead, and bindHost() itself already records the reason in
-    // OpenAiServerState.bindError (set on throw, cleared on the next successful bind).
+    // BindUnavailable (rather than propagating the throw) so a transient INTERFACE blip
+    // doesn't tear down an otherwise-healthy server; bindHost() records the reason in bindError.
     fun checkConfig(context: Context): ConfigCheck {
         val currentHost = try {
-            OpenAiServerState.bindHost()
+            ServerRuntime.bindHost()
         } catch (e: Exception) {
             return ConfigCheck.BindUnavailable(e.message ?: "Failed to determine bind host")
         }
         return if (boundHost == currentHost &&
-            apiKeyFingerprint == OpenAiServerState.fingerprint(OpenAiServerState.apiKey(context))
+            apiKeyFingerprint == ApiKey.fingerprint(ApiKey.apiKey(context, dataStoreRepository))
         ) {
             ConfigCheck.Matches
         } else {
@@ -513,13 +535,13 @@ class OpenAiServer(
         }
     }
 
-    fun start(port: Int = OpenAiServerState.DEFAULT_PORT) {
+    fun start(port: Int = ServerRuntime.DEFAULT_PORT) {
         if (server != null) return
 
-        val apiKey = OpenAiServerState.apiKey(context)
-        val host = OpenAiServerState.bindHost()
+        val apiKey = ApiKey.apiKey(context, dataStoreRepository)
+        val host = ServerRuntime.bindHost()
         boundHost = host
-        apiKeyFingerprint = OpenAiServerState.fingerprint(apiKey)
+        apiKeyFingerprint = ApiKey.fingerprint(apiKey)
 
         server = embeddedServer(CIO, port = port, host = host) {
             install(ContentNegotiation) {
@@ -566,19 +588,11 @@ class OpenAiServer(
                 }
             }
 
-            // SECURITY/CONSISTENCY: maps request-body deserialization failures (malformed JSON,
-            // wrong field types, empty/untransformable body, unsupported content type), which
-            // Ktor's ContentNegotiation converts into BadRequestException /
-            // CannotTransformContentToTypeException / UnsupportedMediaTypeException, to the same
-            // ErrorEnvelope shape every other error path here uses -- 400 for the first, 415
-            // (unchanged) for the latter two. Uses StatusPages (the idiomatic Ktor mechanism for
-            // exception-to-response mapping) rather than a hand-rolled pipeline interceptor.
-            // Scoped to these three named types only -- never exception<Throwable> -- so it
-            // cannot affect the auth check above (401 via finish(), not a throw) or the
-            // busy-guard 429s (plain non-throwing call.respond() calls), neither of which throws
-            // through here. Messages are sanitised: kotlinx.serialization echoes the raw request
-            // body back after "JSON input:", and Ktor's own message for the transform failure
-            // names our internal request class -- neither may reach the client.
+            // Maps ContentNegotiation's deserialization failures (bad JSON, wrong types,
+            // unsupported media type) to the same ErrorEnvelope shape as other error paths.
+            // Scoped to these three exception types only -- never exception<Throwable> -- so it
+            // can't swallow the auth check's 401 or the busy-guard's 429s. Messages are
+            // sanitized: left raw, they'd echo the request body or an internal class name.
             install(StatusPages) {
                 exception<BadRequestException> { call, cause ->
                     call.respond(
@@ -697,6 +711,7 @@ class OpenAiServer(
                         call = call,
                         request = request,
                         modelRegistry = modelRegistry,
+                        llmSessionManager = llmSessionManager,
                         modelMutexes = modelMutexes,
                         parseAccelerator = ::parseAccelerator,
                         usesNpuSlot = ::usesNpuSlot,
@@ -737,6 +752,7 @@ class OpenAiServer(
                         call = call,
                         request = request,
                         modelRegistry = modelRegistry,
+                        llmSessionManager = llmSessionManager,
                         modelMutexes = modelMutexes,
                         ensureAccelerator = { model, accel ->
                             when (val result = ensureAccelerator(model, accel)) {
@@ -811,7 +827,7 @@ class OpenAiServer(
         }.start(wait = false)
         // Publish this instance so MainActivity's headless `--es load_model` extra (and any
         // other caller outside the Ktor routing lambdas) can reach loadModel()/unloadModel().
-        OpenAiServerState.runningServer = this
+        ServerRuntime.runningServer = this
         Log.i(TAG, "OpenAI API Server started on $boundHost:$port")
     }
 
@@ -870,28 +886,29 @@ class OpenAiServer(
         )
     }
 
-    // Unpins and cleans up every model the API server pinned before tearing down the embedded
-    // server, so a client-loaded model doesn't outlive the server that loaded it. Fire-and-forget
-    // (cleanupModel is not suspend -- it completes its native teardown asynchronously via its own
-    // onDone callback).
+    // Releases the hold on, and cleans up, every model this API server held before tearing down
+    // the embedded server, so a client-loaded model doesn't outlive the server that loaded it.
+    // Each cleanup is awaited (cleanupModelAwait), so the native free for every held model has
+    // actually finished before this loop moves on -- not just fired off asynchronously.
     //
     // The actual embedded-server teardown (`EmbeddedServer.stop(1000, 2000)`) blocks the calling
     // thread for up to 2s while it drains connections. This function is `suspend` and hops that
     // one blocking call onto Dispatchers.IO so a caller on Dispatchers.Main (e.g.
     // OpenAiServerService's serviceScope) never blocks -- while still `withContext`-awaiting it,
     // so callers that depend on the stop having completed before proceeding (the rebind path)
-    // keep that ordering guarantee. The unpin/cleanup loop above stays on the caller's context,
+    // keep that ordering guarantee. The release/cleanup loop above stays on the caller's context,
     // unchanged from before.
     suspend fun stop() {
-        val pinned = OpenAiServerState.pinnedModels.value.toList()
-        for (name in pinned) {
-            // Passing context here also clears the persisted "last pinned" boot target for
-            // every model this unpins.
-            OpenAiServerState.unpin(name, context)
+        val heldByThisServer = modelRegistry.heldModelNames()
+            .filter { HOLDER_API in modelRegistry.holdersOf(it) }
+            .toList()
+        for (name in heldByThisServer) {
+            modelRegistry.releaseHold(name, HOLDER_API)
+            unpinIfPinned(name)
             val task = modelRegistry.tasks.find { t -> t.models.any { it.name == name } }
             val model = task?.models?.find { it.name == name }
             if (task != null && model != null) {
-                modelRegistry.cleanupModel(context = context, task = task, model = model)
+                modelRegistry.cleanupModelAwait(context = context, task = task, model = model)
             }
         }
         val embedded = server
@@ -901,8 +918,8 @@ class OpenAiServer(
                 embedded.stop(1000, 2000)
             }
         }
-        if (OpenAiServerState.runningServer === this) {
-            OpenAiServerState.runningServer = null
+        if (ServerRuntime.runningServer === this) {
+            ServerRuntime.runningServer = null
         }
     }
 }

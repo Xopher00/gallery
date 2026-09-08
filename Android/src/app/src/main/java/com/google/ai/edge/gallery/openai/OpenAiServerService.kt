@@ -1,7 +1,7 @@
 /*
  * Ported from mobile-server (com.server.edge.gallery) into this project (relay).
  */
-package com.google.ai.edge.gallery.relay.openai
+package com.google.ai.edge.gallery.openai
 
 import android.app.*
 import android.content.Context
@@ -16,8 +16,10 @@ import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import com.google.ai.edge.gallery.MainActivity
 import com.google.ai.edge.gallery.R
+import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
 import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistryEntryPoint
-import com.google.ai.edge.gallery.relay.openai.OpenAiServerState.BindMode
+import com.google.ai.edge.gallery.openai.ServerRuntime.BindMode
+import com.google.ai.edge.gallery.sessions.LlmSessionManagerEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.StateFlow
@@ -36,14 +38,21 @@ private const val ACTION_STOP_SERVER = "com.google.ai.edge.gallery.openai.STOP_S
  */
 class OpenAiServerService : Service() {
 
-    private var server: OpenAiServer? = null
+    // The single live-server reference lives in ServerRuntime.runningServer, not a private field.
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
+    private val dataStoreRepository by lazy {
+        EntryPointAccessors.fromApplication(
+            applicationContext,
+            DataStoreRepositoryEntryPoint::class.java,
+        ).dataStoreRepository()
+    }
+
     companion object {
-        val isRunning: StateFlow<Boolean> = OpenAiServerState.isRunning
-        val localUrl: StateFlow<String?> = OpenAiServerState.localUrl
+        val isRunning: StateFlow<Boolean> = ServerRuntime.isRunning
+        val localUrl: StateFlow<String?> = ServerRuntime.localUrl
         const val EXTRA_OPEN_SERVER_SCREEN = "open_server_screen"
 
         fun startService(context: Context) {
@@ -63,9 +72,8 @@ class OpenAiServerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_SERVER) {
-            // onDestroy() (triggered by stopSelf()) also calls releaseLocks(); calling it here
-            // too is redundant but harmless (releaseLocks() is idempotent) and makes this exit
-            // route explicit rather than relying solely on the lifecycle callback firing later.
+            // Redundant with onDestroy()'s releaseLocks() call, but idempotent, and makes this
+            // exit path explicit.
             releaseLocks()
             stopSelf()
             return START_NOT_STICKY
@@ -89,20 +97,20 @@ class OpenAiServerService : Service() {
             startForeground(NOTIFICATION_ID, createNotification("Starting server..."))
         }
 
-        val bindMode = OpenAiServerState.loadBindMode(applicationContext)
-        OpenAiServerState.loadSelectedInterfaceName(applicationContext)
+        val bindMode = ServerRuntime.loadBindMode(dataStoreRepository)
+        ServerRuntime.loadSelectedInterfaceName(dataStoreRepository)
 
         serviceScope.launch {
             // bindHost() reflects the persisted bind mode: 127.0.0.1 for LOOPBACK,
             // 0.0.0.0 for LAN. The reported local-url host stays 127.0.0.1 (the
             // loopback address always works for on-device clients); LAN mode's own reachable
             // address is a separate concern for the UI (ServerScreen), not this notification.
-            val local = "http://127.0.0.1:${OpenAiServerState.DEFAULT_PORT}"
+            val local = "http://127.0.0.1:${ServerRuntime.DEFAULT_PORT}"
 
             try {
                 // A mode/interface/API-key change while the server is already running lands
                 // here as a re-entrant startService() call (ServerScreen's applyModeChange/
-                // applyInterfaceChange/OpenAiServerState.regenerateApiKey). Detect that the live
+                // applyInterfaceChange/ApiKey.regenerateApiKey). Detect that the live
                 // server no longer matches the current prefs and rebind instead of hitting the
                 // "already running; skipping restart" no-op below.
                 //
@@ -111,13 +119,12 @@ class OpenAiServerService : Service() {
                 // transiently down (BindUnavailable). A transient bind-check failure must not
                 // stop an otherwise-healthy running server; it is only logged (bindError is
                 // already recorded by bindHost() itself, inside checkConfig()).
-                when (val check = server?.let { it.checkConfig(applicationContext) }) {
+                when (val check = ServerRuntime.runningServer?.let { it.checkConfig(applicationContext) }) {
                     is OpenAiServer.ConfigCheck.NeedsRebind -> {
                         Log.i(TAG, "OpenAI API Server config changed while running; rebinding")
-                        server?.stop()
-                        server = null
-                        OpenAiServerState.setRunning(false)
-                        OpenAiServerState.setLiveBoundHost(null)
+                        ServerRuntime.runningServer?.stop()
+                        ServerRuntime.runningServer = null
+                        ServerRuntime.markStopped()
                     }
                     is OpenAiServer.ConfigCheck.BindUnavailable -> {
                         Log.w(TAG, "OpenAI API Server bind check failed (${check.message}); " +
@@ -128,7 +135,8 @@ class OpenAiServerService : Service() {
                     }
                 }
 
-                if (server == null) {
+                if (ServerRuntime.runningServer == null) {
+                    ServerRuntime.markStarting()
                     // ModelRegistry is a process-scoped @Singleton (modelmanager/ModelRegistry.kt),
                     // reachable with no Activity having ever run in this process -- mirrors
                     // BootReceiver's existing NotificationScheduleManagerEntryPoint pattern (see
@@ -137,6 +145,10 @@ class OpenAiServerService : Service() {
                         applicationContext,
                         ModelRegistryEntryPoint::class.java,
                     ).modelRegistry()
+                    val llmSessionManager = EntryPointAccessors.fromApplication(
+                        applicationContext,
+                        LlmSessionManagerEntryPoint::class.java,
+                    ).llmSessionManager()
 
                     // The service must not claim to be running when it structurally cannot
                     // serve. getAllModels().isNotEmpty() is not that check: task.models holds
@@ -155,22 +167,18 @@ class OpenAiServerService : Service() {
                     // starting this service on boot, and both of which an Activity runs before a
                     // user ever opens the server screen.
                     if (modelRegistry.getAllModels().any { modelRegistry.isModelDownloaded(it) }) {
-                        val newServer = OpenAiServer(applicationContext, modelRegistry)
-                        newServer.start(OpenAiServerState.DEFAULT_PORT)
-                        server = newServer
-                        OpenAiServerState.setLiveBoundHost(newServer.boundHost)
-                        Log.i(TAG, "OpenAI API Server started on port ${OpenAiServerState.DEFAULT_PORT} " +
+                        val newServer = OpenAiServer(applicationContext, modelRegistry, llmSessionManager)
+                        newServer.start(ServerRuntime.DEFAULT_PORT)
+                        // newServer.start() already published itself as
+                        // ServerRuntime.runningServer -- no separate field to assign here.
+                        Log.i(TAG, "OpenAI API Server started on port ${ServerRuntime.DEFAULT_PORT} " +
                             "(bind mode: $bindMode)")
-                        // setRunning(true) and the "running" notification only fire when a
-                        // server is actually up -- see the else branch below for the no-models
-                        // case, which previously fell through to this call and lied about being
-                        // running.
-                        OpenAiServerState.setRunning(true, local = local)
+                        ServerRuntime.markReady(local = local, liveBoundHost = newServer.boundHost)
                         updateNotification(notificationText(local))
                         acquireLocks()
                     } else {
                         Log.w(TAG, "ModelRegistry has no downloaded/imported models yet; server cannot start")
-                        // The service must not claim to be running (no setRunning(true), no
+                        // The service must not claim to be running (no markReady(), no
                         // "running" notification) when it structurally cannot serve -- every
                         // model currently attached to a task (if any) has no file on disk, so
                         // there is nothing this server could return for any request. Tell the
@@ -181,33 +189,26 @@ class OpenAiServerService : Service() {
                                 "the app and download or import a model, then retry starting " +
                                 "the server."
                         )
-                        OpenAiServerState.setRunning(false)
-                        OpenAiServerState.setLiveBoundHost(null)
+                        ServerRuntime.markStopping()
+                        ServerRuntime.markStopped()
                         releaseLocks()
                         stopForeground(STOP_FOREGROUND_REMOVE)
                         stopSelf()
                     }
                 } else {
                     Log.d(TAG, "OpenAI API Server already running; skipping restart")
-                    OpenAiServerState.setRunning(true, local = local)
+                    ServerRuntime.markReady(local = local)
                     updateNotification(notificationText(local))
                 }
             } catch (e: Exception) {
-                // bindHost() (called inside server.start()) throws rather than widening the bind
-                // scope when INTERFACE mode has no usable interface selected -- see
-                // OpenAiServerState.bindHost(). That is correct and must not change. Left
-                // uncaught, this coroutine has no CoroutineExceptionHandler, so the exception
-                // would kill the process, and since the service is START_STICKY, Android would
-                // relaunch it straight back into the same failure -- a crash loop. Surface the
-                // reason via bindError (ServerScreen reads this) and the notification, then stop
-                // cleanly instead of letting START_STICKY restart into the same crash.
+                // Uncaught here it would crash-loop START_STICKY; surface via bindError instead.
                 val message = e.message ?: "Server failed to start"
                 Log.e(TAG, "OpenAI API Server failed to start (bind mode: $bindMode): $message", e)
-                server?.stop()
-                server = null
-                OpenAiServerState.refreshBindError()
-                OpenAiServerState.setRunning(false)
-                OpenAiServerState.setLiveBoundHost(null)
+                ServerRuntime.runningServer?.stop()
+                ServerRuntime.runningServer = null
+                ServerRuntime.refreshBindError()
+                ServerRuntime.markStopping()
+                ServerRuntime.markStopped()
                 updateNotification("Server not started: $message")
                 releaseLocks()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -226,11 +227,11 @@ class OpenAiServerService : Service() {
         // run -- it is fired on a short-lived scope instead. Nothing after onDestroy() depends
         // on the stop having completed (the service is already tearing down), so this is
         // deliberately fire-and-forget rather than awaited.
-        val stoppingServer = server
-        server = null
+        val stoppingServer = ServerRuntime.runningServer
+        ServerRuntime.runningServer = null
         serviceScope.cancel()
-        OpenAiServerState.setRunning(false)
-        OpenAiServerState.setLiveBoundHost(null)
+        ServerRuntime.markStopping()
+        ServerRuntime.markStopped()
         stopForeground(STOP_FOREGROUND_REMOVE)
         releaseLocks()
         Log.i(TAG, "OpenAI API Server Service stopped")
@@ -240,11 +241,8 @@ class OpenAiServerService : Service() {
     }
 
     /**
-     * Acquires the [PowerManager.PARTIAL_WAKE_LOCK] and [WifiManager.WIFI_MODE_FULL_HIGH_PERF]
-     * locks needed to keep serving requests while the device is dozing/asleep or Wi-Fi would
-     * otherwise be allowed to drop to a low-power state. Called only after the server has
-     * actually started (see onStartCommand's success branch) so a failed start attempt never
-     * leaks a lock.
+     * Acquires wake + Wi-Fi locks so serving continues while the device dozes/sleeps. Called
+     * only after the server has actually started, so a failed start never leaks a lock.
      */
     private fun acquireLocks() {
         if (wakeLock == null) {
@@ -263,11 +261,7 @@ class OpenAiServerService : Service() {
         }
     }
 
-    /**
-     * Releases both locks acquired by [acquireLocks], if held. Idempotent and null-safe: safe to
-     * call from every exit route (including ones where the locks were never acquired, e.g. a
-     * failed start) without risking a double-release exception.
-     */
+    /** Releases both locks acquired by [acquireLocks], if held. Idempotent and null-safe. */
     private fun releaseLocks() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
@@ -276,7 +270,7 @@ class OpenAiServerService : Service() {
     }
 
     private fun notificationText(local: String): String {
-        val bindMode = OpenAiServerState.bindMode.value
+        val bindMode = ServerRuntime.bindMode.value
         return "Server running ($bindMode) at $local"
     }
 
@@ -307,10 +301,10 @@ class OpenAiServerService : Service() {
         // Same fire-and-forget-on-IO reasoning as onDestroy() -- onTimeout() is a plain
         // callback (no suspend context) and serviceScope is cancelled below, so a stop queued
         // into it would never run.
-        val stoppingServer = server
-        server = null
-        OpenAiServerState.setRunning(false)
-        OpenAiServerState.setLiveBoundHost(null)
+        val stoppingServer = ServerRuntime.runningServer
+        ServerRuntime.runningServer = null
+        ServerRuntime.markStopping()
+        ServerRuntime.markStopped()
 
         // Detach the notification from the foreground state so it survives as
         // a normal, user-dismissible notification explaining what happened,

@@ -8,38 +8,44 @@
  * function parameters (`parseAccelerator`, `ensureAccelerator`) exactly like AgentHandler.kt
  * already does for `ensureAccelerator`.
  */
-package com.google.ai.edge.gallery.relay.openai.handlers
+package com.google.ai.edge.gallery.openai.handlers
 
 import android.graphics.Bitmap
 import android.util.Log
+import com.google.ai.edge.gallery.agent.sessions.LlmSessionManager
 import com.google.ai.edge.gallery.data.Accelerator
+import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.Model
-import com.google.ai.edge.gallery.relay.openai.AnthropicContentBlock
-import com.google.ai.edge.gallery.relay.openai.AnthropicMessagesRequest
-import com.google.ai.edge.gallery.relay.openai.AnthropicMessagesResponse
-import com.google.ai.edge.gallery.relay.openai.AnthropicUsage
-import com.google.ai.edge.gallery.relay.openai.ChatChoice
-import com.google.ai.edge.gallery.relay.openai.ChatChunkChoice
-import com.google.ai.edge.gallery.relay.openai.ChatCompletionChunk
-import com.google.ai.edge.gallery.relay.openai.ChatCompletionRequest
-import com.google.ai.edge.gallery.relay.openai.ChatCompletionResponse
-import com.google.ai.edge.gallery.relay.openai.ChatDelta
-import com.google.ai.edge.gallery.relay.openai.ChatMessage
-import com.google.ai.edge.gallery.relay.openai.CompletionChoice
-import com.google.ai.edge.gallery.relay.openai.CompletionChunk
-import com.google.ai.edge.gallery.relay.openai.CompletionChunkChoice
-import com.google.ai.edge.gallery.relay.openai.CompletionRequest
-import com.google.ai.edge.gallery.relay.openai.CompletionResponse
-import com.google.ai.edge.gallery.relay.openai.ErrorBody
-import com.google.ai.edge.gallery.relay.openai.ErrorEnvelope
-import com.google.ai.edge.gallery.relay.openai.LoadResult
-import com.google.ai.edge.gallery.relay.openai.honestDefaultAcceleratorLabel
+import com.google.ai.edge.gallery.proto.ChatMessageProto
+import com.google.ai.edge.gallery.proto.ChatSideProto
+import com.google.ai.edge.gallery.openai.AnthropicContentBlock
+import com.google.ai.edge.gallery.openai.AnthropicMessagesRequest
+import com.google.ai.edge.gallery.openai.AnthropicMessagesResponse
+import com.google.ai.edge.gallery.openai.AnthropicUsage
+import com.google.ai.edge.gallery.openai.ChatChoice
+import com.google.ai.edge.gallery.openai.ChatChunkChoice
+import com.google.ai.edge.gallery.openai.ChatCompletionChunk
+import com.google.ai.edge.gallery.openai.ChatCompletionRequest
+import com.google.ai.edge.gallery.openai.ChatCompletionResponse
+import com.google.ai.edge.gallery.openai.ChatDelta
+import com.google.ai.edge.gallery.openai.ChatMessage
+import com.google.ai.edge.gallery.openai.CompletionChoice
+import com.google.ai.edge.gallery.openai.CompletionChunk
+import com.google.ai.edge.gallery.openai.CompletionChunkChoice
+import com.google.ai.edge.gallery.openai.CompletionRequest
+import com.google.ai.edge.gallery.openai.CompletionResponse
+import com.google.ai.edge.gallery.openai.ErrorBody
+import com.google.ai.edge.gallery.openai.ErrorEnvelope
+import com.google.ai.edge.gallery.openai.LoadResult
+import com.google.ai.edge.gallery.openai.honestDefaultAcceleratorLabel
 import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistry
 import com.google.ai.edge.gallery.runtime.runtimeHelper
+import com.google.ai.edge.gallery.sessions.openSession
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.Message
 import io.ktor.http.CacheControl
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -76,10 +82,27 @@ internal suspend fun respondLoadError(call: ApplicationCall, result: LoadResult)
     }
 }
 
+// Box: text-only proto builder for session persistence. Mirrors ChatViewModel.saveSession's
+// ChatMessageProto.Builder field names/enum values (ui/common/chat/ChatViewModel.kt:436) --
+// this server never persists THINKING/INFO/WARNING message types, only TEXT turns.
+private fun textTurnProto(side: ChatSideProto, content: String): ChatMessageProto =
+    ChatMessageProto.newBuilder()
+        .setMessageType("TEXT")
+        .setContent(content)
+        .setSide(side)
+        .build()
+
+// Box: the task this model is curated under, if any -- same lookup OpenAiServer.unloadModel
+// uses (modelRegistry.tasks.find { t -> t.models.any { it.name == name } }). Falls back to the
+// generic chat task id for an imported model attached to no curated task.
+private fun taskIdFor(modelRegistry: ModelRegistry, model: Model): String =
+    modelRegistry.tasks.find { t -> t.models.any { it.name == model.name } }?.id ?: BuiltInTaskId.LLM_CHAT
+
 suspend fun handleChatCompletion(
     call: ApplicationCall,
     request: ChatCompletionRequest,
     modelRegistry: ModelRegistry,
+    llmSessionManager: LlmSessionManager,
     modelMutexes: ConcurrentHashMap<String, Mutex>,
     parseAccelerator: (String) -> Accelerator?,
     // Shared one-line predicate (also used by OpenAiServer's ensureAccelerator/NPU-guard) --
@@ -264,56 +287,76 @@ suspend fun handleChatCompletion(
                 return@withBusyGuard
             }
 
-            // Reset conversation with system instruction
-            LlmChatModelHelper.resetConversation(
-                model = model,
-                supportImage = model.llmSupportImage,
-                supportAudio = false,
-                systemInstruction = systemInstruction,
-                tools = emptyList(),
-                enableConversationConstrainedDecoding = false
-            )
-
-            // Replay prior messages to build up conversation context
-            for (i in 0 until conversationMessages.size - 1) {
-                val msg = conversationMessages[i]
-                when (msg.role) {
-                    "user" -> {
-                        val parsedHistory = when (val parsed = parseMessageContent(msg.content)) {
-                            is ContentParseResult.Ok -> parsed.parsed
-                            is ContentParseResult.Error -> {
-                                call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = parsed.message)))
-                                return@withBusyGuard
-                            }
-                        }
-                        try {
-                            collectInferenceText(model, parsedHistory.text)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to replay message history", e)
-                            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to build conversation context: ${e.message}"))
+            // session_id present -> saved chat is the context, only the last message is new.
+            var effectiveSessionId: String? = null
+            var sessionHistory: List<ChatMessageProto> = emptyList()
+            if (request.session_id == null) {
+                // Build prior-turn history (everything except the final user message handled via
+                // `prompt` below) as LiteRT-LM Message objects. Role mapping matches
+                // DefaultLlmSessionManager.protoToLitertMessage.
+                val initialMessages = mutableListOf<Message>()
+                for (i in 0 until conversationMessages.size - 1) {
+                    val msg = conversationMessages[i]
+                    val parsedHistory = when (val parsed = parseMessageContent(msg.content)) {
+                        is ContentParseResult.Ok -> parsed.parsed
+                        is ContentParseResult.Error -> {
+                            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = parsed.message)))
                             return@withBusyGuard
                         }
                     }
-                    "assistant" -> {
-                        // LiteRT-LM does not support injecting assistant messages directly into
-                        // conversation history. The model's generated responses from prior turns
-                        // are used instead. This is a known limitation.
-                        Log.w(TAG, "Skipping assistant message in context replay (not supported by LiteRT-LM)")
-                    }
-                    else -> {
-                        Log.w(TAG, "Unknown role '${msg.role}' in message history, skipping")
+                    when (msg.role) {
+                        "user" -> initialMessages.add(Message.user(parsedHistory.text))
+                        "assistant" -> initialMessages.add(Message.model(parsedHistory.text))
+                        else -> Log.w(TAG, "Unknown role '${msg.role}' in message history, skipping")
                     }
                 }
+
+                LlmChatModelHelper.resetConversation(
+                    model = model,
+                    supportImage = model.llmSupportImage,
+                    supportAudio = false,
+                    systemInstruction = systemInstruction,
+                    tools = emptyList(),
+                    enableConversationConstrainedDecoding = false,
+                    initialMessages = initialMessages
+                )
+            } else {
+                effectiveSessionId = request.session_id
+                // openSession seats the conversation itself (empty history for a new id) using
+                // the client's id verbatim -- no minted substitute, no new/existing branching.
+                sessionHistory = openSession(
+                    sessionManager = llmSessionManager,
+                    sessionId = request.session_id,
+                    taskId = taskIdFor(modelRegistry, model),
+                    model = model,
+                    supportImage = model.llmSupportImage,
+                    supportAudio = false,
+                    defaultSystemPrompt = systemTexts.firstOrNull(),
+                ).messages
             }
 
             val prompt = lastParsed.text
+
+            suspend fun persistTurn(assistantText: String) {
+                val sid = effectiveSessionId ?: return
+                llmSessionManager.saveSessionHistory(
+                    sessionId = sid,
+                    messages = sessionHistory +
+                        textTurnProto(ChatSideProto.CHAT_SIDE_USER, prompt) +
+                        textTurnProto(ChatSideProto.CHAT_SIDE_MODEL, assistantText),
+                    originalModel = model.name,
+                    taskId = taskIdFor(modelRegistry, model),
+                )
+            }
 
             if (request.stream) {
                 call.response.cacheControl(CacheControl.NoCache(null))
                 call.respondBytesWriter(contentType = ContentType.Text.EventStream) {
                     val id = "chatcmpl-" + UUID.randomUUID().toString()
                     val created = System.currentTimeMillis() / 1000
+                    val assistantText = StringBuilder()
                     collectInferenceStream(this, model, prompt, lastParsed.images) { text ->
+                        assistantText.append(text)
                         Json.encodeToString(
                             ChatCompletionChunk(
                                 id = id,
@@ -328,10 +371,14 @@ suspend fun handleChatCompletion(
                             )
                         )
                     }
+                    persistTurn(assistantText.toString())
                 }
             } else {
                 val response = runInferenceBlocking(model, prompt, lastParsed.images)
-                call.respond(response)
+                persistTurn(response.choices.first().message.content)
+                call.respond(
+                    if (effectiveSessionId != null) response.copy(session_id = effectiveSessionId) else response
+                )
             }
         } finally {
             model.configValues = originalConfigValues
@@ -482,6 +529,7 @@ suspend fun handleAnthropicMessages(
     call: ApplicationCall,
     request: AnthropicMessagesRequest,
     modelRegistry: ModelRegistry,
+    llmSessionManager: LlmSessionManager,
     modelMutexes: ConcurrentHashMap<String, Mutex>,
     ensureAccelerator: suspend (Model, Accelerator?) -> String?,
     loadModel: suspend (String, String?) -> LoadResult,
@@ -593,46 +641,66 @@ suspend fun handleAnthropicMessages(
                 return@withBusyGuard
             }
 
-            LlmChatModelHelper.resetConversation(
-                model = model,
-                supportImage = model.llmSupportImage,
-                supportAudio = false,
-                systemInstruction = systemInstruction,
-                tools = emptyList(),
-                enableConversationConstrainedDecoding = false
-            )
-
-            for (i in 0 until request.messages.size - 1) {
-                val msg = request.messages[i]
-                when (msg.role) {
-                    "user" -> {
-                        val parsedHistory = when (val parsed = parseMessageContent(msg.content)) {
-                            is ContentParseResult.Ok -> parsed.parsed
-                            is ContentParseResult.Error -> {
-                                call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = parsed.message)))
-                                return@withBusyGuard
-                            }
-                        }
-                        try {
-                            collectInferenceText(model, parsedHistory.text)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to replay message history", e)
-                            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to build conversation context: ${e.message}"))
+            // session_id present -> saved chat is the context, only the last message is new.
+            var effectiveSessionId: String? = null
+            var sessionHistory: List<ChatMessageProto> = emptyList()
+            if (request.session_id == null) {
+                // Build prior-turn history the same way handleChatCompletion does, so the model
+                // sees its own previous replies -- not just the user's turns.
+                val initialMessages = mutableListOf<Message>()
+                for (i in 0 until request.messages.size - 1) {
+                    val msg = request.messages[i]
+                    val parsedHistory = when (val parsed = parseMessageContent(msg.content)) {
+                        is ContentParseResult.Ok -> parsed.parsed
+                        is ContentParseResult.Error -> {
+                            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = parsed.message)))
                             return@withBusyGuard
                         }
                     }
-                    "assistant" -> {
-                        // Same LiteRT-LM limitation as handleChatCompletion: assistant turns
-                        // can't be injected directly into conversation history.
-                        Log.w(TAG, "Skipping assistant message in context replay (not supported by LiteRT-LM)")
-                    }
-                    else -> {
-                        Log.w(TAG, "Unknown role '${msg.role}' in message history, skipping")
+                    when (msg.role) {
+                        "user" -> initialMessages.add(Message.user(parsedHistory.text))
+                        "assistant" -> initialMessages.add(Message.model(parsedHistory.text))
+                        else -> Log.w(TAG, "Unknown role '${msg.role}' in message history, skipping")
                     }
                 }
+
+                LlmChatModelHelper.resetConversation(
+                    model = model,
+                    supportImage = model.llmSupportImage,
+                    supportAudio = false,
+                    systemInstruction = systemInstruction,
+                    tools = emptyList(),
+                    enableConversationConstrainedDecoding = false,
+                    initialMessages = initialMessages
+                )
+            } else {
+                effectiveSessionId = request.session_id
+                // openSession seats the conversation itself (empty history for a new id) using
+                // the client's id verbatim -- no minted substitute, no new/existing branching.
+                sessionHistory = openSession(
+                    sessionManager = llmSessionManager,
+                    sessionId = request.session_id,
+                    taskId = taskIdFor(modelRegistry, model),
+                    model = model,
+                    supportImage = model.llmSupportImage,
+                    supportAudio = false,
+                    defaultSystemPrompt = request.system,
+                ).messages
             }
 
             val resultText = collectInferenceText(model, lastParsed.text, lastParsed.images)
+
+            if (effectiveSessionId != null) {
+                llmSessionManager.saveSessionHistory(
+                    sessionId = effectiveSessionId,
+                    messages = sessionHistory +
+                        textTurnProto(ChatSideProto.CHAT_SIDE_USER, lastParsed.text) +
+                        textTurnProto(ChatSideProto.CHAT_SIDE_MODEL, resultText),
+                    originalModel = model.name,
+                    taskId = taskIdFor(modelRegistry, model),
+                )
+            }
+
             call.respond(
                 AnthropicMessagesResponse(
                     id = "msg_" + UUID.randomUUID().toString(),
@@ -641,7 +709,8 @@ suspend fun handleAnthropicMessages(
                     stop_reason = "end_turn",
                     // Box: this runtime doesn't expose token counts through runInference's
                     // ResultListener, so usage is always reported as 0/0 rather than faked.
-                    usage = AnthropicUsage(input_tokens = 0, output_tokens = 0)
+                    usage = AnthropicUsage(input_tokens = 0, output_tokens = 0),
+                    session_id = effectiveSessionId,
                 )
             )
         } finally {

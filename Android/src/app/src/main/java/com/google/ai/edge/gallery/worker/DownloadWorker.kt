@@ -31,8 +31,8 @@ import androidx.work.Data
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.google.ai.edge.gallery.common.getModelStorageDir
+import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
 import com.google.ai.edge.gallery.data.KEY_MODEL_COMMIT_HASH
-import com.google.ai.edge.gallery.data.KEY_MODEL_DOWNLOAD_ACCESS_TOKEN
 import com.google.ai.edge.gallery.data.KEY_MODEL_DOWNLOAD_ERROR_MESSAGE
 import com.google.ai.edge.gallery.data.KEY_MODEL_DOWNLOAD_FILE_NAME
 import com.google.ai.edge.gallery.data.KEY_MODEL_DOWNLOAD_MODEL_DIR
@@ -60,6 +60,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import dagger.hilt.android.EntryPointAccessors
 
 private const val TAG = "AGDownloadWorker"
 
@@ -118,7 +119,17 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
     val extraDataFileNames =
       inputData.getString(KEY_MODEL_EXTRA_DATA_DOWNLOAD_FILE_NAMES)?.split(",") ?: listOf()
     val totalBytes = inputData.getLong(KEY_MODEL_TOTAL_BYTES, 0L)
-    val accessToken = inputData.getString(KEY_MODEL_DOWNLOAD_ACCESS_TOKEN)
+    // Fetched from the encrypted store rather than inputData, which WorkManager persists
+    // unencrypted.
+    val accessToken =
+      EntryPointAccessors.fromApplication(
+          applicationContext,
+          DataStoreRepositoryEntryPoint::class.java,
+        )
+        .dataStoreRepository()
+        .readAccessTokenData()
+        ?.accessToken
+        ?.takeIf { it.isNotEmpty() }
 
     return withContext(Dispatchers.IO) {
       if (fileUrl == null || fileName == null) {
@@ -148,7 +159,6 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
 
             val connection = url.openConnection() as HttpURLConnection
             if (accessToken != null) {
-              Log.d(TAG, "Using access token: ${accessToken.subSequence(0, 10)}...")
               connection.setRequestProperty("Authorization", "Bearer $accessToken")
             }
 

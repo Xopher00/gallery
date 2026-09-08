@@ -15,14 +15,14 @@
  * 10MB cap, http(s) URL rejection), same as VisionHandler.kt, rather than writing a second
  * decoder.
  */
-package com.google.ai.edge.gallery.relay.openai.handlers
+package com.google.ai.edge.gallery.openai.handlers
 
-import com.google.ai.edge.gallery.relay.openai.ErrorBody
-import com.google.ai.edge.gallery.relay.openai.ErrorEnvelope
-import com.google.ai.edge.gallery.relay.openai.OcrBlockData
-import com.google.ai.edge.gallery.relay.openai.OcrBoundingBoxData
-import com.google.ai.edge.gallery.relay.openai.OcrRequest
-import com.google.ai.edge.gallery.relay.openai.OcrResponse
+import com.google.ai.edge.gallery.openai.ErrorBody
+import com.google.ai.edge.gallery.openai.ErrorEnvelope
+import com.google.ai.edge.gallery.openai.OcrBlockData
+import com.google.ai.edge.gallery.openai.OcrBoundingBoxData
+import com.google.ai.edge.gallery.openai.OcrRequest
+import com.google.ai.edge.gallery.openai.OcrResponse
 import com.google.ai.edge.gallery.relay.vision.OcrEngine
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall

@@ -87,6 +87,7 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.firebaseAnalytics
+import com.google.ai.edge.gallery.sessions.resumeSession
 import com.google.ai.edge.gallery.ui.common.ModelPageAppBar
 import com.google.ai.edge.gallery.ui.common.copyBitmapToClipboard
 import com.google.ai.edge.gallery.ui.common.saveBitmapToMediaStore
@@ -157,47 +158,34 @@ fun ChatView(
     val existingMessages = viewModel.uiState.value.messagesByModel[selectedModel.name]
     if (!existingMessages.isNullOrEmpty()) return@LaunchedEffect  // already loaded for this model
 
-    // Fetch sessions with a suspending one-shot read instead of sampling
-    // viewModel.historySessions.value: that StateFlow's initialValue is an empty
-    // list until its underlying DataStore-backed flow has emitted for the first
-    // time (see ChatViewModel.historySessions), and this effect's keys (sessionId,
-    // selectedModel.name) don't change on that later emission -- so a bare
-    // `.value` read here races the DataStore load and can permanently miss a
-    // session that does exist. getAllChatSessions() suspends until the
-    // DataStore has produced its current value, so it cannot observe that gap,
-    // and it terminates by construction (a single fetch, not a loop) whether or
-    // not a match is found.
-    val allSessions =
-      viewModel.chatSessionRepository?.getAllChatSessions() ?: viewModel.historySessions.value
-    val taskSessions = allSessions.filter { it.taskId == task.id }
-    val sessionToResume =
-      if (sessionId != null) {
-        taskSessions.firstOrNull { it.sessionId == sessionId }
-      } else if (autoResumeSession) {
-        // taskSessions is already sorted by timestampMs DESC (DefaultChatSessionRepository),
-        // so the first match for this model is the most recent one.
-        taskSessions.firstOrNull { it.originalModel == selectedModel.name }
-      } else {
-        null
-      }
-
-    if (sessionToResume != null) {
-      Log.d(
-        TAG,
-        "Resuming session: ${sessionToResume.sessionId} (model=${selectedModel.name})",
+    val sessionManager = viewModel.llmSessionManager ?: return@LaunchedEffect
+    // Must precede the load: otherwise input stays enabled while history is still seating.
+    viewModel.setIsResettingSession(true)
+    val result =
+      resumeSession(
+        repository = viewModel.chatSessionRepository,
+        sessionManager = sessionManager,
+        fallbackSessions = viewModel.historySessions.value,
+        taskId = task.id,
+        model = selectedModel,
+        explicitSessionId = sessionId,
+        autoResumeSession = autoResumeSession,
+        supportImage = showImagePicker,
+        supportAudio = showAudioPicker,
+        defaultSystemPrompt = curSystemPrompt.ifEmpty { null },
       )
-      viewModel.setIsResettingSession(true)
-      viewModel.currentSessionId = sessionToResume.sessionId
-      val messages =
-        withContext(Dispatchers.IO) { deserializeProtoMessages(sessionToResume.messagesList) }
+
+    if (result != null) {
+      viewModel.currentSessionId = result.sessionId
+      val messages = deserializeProtoMessages(result.messages)
       viewModel.clearAllMessages(selectedModel)
       for (msg in messages) {
         viewModel.addMessage(selectedModel, msg)
       }
-      onResetSessionClicked(selectedModel, messages, /* clearHistory= */ false)
     } else {
       Log.d(TAG, "No existing session for model ${selectedModel.name}, starting fresh")
     }
+    viewModel.setIsResettingSession(false)
   }
 
   // Image viewer related.

@@ -7,16 +7,16 @@
  * forever. On timeout the handler simply stops waiting and responds; the native generation keeps
  * running to completion in the background.
  */
-package com.google.ai.edge.gallery.relay.openai.handlers
+package com.google.ai.edge.gallery.openai.handlers
 
 import android.graphics.Bitmap
 import android.util.Base64
-import com.google.ai.edge.gallery.relay.openai.ErrorBody
-import com.google.ai.edge.gallery.relay.openai.ErrorEnvelope
-import com.google.ai.edge.gallery.relay.openai.ImageData
-import com.google.ai.edge.gallery.relay.openai.LoadResult
-import com.google.ai.edge.gallery.relay.openai.ImageGenerationRequest
-import com.google.ai.edge.gallery.relay.openai.ImageGenerationResponse
+import com.google.ai.edge.gallery.openai.ErrorBody
+import com.google.ai.edge.gallery.openai.ErrorEnvelope
+import com.google.ai.edge.gallery.openai.ImageData
+import com.google.ai.edge.gallery.openai.LoadResult
+import com.google.ai.edge.gallery.openai.ImageGenerationRequest
+import com.google.ai.edge.gallery.openai.ImageGenerationResponse
 import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistry
 import com.google.ai.edge.gallery.stablediffusion.StableDiffusion
 import io.ktor.http.HttpStatusCode

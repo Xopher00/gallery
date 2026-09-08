@@ -23,13 +23,13 @@
  * open arbitrary URLs). Real execution of a tool's Action -- actually calling
  * MobileActionsViewModel.performAction(action, context), which fires the Android
  * Intent/CameraManager side effect -- only happens for tool names in the persisted allowlist
- * (OpenAiServerState.allowedTools, seeded from [DEFAULT_ALLOWED_TOOLS] the first time it's read
+ * (ServerRuntime.allowedTools, seeded from [DEFAULT_ALLOWED_TOOLS] the first time it's read
  * on a given install -- see [allowedToolsForApiKey]); everything else still gets a canned
  * "success" response fed back to the model (matching what MobileActionsTools' own @Tool methods
  * always return), but its real side effect is withheld, the step is marked blocked, and the
  * whole request is failed with 403 once the run completes.
  */
-package com.google.ai.edge.gallery.relay.openai.handlers
+package com.google.ai.edge.gallery.openai.handlers
 
 import android.content.Context
 import android.util.Log
@@ -39,14 +39,15 @@ import com.google.ai.edge.gallery.customtasks.mobileactions.MobileActionsViewMod
 import com.google.ai.edge.gallery.customtasks.mobileactions.ToolOutcome
 import com.google.ai.edge.gallery.data.Accelerator
 import com.google.ai.edge.gallery.data.Model
-import com.google.ai.edge.gallery.relay.openai.AgentRunRequest
-import com.google.ai.edge.gallery.relay.openai.AgentRunResponse
-import com.google.ai.edge.gallery.relay.openai.AgentStepData
-import com.google.ai.edge.gallery.relay.openai.AgentToolData
-import com.google.ai.edge.gallery.relay.openai.AgentToolsResponse
-import com.google.ai.edge.gallery.relay.openai.ErrorBody
-import com.google.ai.edge.gallery.relay.openai.ErrorEnvelope
-import com.google.ai.edge.gallery.relay.openai.OpenAiServerState
+import com.google.ai.edge.gallery.openai.AgentRunRequest
+import com.google.ai.edge.gallery.openai.AgentRunResponse
+import com.google.ai.edge.gallery.openai.AgentStepData
+import com.google.ai.edge.gallery.openai.AgentToolData
+import com.google.ai.edge.gallery.openai.AgentToolsResponse
+import com.google.ai.edge.gallery.openai.ErrorBody
+import com.google.ai.edge.gallery.openai.ErrorEnvelope
+import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
+import com.google.ai.edge.gallery.openai.ServerRuntime
 import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistry
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
@@ -55,6 +56,7 @@ import com.google.ai.edge.litertlm.tool
 import com.google.gson.JsonArray as GsonArray
 import com.google.gson.JsonElement as GsonElement
 import com.google.gson.JsonObject as GsonObject
+import dagger.hilt.android.EntryPointAccessors
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -114,7 +116,7 @@ internal val ALL_MOBILE_ACTION_TOOLS =
 internal val RISKY_TOOLS = setOf("dialNumber", "sendSms", "openUrl")
 
 /**
- * Seed value for the persisted allowlist (OpenAiServerState.loadAllowedTools) the first time a
+ * Seed value for the persisted allowlist (ServerRuntime.loadAllowedTools) the first time a
  * given install reads it with nothing yet persisted -- keeps behaviour unchanged for an existing
  * install until the user visits the Server screen and changes something. None of [RISKY_TOOLS]
  * is in here.
@@ -139,17 +141,18 @@ internal val DEFAULT_ALLOWED_TOOLS =
         "openSoundSettings",
     )
 
-// The allowlist is user-configurable, persisted in OpenAiServerState (same SharedPreferences
-// store as bindMode etc.) rather than a hardcoded constant. `apiKey` stays an
-// accepted-but-unused parameter: single-key deployment today (OpenAiServerState.apiKey() issues
-// exactly one key), and the set is keyed globally, not per key -- see
-// OpenAiServerState.loadAllowedTools/setAllowedTools. Keeping the parameter (rather than
-// dropping it and renaming the function) preserves the existing indirection for a real per-key
-// map to replace the body later without touching call sites.
+// `apiKey` stays unused: the allowlist is keyed globally, not per key, but the parameter is
+// kept for a real per-key map to replace this body later without touching call sites.
 private fun allowedToolsForApiKey(
     context: Context,
     @Suppress("UNUSED_PARAMETER") apiKey: String?,
-): Set<String> = OpenAiServerState.loadAllowedTools(context, defaultIfUnset = DEFAULT_ALLOWED_TOOLS)
+): Set<String> {
+    val repo = EntryPointAccessors.fromApplication(
+        context.applicationContext,
+        DataStoreRepositoryEntryPoint::class.java,
+    ).dataStoreRepository()
+    return ServerRuntime.loadAllowedTools(repo, defaultIfUnset = DEFAULT_ALLOWED_TOOLS)
+}
 
 // litertlm's ReflectionTool emits snake_case tool names (e.g. "turn_on_flashlight") while
 // DEFAULT_ALLOWED_TOOLS holds the camelCase Kotlin @Tool method names (e.g. "turnOnFlashlight"),
@@ -161,10 +164,8 @@ private fun normalizeToolName(name: String): String = name.lowercase().replace("
 private val NORMALIZED_DEFAULT_ALLOWED_TOOLS: Set<String> =
     DEFAULT_ALLOWED_TOOLS.map(::normalizeToolName).toSet()
 
-// `allowedTools` now normally comes from the persisted allowlist (allowedToolsForApiKey ->
-// OpenAiServerState.loadAllowedTools), not always DEFAULT_ALLOWED_TOOLS -- the `===` fast path
-// below only fires on the one call site that still passes the constant directly (the never-yet-
-// persisted case), everything else falls through to normalising `allowedTools` on the spot.
+// The `===` fast path below only fires on the one call site still passing the constant
+// directly (never-yet-persisted); everything else normalises `allowedTools` on the spot.
 private fun isToolAllowed(toolName: String, allowedTools: Set<String>): Boolean =
     if (allowedTools === DEFAULT_ALLOWED_TOOLS) {
         normalizeToolName(toolName) in NORMALIZED_DEFAULT_ALLOWED_TOOLS
@@ -382,14 +383,8 @@ suspend fun handleAgentRun(
 }
 
 suspend fun handleAgentTools(call: ApplicationCall, context: Context) {
-    // Reads through the exact same path handleAgentRun uses (allowedToolsForApiKey ->
-    // OpenAiServerState.loadAllowedTools), not the in-memory StateFlow's last-seen value. This
-    // matters because headless is the NORMAL mode here: a client can hit GET /v1/agent/tools on
-    // a freshly booted server process before anyone has opened the Server screen or run an
-    // agent, and OpenAiServerState.allowedTools would still be null (never loaded this process)
-    // at that point -- falling back to DEFAULT_ALLOWED_TOOLS would silently misreport a
-    // different persisted configuration. Reading from disk here (loadAllowedTools) makes both
-    // endpoints answer from one source of truth: what /v1/agent/run will actually enforce.
+    // Reads from disk (allowedToolsForApiKey), not ServerRuntime.allowedTools' in-memory
+    // last-seen value, which may still be null on a freshly booted, never-opened-UI process.
     val apiKey = call.request.headers[HttpHeaders.Authorization]?.removePrefix("Bearer ")?.trim()
     val allowedTools = allowedToolsForApiKey(context, apiKey)
 

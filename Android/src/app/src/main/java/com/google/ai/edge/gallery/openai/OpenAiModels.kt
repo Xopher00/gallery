@@ -1,7 +1,7 @@
 /*
  * Ported from mobile-server (com.server.edge.gallery) into this project (relay).
  */
-package com.google.ai.edge.gallery.relay.openai
+package com.google.ai.edge.gallery.openai
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -25,6 +25,10 @@ data class ChatCompletionRequest(
     // insensitive, matched against data.Accelerator). Validated in OpenAiServer; unknown
     // value -> HTTP 400. Omitted -> keep whatever the model is currently loaded with.
     val accelerator: String? = null,
+    // Box: optional persisted-session id. When present, the saved chat (LlmSessionManager) is
+    // loaded as context and only the last element of `messages` is treated as the new turn;
+    // omitted -> unchanged single-shot behaviour.
+    val session_id: String? = null,
 )
 
 // Box (F4): request-side message DTO. `content` is left as a raw JsonElement here (instead of a
@@ -57,7 +61,10 @@ data class ChatCompletionResponse(
     val created: Long,
     val model: String,
     val choices: List<ChatChoice>,
-    val usage: Usage? = null
+    val usage: Usage? = null,
+    // Box: echoes ChatCompletionRequest.session_id -- the id a new session was created under
+    // when the request supplied none.
+    val session_id: String? = null,
 )
 
 @Serializable
@@ -449,6 +456,8 @@ data class AnthropicMessagesRequest(
     val top_p: Float? = null,
     val top_k: Int? = null,
     val stream: Boolean = false,
+    // Box: see ChatCompletionRequest.session_id.
+    val session_id: String? = null,
 )
 
 @Serializable
@@ -460,6 +469,9 @@ data class AnthropicMessagesResponse(
     val content: List<AnthropicContentBlock>,
     val stop_reason: String? = null,
     val usage: AnthropicUsage = AnthropicUsage(),
+    // Box: echoes AnthropicMessagesRequest.session_id -- the id a new session was created
+    // under when the request supplied none.
+    val session_id: String? = null,
 )
 
 @Serializable

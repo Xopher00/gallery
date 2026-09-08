@@ -1,4 +1,4 @@
-package com.google.ai.edge.gallery.relay.security
+package com.google.ai.edge.gallery.security
 
 import android.content.Context
 import androidx.datastore.core.CorruptionException
@@ -14,23 +14,12 @@ import java.io.OutputStream
 import java.security.GeneralSecurityException
 
 /**
- * Box: Tink-backed replacement for [com.google.ai.edge.gallery.UserDataSerializer].
+ * Box: Tink-backed replacement for [com.google.ai.edge.gallery.UserDataSerializer], which stored
+ * OAuth tokens, secrets, and chat history as plaintext proto. Encrypts with AES256-GCM via an
+ * injected [Aead] (Keystore-backed in production, [create]; swappable for JVM unit tests).
  *
- * `user_data.pb` carries HuggingFace OAuth tokens, arbitrary secrets, MCP auth headers, and (since
- * the fork retired its Room store) chat history -- all plaintext under the bare
- * `Settings.parseFrom`/`writeTo` in the Google-owned serializer. This wraps the same proto codec
- * with an AES256-GCM [Aead] whose key material lives in the Android Keystore via
- * [AndroidKeysetManager], so the key itself never appears in app-readable storage.
- *
- * The [Aead] is injected rather than constructed inline so this class can be unit-tested on the
- * JVM with a software keyset (no Android Keystore, no Robolectric) -- see
- * `EncryptedUserDataSerializerTest`. [create] is the production factory used by Hilt.
- *
- * Migration is implicit, not a separate step: [readFrom] treats the presence of [MAGIC] as "this
- * file is Tink-encrypted" and its absence as "this is a legacy plaintext proto" and parses it
- * directly. The very next [writeTo] always encrypts. A device with an existing plaintext
- * `user_data.pb` therefore upgrades itself on its first write after this change ships, with no
- * migration code path to get wrong.
+ * Migration is implicit: [readFrom] treats a missing [MAGIC] header as a legacy plaintext file
+ * and parses it as-is, and the next [writeTo] always encrypts -- no separate migration path.
  */
 class EncryptedUserDataSerializer(private val aead: Aead) : Serializer<UserData> {
 

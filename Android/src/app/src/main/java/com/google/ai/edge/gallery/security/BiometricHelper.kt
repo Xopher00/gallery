@@ -2,8 +2,8 @@
  * Adapted from jegly/OfflineLLM (https://github.com/jegly/OfflineLLM),
  * commit e81091e86013c0605381d15a1ad7276a4be0b92b.
  * Original file: app/src/main/java/com/jegly/offlineLLM/utils/BiometricHelper.kt
- * Licensed under the Apache License, Version 2.0; full text vendored at
- * Android/src/third_party/offlinellm/LICENSE.
+ * Licensed under the Apache License, Version 2.0; the canonical text at
+ * https://www.apache.org/licenses/LICENSE-2.0 (SPDX: Apache-2.0).
  *
  * Changes from the original: repackaged from com.jegly.offlineLLM.utils into
  * com.google.ai.edge.gallery.security; prompt title changed from "offlineLLM" to

@@ -15,25 +15,12 @@
  */
 
 /*
- * Makes the on-device model reachable from the rest of Android without opening the app first.
- * This single lightweight Activity handles two system entry points:
- *  - ACTION_PROCESS_TEXT: text selected in any app ("Ask Box" in the selection menu).
- *  - ACTION_SEND: text or an image shared from any app's share sheet.
+ * Makes the on-device model reachable from the rest of Android without opening the app first,
+ * via ACTION_PROCESS_TEXT (selection menu "Ask Box") and ACTION_SEND (share sheet).
  *
- * Deliberately not a Hilt entry point (@AndroidEntryPoint): a fresh `by viewModels()`
- * ModelManagerViewModel here would be a brand-new instance with an empty model/task list
- * (createEmptyUiState()), not the one the user already loaded a model into from MainActivity.
- * Instead this Activity reaches the process-scoped ModelRegistry @Singleton directly via
- * EntryPointAccessors.fromApplication() (modelmanager/ModelRegistry.kt's
- * ModelRegistryEntryPoint) -- no Activity needs to have run first, and no static handoff is
- * needed. "Is there a usable model" is answered by ModelRegistry.getAllModels().isNotEmpty() --
- * the same predicate OpenAiServerService uses to decide whether it can claim to be running -- so
- * the two surfaces cannot disagree about what "can serve" means.
- *
- * Inference itself goes through collectInferenceText (openai/handlers/InferenceCollectors.kt),
- * which wraps `model.runtimeHelper.runInference(...)` (runtime/ModelHelperExt.kt, read-only) --
- * the same per-runtime dispatch point OpenAiServer's ChatHandler.kt uses -- so LiteRT-LM/
- * llama.cpp/AICore models all work here without duplicating any inference logic.
+ * Deliberately not a Hilt entry point: a fresh `by viewModels()` ModelManagerViewModel here
+ * would start with an empty model list, not the one already loaded from MainActivity. Instead
+ * this reaches the process-scoped ModelRegistry singleton directly via EntryPointAccessors.
  */
 package com.google.ai.edge.gallery.relay.ui.intents
 
@@ -83,7 +70,7 @@ import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistry
 import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistryEntryPoint
-import com.google.ai.edge.gallery.relay.openai.handlers.collectInferenceText
+import com.google.ai.edge.gallery.openai.handlers.collectInferenceText
 import com.google.ai.edge.gallery.ui.theme.GalleryTheme
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CancellationException
@@ -204,20 +191,10 @@ class ProcessTextActivity : ComponentActivity() {
 }
 
 private enum class Phase {
-  // Re-keyed off ModelRegistry.getAllModels().isNotEmpty() -- the same predicate
-  // OpenAiServerService.onStartCommand uses to decide whether it can claim to be running --
-  // rather than "has MainActivity run", which the process-scoped registry makes meaningless.
-  NO_MODELS_REGISTERED, // ModelRegistry.getAllModels() is still empty AFTER this Activity itself
-                        // attempted to populate it (loadModelAllowlist() + restoreImportedModels(),
-                        // mirroring BootReceiver.kt) -- i.e. the population attempt itself came up
-                        // empty (no network + no cached catalogue, and nothing imported), not
-                        // merely "nothing downloaded yet" (that is NO_MODEL below).
-  NO_MODEL, // The registry knows about models, but none of them is initialized/loaded, AND the
-            // on-demand load this Activity attempted (see LOADING below) failed.
-  LOADING, // The registry knows about models but none is initialized yet -- this Activity is
-           // attempting the same on-demand load ChatHandler.kt (:102-108) does when
-           // model.instance == null, via ModelRegistry.initializeModel(). Resolves to READY (or
-           // IMAGE_UNSUPPORTED/EMPTY_INPUT) on success, or NO_MODEL on failure.
+  NO_MODELS_REGISTERED, // Registry came up empty even after this Activity tried to populate it
+                        // (allowlist + imported models) -- distinct from NO_MODEL below.
+  NO_MODEL, // Models exist, but none is loaded and the on-demand load attempt failed.
+  LOADING, // Models exist but none is initialized yet; an on-demand load is in flight.
   IMAGE_UNSUPPORTED, // Shared an image, but the loaded model doesn't accept images.
   EMPTY_INPUT, // No usable text or image came in.
   READY,
@@ -233,32 +210,16 @@ private fun ProcessTextDialog(
   onCopy: (String) -> Unit,
   onDismiss: () -> Unit,
 ) {
-  // Held as Compose state (not a plain `val` re-read every composition) because this Activity no
-  // longer just OBSERVES the registry -- when it finds the registry empty it POPULATES it itself
-  // (see the LaunchedEffect below), and that population happens on a background coroutine, so the
-  // UI needs an explicit write to `allModels` to pick up the result and recompose. If the registry
-  // was already non-empty at cold-launch (e.g. this Activity races a just-launched MainActivity's
-  // own loadModelAllowlist() call, or a previous invocation already loaded it in this process),
-  // population is skipped entirely and this is just the initial read, same as before.
+  // State (not `val`) because population runs on a background coroutine below and needs an
+  // explicit write to trigger recomposition; may already be non-empty if MainActivity beat us to it.
   var allModels by remember { mutableStateOf(modelRegistry.getAllModels()) }
-  // True once the population attempt below (or the decision that none was needed) has run to
-  // completion. Gates Phase.NO_MODELS_REGISTERED so it can only be reached AFTER an attempt was
-  // made -- see the Phase enum doc above -- rather than merely reflecting a registry that hasn't
-  // been asked to load yet.
+  // Set once population has been attempted, gating Phase.NO_MODELS_REGISTERED.
   var registryPopulated by remember { mutableStateOf(allModels.isNotEmpty()) }
 
-  // There is no "selected model" concept without ModelManagerViewModel/UI state (that was
-  // Activity-side, per-session UI selection) -- picking any already-initialized model is the
-  // closest equivalent of this Activity's original intent ("reuse the model the user already
-  // loaded"), and is unaffected by which registry-readiness predicate gates NO_MODELS_REGISTERED
-  // above.
-  // Cold-loaded model, populated by the LaunchedEffect below only when no model was already
-  // initialized. Kept separate from the initStatusFlow scan below (rather than relying on
-  // recomposition to re-run that scan) so the fast "reuse an already-initialized model" path
-  // above never depends on this on-demand load having run at all.
+  // No per-session "selected model" without ModelManagerViewModel; reuse any already-initialized
+  // model, falling back to one this Activity loads on demand via the LaunchedEffect below.
   var loadedModel by remember { mutableStateOf<Model?>(null) }
-  // Set only if the on-demand load below actually ran and failed -- distinguishes "still
-  // loading" (Phase.LOADING) from "gave up" (Phase.NO_MODEL) even though both are `!modelReady`.
+  // True only if the on-demand load actually ran and failed -- distinguishes LOADING from NO_MODEL.
   var loadFailed by remember { mutableStateOf(false) }
 
   val model: Model? =
@@ -268,40 +229,10 @@ private fun ProcessTextDialog(
 
   val context = LocalContext.current
 
-  // Cold-process registry population + on-demand load, in that order. Runs once per composition
-  // of this one-shot dialog (LaunchedEffect(Unit)), entirely off the main thread, so it cannot
-  // block the UI thread -- see the per-call dispatcher notes below.
-  //
-  // Step 1 -- populate: this Activity is a genuinely cold entry point (see the class-level doc
-  // comment), so nothing upstream has necessarily ever called ModelRegistry.loadModelAllowlist()
-  // or restoreImportedModels() in this process. Modeled directly on
-  // notifications/BootReceiver.kt's boot-triggered server-start path (:87-96), which faces the
-  // exact same "no Activity has run" problem for the API server: load the allowlist, await it,
-  // then restore any locally-imported models, in that order (imported models attach to tasks
-  // built from the allowlist, so allowlist-first order matters). Also matches BootReceiver's
-  // callback style: onError only logs and still completes the deferred, because a partial/failed
-  // allowlist load (e.g. offline with no cached copy) should not block restoreImportedModels()
-  // from contributing whatever locally-imported models it can still find.
-  //   loadModelAllowlist(onDone, onError) -- ModelRegistry.kt:420. Single-flight guarded
-  //     (allowlistLoadLock / allowlistLoadDeferred, ModelRegistry.kt:174-178): if a concurrent
-  //     MainActivity launch is already mid-load, this call becomes a joiner, not a second load --
-  //     it awaits the SAME CompletableDeferred and gets the same onDone/onError outcome, so a
-  //     race with MainActivity never double-fetches or double-mutates task.models. The call
-  //     itself returns immediately (registryScope.launch fires the real work); the actual
-  //     fetch/parse runs on Dispatchers.IO (ModelRegistry.kt:437), and onDone/onError are invoked
-  //     on Dispatchers.Main (ModelRegistry.kt:454) -- consistent with this being driven from a
-  //     Compose LaunchedEffect. Offline mode is respected on this path exactly as it is for every
-  //     other loadModelAllowlist() caller: runLoadModelAllowlist() checks OfflineMode.isEnabled
-  //     (ModelRegistry.kt:980) before taking the network leg, so this call cannot make a network
-  //     fetch happen when the user has offline mode on.
-  //   restoreImportedModels() -- ModelRegistry.kt:321. Plain synchronous call (not suspend), same
-  //     as BootReceiver's usage; safe to call more than once per process (name-based
-  //     addModelIfAbsent guard, ModelRegistry.kt:303).
-  // `allModels` (Compose state) is written after both complete so the composable recomposes with
-  // the populated registry -- `modelRegistry.getAllModels()` itself doesn't trigger recomposition,
-  // only writing this state does. `registryPopulated` is then set unconditionally (attempted, not
-  // "succeeded") so Phase.NO_MODELS_REGISTERED (below) can only be reached once this attempt has
-  // actually run its course.
+  // Populates the registry cold (this is a genuinely cold entry point -- see the class doc),
+  // mirroring BootReceiver's boot-triggered path: load the allowlist, then restore imported
+  // models, in that order (imports attach to allowlist-built tasks). Single-flight guarded, so a
+  // concurrent MainActivity launch is joined rather than double-loaded. Runs off the main thread.
   LaunchedEffect(Unit) {
     var currentModels = allModels
     if (currentModels.isEmpty()) {
@@ -320,45 +251,17 @@ private fun ProcessTextDialog(
     }
     registryPopulated = true
 
-    // Step 2 -- on-demand load: the fast path above (any already-initialized model) already
-    // covers the warm case, so this only runs when nothing is ready yet. Mirrors ChatHandler.kt's
-    // load-on-demand check --
-    //   if (model.instance == null) {
-    //     val result = loadModel(request.model, request.accelerator)
-    //     ...
-    //   }
-    // -- and, since this Activity has no request.model to resolve and no OpenAiServer instance
-    // (with its HTTP-concurrency busy-guards/NPU-pinning) to call loadModel() on, drives the same
-    // underlying primitive OpenAiServer.loadModel() itself calls for its CPU-only-engine branch
-    // (OpenAiServer.kt's initializeModel/CompletableDeferred pairing): ModelRegistry.initializeModel(),
-    // awaited via a CompletableDeferred exactly like that branch does.
-    //
-    // Recomputed from `currentModels` (this coroutine's fresh, possibly just-populated view)
-    // rather than the outer composable's `modelReady`/`allModels` vals -- those were captured at
-    // LaunchedEffect-launch time and would still read the pre-population empty registry even
-    // after `allModels` (state) was just reassigned above, since a suspend function's local
-    // closures aren't recomposition-aware.
+    // On-demand load, only if nothing is ready yet -- mirrors ChatHandler's load-on-demand check,
+    // via the same underlying ModelRegistry.initializeModel(). Uses `currentModels` (this
+    // coroutine's fresh view), not the outer composable's captured vals, which would still see
+    // the pre-population empty registry.
     val alreadyInitialized =
       currentModels.firstOrNull { it.initStatusFlow.value is Model.InitializationStatus.Initialized }
     if (alreadyInitialized != null || currentModels.isEmpty()) return@LaunchedEffect
-    // Candidate set restricted to models this surface can actually use:
-    //  - Model.isLlm (data/Model.kt:157) -- the discriminator ModelAllowlist.kt's toModel()
-    //    (:224, from :100's isLlmModel check) sets true for chat/ask-image/ask-audio LLM
-    //    allowlist entries and leaves at its `false` default for everything else. Confirmed by
-    //    the two non-LLM task modules never passing it: ImageGenTaskModule.kt's sdModel() and
-    //    WhisperTaskModule.kt's whisperModel() both build their Model() without an `isLlm`
-    //    argument, so their Stable Diffusion / Whisper models stay isLlm == false. This Activity
-    //    only ever calls collectInferenceText (an LLM-runtime call), so a non-LLM model is never
-    //    a valid target regardless of which task it hangs off.
-    //  - modelRegistry.isModelDownloaded(model) (ModelRegistry.kt:559, the public one-argument
-    //    member -- not a new file-existence check) -- an allowlisted-but-undownloaded model must
-    //    never be silently initialized (that would try to run inference against a file that
-    //    isn't there, or worse, could kick off a multi-GB download the user never asked for from
-    //    a text-selection action).
-    // Deterministic pick when more than one candidate survives both filters: the smallest
-    // downloaded candidate by sizeInBytes (ties broken by name), not task order or allowlist
-    // order -- this is a cold-process load the user is actively waiting on, so the candidate
-    // most likely to finish initializing quickly is preferred over an arbitrary "first" one.
+    // Only LLM models (isLlm) that are already downloaded are eligible -- initializing a
+    // non-downloaded model here could silently kick off a multi-GB download from a text-selection
+    // action. Ties broken by smallest sizeInBytes, then name, so a user waiting on a cold load
+    // gets the fastest-initializing candidate rather than an arbitrary first match.
     val target =
       currentModels
         .filter { it.isLlm && modelRegistry.isModelDownloaded(it) }
@@ -397,9 +300,7 @@ private fun ProcessTextDialog(
 
   val phase =
     when {
-      // Population hasn't run its course yet (see the LaunchedEffect above) -- keep showing
-      // LOADING rather than jumping to NO_MODELS_REGISTERED, which is now reserved for "the
-      // population attempt itself came up empty."
+      // Show LOADING until population has run, rather than jumping to NO_MODELS_REGISTERED early.
       !registryPopulated -> Phase.LOADING
       allModels.isEmpty() -> Phase.NO_MODELS_REGISTERED
       !modelReady && loadFailed -> Phase.NO_MODEL
@@ -432,10 +333,8 @@ private fun ProcessTextDialog(
             }
           }
           Phase.NO_MODELS_REGISTERED -> {
-            // A load was attempted (registryPopulated is only set after it ran) and the registry
-            // still came up empty -- distinct from Phase.NO_MODEL below (a specific model was
-            // found and its on-demand init failed). Reuses the same title as NO_MODEL ("No model
-            // loaded" is still accurate either way) but with its own message, per CHANGES 3.
+            // Load was attempted and the registry still came up empty -- distinct from NO_MODEL
+            // (a specific model's on-demand init failed).
             Column(modifier = Modifier.padding(top = 12.dp)) {
               Text(
                 text = stringResource(R.string.process_text_no_model_title),
@@ -599,10 +498,8 @@ private fun runQuickInference(
       )
       onDone()
     } catch (e: CancellationException) {
-      // The original direct runInference call here had no try/catch at all, so a coroutine
-      // cancellation (e.g. this dialog leaving composition mid-generation) simply propagated
-      // and nothing further ran. Preserve that: don't route a routine cancellation through
-      // onError as if it were a generation failure.
+      // Let cancellation (e.g. dialog leaving composition mid-generation) propagate normally --
+      // don't route it through onError as if it were a generation failure.
       throw e
     } catch (e: Exception) {
       onError(e.message.orEmpty())

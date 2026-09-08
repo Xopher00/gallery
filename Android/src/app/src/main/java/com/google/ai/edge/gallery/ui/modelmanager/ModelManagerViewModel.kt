@@ -65,7 +65,6 @@ import com.google.ai.edge.gallery.huggingface.HuggingFaceApiClient
 import com.google.ai.edge.gallery.data.SD_IMPORTS_DIR
 import com.google.ai.edge.gallery.relay.engine.InferenceEngineType
 import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistry
-import com.google.ai.edge.gallery.relay.openai.OpenAiServerState
 import com.google.ai.edge.gallery.proto.AccessTokenData
 import com.google.ai.edge.gallery.proto.HfModelItemProto
 import com.google.ai.edge.gallery.proto.ImportedModel
@@ -402,7 +401,7 @@ constructor(
   fun deleteModel(model: Model, removeImportedFromModelList: Boolean = true) {
     // relay: a delete must not orphan a live native engine the API server is serving. Unpin it,
     // tear down any live instance, and drop the registry's initialized-backend memory for it.
-    OpenAiServerState.unpin(model.name)
+    modelRegistry.releaseHold(model.name, "api")
     modelRegistry.forgetInitializedBackends(model.name)
     if (model.instance != null) {
       uiState.value.tasks
@@ -1105,141 +1104,10 @@ constructor(
     )
   }
 
-  private fun createModelFromImportedModelInfo(info: ImportedModel): Model {
-    val accelerators: MutableList<Accelerator> =
-      info.llmConfig.compatibleAcceleratorsList
-        .mapNotNull { acceleratorLabel ->
-          when (acceleratorLabel.trim()) {
-            Accelerator.GPU.label -> Accelerator.GPU
-            Accelerator.CPU.label -> Accelerator.CPU
-            Accelerator.NPU.label -> Accelerator.NPU
+  private fun createModelFromImportedModelInfo(info: ImportedModel): Model =
+    modelRegistry.createModelFromImportedModelInfo(info = info)
 
-            else -> null // Ignore unknown accelerator labels
-          }
-        }
-        .toMutableList()
-    val llmMaxToken = info.llmConfig.defaultMaxTokens
-    val llmSupportImage = info.llmConfig.supportImage
-    val llmSupportAudio = info.llmConfig.supportAudio
-    val llmSupportTinyGarden = info.llmConfig.supportTinyGarden
-    val llmSupportMobileActions = info.llmConfig.supportMobileActions
-    val llmSupportThinking = info.llmConfig.supportThinking
-    val llmSupportSpeculativeDecoding = info.llmConfig.supportSpeculativeDecoding
-    val configs: MutableList<Config> =
-      createLlmChatConfigs(
-          defaultMaxToken = llmMaxToken,
-          defaultTopK = info.llmConfig.defaultTopk,
-          defaultTopP = info.llmConfig.defaultTopp,
-          defaultTemperature = info.llmConfig.defaultTemperature,
-          accelerators = accelerators,
-          supportThinking = llmSupportThinking,
-          supportSpeculativeDecoding = llmSupportSpeculativeDecoding,
-        )
-        .toMutableList()
-    val capabilities: MutableList<ModelCapability> = mutableListOf()
-    val capabilityToTaskTypes: MutableMap<ModelCapability, List<String>> = mutableMapOf()
-    if (llmSupportThinking) {
-      capabilities.add(ModelCapability.LLM_THINKING)
-      capabilityToTaskTypes[ModelCapability.LLM_THINKING] =
-        listOf(
-          BuiltInTaskId.LLM_CHAT,
-          BuiltInTaskId.LLM_ASK_IMAGE,
-          BuiltInTaskId.LLM_ASK_AUDIO,
-        )
-    }
-    if (llmSupportSpeculativeDecoding) {
-      capabilities.add(ModelCapability.SPECULATIVE_DECODING)
-      capabilityToTaskTypes[ModelCapability.SPECULATIVE_DECODING] =
-        listOf(
-          BuiltInTaskId.LLM_CHAT,
-          BuiltInTaskId.LLM_ASK_IMAGE,
-          BuiltInTaskId.LLM_ASK_AUDIO,
-          BuiltInTaskId.LLM_PROMPT_LAB,
-        )
-    }
-    val model =
-      Model(
-        name = info.fileName,
-        url = info.url,
-        configs = configs,
-        sizeInBytes = info.fileSize,
-        downloadFileName = info.fileName,
-        showRunAgainButton = false,
-        imported = true,
-        llmSupportImage = llmSupportImage,
-        llmSupportAudio = llmSupportAudio,
-        llmSupportTinyGarden = llmSupportTinyGarden,
-        llmSupportMobileActions = llmSupportMobileActions,
-        capabilities = capabilities.toList(),
-        capabilityToTaskTypes = capabilityToTaskTypes.toMap(),
-        llmMaxToken = llmMaxToken,
-        accelerators = accelerators,
-        // We assume all imported models are LLM for now.
-        isLlm = true,
-        // Box: a GGUF import runs through llama.cpp, not LiteRT-LM (routing is by file
-        // extension, see ModelHelperExt.kt's Model.runtimeHelper); tag it UNKNOWN so
-        // Model.supportModelBenchmark stays false and it isn't offered on the LiteRT-LM-only
-        // benchmark screen (BenchmarkViewModel.kt), where it would crash.
-        runtimeType =
-          if (
-            InferenceEngineType.fromModelPath(info.fileName.removePrefix("$IMPORTS_DIR/")) ==
-              InferenceEngineType.LLAMA_CPP
-          ) {
-            RuntimeType.UNKNOWN
-          } else {
-            RuntimeType.LITERT_LM
-          },
-      )
-    model.preProcess()
-
-    return model
-  }
-
-  private fun groupTasksByCategory(): Map<String, List<Task>> {
-    val tasks = getActiveCustomTasks().map { it.task }
-
-    val categoryMap: Map<String, CategoryInfo> =
-      tasks.associateBy { it.category.id }.mapValues { it.value.category }
-
-    val groupedTasks = tasks.groupBy { it.category.id }
-    val groupedSortedTasks: MutableMap<String, List<Task>> = mutableMapOf()
-    // Sort the tasks in categories by pre-defined order. Sort other tasks by label.
-    for (categoryId in groupedTasks.keys) {
-      val sortedTasks =
-        groupedTasks[categoryId]!!.sortedWith { a, b ->
-          if (categoryId == Category.LLM.id) {
-            val order: List<String> =
-              when (categoryId) {
-                Category.LLM.id -> PREDEFINED_LLM_TASK_ORDER
-                else -> listOf()
-              }
-            val indexA = order.indexOf(a.id)
-            val indexB = order.indexOf(b.id)
-            if (indexA != -1 && indexB != -1) {
-              indexA.compareTo(indexB)
-            } else if (indexA != -1) {
-              -1
-            } else if (indexB != -1) {
-              1
-            } else {
-              val ca = categoryMap[a.id]!!
-              val cb = categoryMap[b.id]!!
-              val caLabel = getCategoryLabel(context = context, category = ca)
-              val cbLabel = getCategoryLabel(context = context, category = cb)
-              caLabel.compareTo(cbLabel)
-            }
-          } else {
-            a.label.compareTo(b.label)
-          }
-        }
-      for ((index, task) in sortedTasks.withIndex()) {
-        task.index = index
-      }
-      groupedSortedTasks[categoryId] = sortedTasks
-    }
-
-    return groupedSortedTasks
-  }
+  private fun groupTasksByCategory(): Map<String, List<Task>> = modelRegistry.groupTasksByCategory()
 
   private fun getCategoryLabel(context: Context, category: CategoryInfo): String {
     val stringRes = category.labelStringRes
@@ -1259,110 +1127,24 @@ constructor(
    * downloaded, partially downloaded, or not downloaded at all. It also retrieves the received and
    * total bytes for partially downloaded models.
    */
-  private fun getModelDownloadStatus(model: Model): ModelDownloadStatus {
-    Log.d(TAG, "Checking model ${model.name} download status...")
+  private fun getModelDownloadStatus(model: Model): ModelDownloadStatus =
+    modelRegistry.getModelDownloadStatus(model)
 
-    if (model.localFileRelativeDirPathOverride.isNotEmpty()) {
-      Log.d(TAG, "Model has localFileRelativeDirPathOverride set. Set status to SUCCEEDED")
-      return ModelDownloadStatus(
-        status = ModelDownloadStatusType.SUCCEEDED,
-        receivedBytes = 0,
-        totalBytes = 0,
-      )
-    }
+  private fun isFileInModelsDir(fileName: String): Boolean =
+    modelRegistry.isFileInModelsDir(fileName)
 
-    var status = ModelDownloadStatusType.NOT_DOWNLOADED
-    var receivedBytes = 0L
-    var totalBytes = 0L
+  private fun isFileInDataLocalTmpDir(fileName: String): Boolean =
+    modelRegistry.isFileInDataLocalTmpDir(fileName)
 
-    // Partially downloaded.
-    if (isModelPartiallyDownloaded(model = model)) {
-      status = ModelDownloadStatusType.PARTIALLY_DOWNLOADED
-      val tmpFilePath =
-        model.getPath(context = context, fileName = "${model.downloadFileName}.$TMP_FILE_EXT")
-      val tmpFile = File(tmpFilePath)
-      receivedBytes = tmpFile.length()
-      totalBytes = model.totalBytes
-      Log.d(TAG, "${model.name} is partially downloaded. $receivedBytes/$totalBytes")
-    }
-    // Fully downloaded.
-    else if (isModelDownloaded(model = model)) {
-      status = ModelDownloadStatusType.SUCCEEDED
-      Log.d(TAG, "${model.name} has been downloaded.")
-    }
-    // Not downloaded.
-    else {
-      Log.d(TAG, "${model.name} has not been downloaded.")
-    }
+  private fun deleteFileFromModelsDir(fileName: String) =
+    modelRegistry.deleteFileFromModelsDir(fileName)
 
-    return ModelDownloadStatus(
-      status = status,
-      receivedBytes = receivedBytes,
-      totalBytes = totalBytes,
-    )
-  }
+  private fun deleteFilesFromImportDir(fileName: String) =
+    modelRegistry.deleteFilesFromImportDir(fileName)
 
-  private fun isFileInModelsDir(fileName: String): Boolean {
-    val file = File(modelsDir, fileName)
-    return file.exists()
-  }
+  private fun deleteDirFromModelsDir(dir: String) = modelRegistry.deleteDirFromModelsDir(dir)
 
-  private fun isFileInDataLocalTmpDir(fileName: String): Boolean {
-    val file = File("/data/local/tmp", fileName)
-    return file.exists()
-  }
-
-  private fun deleteFileFromModelsDir(fileName: String) {
-    if (isFileInModelsDir(fileName)) {
-      val file = File(modelsDir, fileName)
-      file.delete()
-    }
-  }
-
-  /**
-   * Deletes files from the the model imports directory whose absolute paths start with a given
-   * prefix.
-   */
-  private fun deleteFilesFromImportDir(fileName: String) {
-    val prefixAbsolutePath =
-      "${modelsDir.absolutePath}${File.separator}$IMPORTS_DIR${File.separator}$fileName"
-    val filesToDelete =
-      File(modelsDir, IMPORTS_DIR).listFiles { dirFile, name ->
-        File(dirFile, name).absolutePath.startsWith(prefixAbsolutePath)
-      } ?: arrayOf()
-    for (file in filesToDelete) {
-      Log.d(TAG, "Deleting file: ${file.name}")
-      file.delete()
-    }
-  }
-
-  private fun deleteDirFromModelsDir(dir: String) {
-    if (isFileInModelsDir(dir)) {
-      val file = File(modelsDir, dir)
-      file.deleteRecursively()
-    }
-  }
-
-  fun isModelDownloaded(model: Model): Boolean {
-    model.updatable = false
-    // First, check if the model with the current (latest) version has been downloaded.
-    if (checkIfModelDownloaded(model, model.version)) return true
-
-    // If not, check if any updatable model file (previous version) has been downloaded.
-    for (updatableFile in model.updatableModelFiles) {
-      if (updatableFile.commitHash.isEmpty()) continue
-      if (checkIfModelDownloaded(model, updatableFile.commitHash, updatableFile.fileName)) {
-        // If an updatable version is found on the device, update the model's version and file name
-        // to match the downloaded one, and mark it as updatable.
-        model.version = updatableFile.commitHash
-        model.downloadFileName = updatableFile.fileName
-        model.updatable = true
-        return true
-      }
-    }
-
-    return false
-  }
+  fun isModelDownloaded(model: Model): Boolean = modelRegistry.isModelDownloaded(model)
 
   private fun checkIfModelDownloaded(
     model: Model,

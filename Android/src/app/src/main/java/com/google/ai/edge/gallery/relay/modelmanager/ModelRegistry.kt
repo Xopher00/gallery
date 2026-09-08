@@ -67,33 +67,15 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 private const val TAG = "AGModelRegistry"
 
-// DELIBERATE DUPLICATION -- read before "de-duplicating" anything below.
-//
-// The allowlist file names/URL, the local-test-json override, the disk/assets read functions, the
-// fetch-then-parse orchestration, and the nine file-system/task helpers near the bottom of this
-// file (createModelFromImportedModelInfo, fetchModelAllowlist, applyModelAllowlist,
-// groupTasksByCategory, getModelDownloadStatus, isFileInModelsDir, deleteFileFromModelsDir,
-// deleteFilesFromImportDir, deleteDirFromModelsDir, isModelDownloaded) each exist a second time in
-// ui/modelmanager/ModelManagerViewModel.kt, as private members of that class.
-//
-// That is on purpose. ModelManagerViewModel.kt is a file upstream (google-ai-edge/gallery) still
-// edits heavily; relay re-merges it. Relocating those helpers out of Google's class -- or
-// widening them to internal so this file could import them -- would rewrite a large region of
-// Google's file and turn every future upstream edit to it into a merge conflict. Keeping private
-// copies here instead means Google's file receives only the small delegation hook it already has
-// (a `modelRegistry` constructor parameter plus one-line forwarders), and an upstream merge of
-// ModelManagerViewModel.kt applies cleanly.
-//
-// The cost is that these copies can silently drift from Google's. AT EVERY UPSTREAM SYNC, diff the
-// helpers below against their counterparts in ModelManagerViewModel.kt and port any behavioural
-// change across. The bodies here were taken from merged-base's ModelManagerViewModel.kt, adapted
-// only to take `context`/`modelsDir` explicitly instead of reading view-model fields.
+// readModelAllowlistFromDisk has a private twin in ModelManagerViewModel.kt: diff both at every
+// upstream sync or they drift silently. Nothing else in this file is duplicated there.
 
 private const val MODEL_ALLOWLIST_FILENAME = "model_allowlist.json"
 private const val MODEL_ALLOWLIST_TEST_FILENAME = "model_allowlist_test.json"
@@ -103,8 +85,7 @@ private const val ALLOWLIST_BASE_URL =
 private const val TEST_MODEL_ALLOW_LIST = ""
 
 // Copy of ModelManagerViewModel.kt's private file-scope list, per the duplication note above.
-// Deliberately merged-base's ordering, NOT the relay's reordered variant -- the reorder is a
-// separate change and is not being carried here.
+// Kept identical to ModelManagerViewModel.kt's copy.
 private val PREDEFINED_LLM_TASK_ORDER =
   listOf(
     BuiltInTaskId.LLM_CHAT,
@@ -112,6 +93,7 @@ private val PREDEFINED_LLM_TASK_ORDER =
     BuiltInTaskId.LLM_ASK_IMAGE,
     BuiltInTaskId.LLM_ASK_AUDIO,
     BuiltInTaskId.LLM_PROMPT_LAB,
+    BuiltInTaskId.LLM_TINY_GARDEN,
     BuiltInTaskId.LLM_MOBILE_ACTIONS,
     BuiltInTaskId.MP_SCRAPBOOK,
   )
@@ -211,6 +193,45 @@ constructor(
    * must also check model.instance != null -- see [engineAccelerators].
    */
   fun getEngineAccelerator(modelName: String): String? = engineAccelerators[modelName]
+
+  // Who is keeping each model loaded, keyed by model name -> holder ids claiming it. Owned here
+  // (not the API server) so this registry can refuse to tear down a held model on its own --
+  // cleanupModel's guard on this must stay its FIRST statement. Published via MutableStateFlow so
+  // callers (OpenAiServer's conflict scan) can read a consistent snapshot without their own lock.
+  private val holdsLock = Any()
+  private val _holds = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+
+  /** Registers [holder] as keeping [modelName] loaded. Idempotent. */
+  fun acquireHold(modelName: String, holder: String) {
+    synchronized(holdsLock) {
+      val current = _holds.value
+      val holders = current[modelName] ?: emptySet()
+      _holds.value = current + (modelName to (holders + holder))
+    }
+  }
+
+  /**
+   * Releases [holder]'s claim on [modelName]. Once no holder remains, [modelName] is removed
+   * from the map entirely (so [heldModelNames] and [holdersOf] agree that it is unheld).
+   */
+  fun releaseHold(modelName: String, holder: String) {
+    synchronized(holdsLock) {
+      val current = _holds.value
+      val holders = current[modelName] ?: return
+      val remaining = holders - holder
+      _holds.value = if (remaining.isEmpty()) {
+        current - modelName
+      } else {
+        current + (modelName to remaining)
+      }
+    }
+  }
+
+  /** The holder ids currently keeping [modelName] loaded, or empty if none. */
+  fun holdersOf(modelName: String): Set<String> = _holds.value[modelName] ?: emptySet()
+
+  /** Every model name with at least one holder right now. */
+  fun heldModelNames(): Set<String> = _holds.value.keys
 
   fun isFirstInitialization(model: Model): Boolean {
     val backend =
@@ -655,8 +676,13 @@ constructor(
    * Suspending wrapper around [cleanupModel] that completes only once the task's
    * `cleanUpModelFn` has actually invoked its `onDone` callback (i.e. the native free has
    * finished), not merely once `cleanUpModelFn` has returned from launching that work.
+   *
+   * Public (not just [initializeModel]'s private helper) so callers that must not report success
+   * until the native free has actually completed -- e.g. OpenAiServer's
+   * POST /v1/models/{id}/unload -- can await the same guarantee instead of firing cleanupModel's
+   * callback-based overload and returning early.
    */
-  private suspend fun cleanupModelAwait(context: Context, task: Task, model: Model) {
+  suspend fun cleanupModelAwait(context: Context, task: Task, model: Model) {
     val deferred = CompletableDeferred<Unit>()
     cleanupModel(
       context = context,
@@ -700,11 +726,11 @@ constructor(
     instanceToCleanUp: Any? = model.instance,
     onDone: () -> Unit = {},
   ) {
-    // A model the API server loaded (POST /v1/models/{id}/load) is pinned so it survives the
-    // UI navigating away from its screen -- see OpenAiServerState.pin/unpin. This check must
-    // stay the very first statement in this function: every other branch below assumes a
-    // pinned model has already exited.
-    if (com.google.ai.edge.gallery.relay.openai.OpenAiServerState.isPinned(model.name)) {
+    // A model the API server loaded (POST /v1/models/{id}/load) is held so it survives the UI
+    // navigating away from its screen -- see acquireHold/releaseHold above. This check must
+    // stay the very first statement in this function: every other branch below assumes a held
+    // model has already exited.
+    if (holdersOf(model.name).isNotEmpty()) {
       onDone()
       return
     }
@@ -775,7 +801,7 @@ constructor(
    * no task-attachment side effect of its own -- callers decide which tasks to attach the result
    * to.
    */
-  private fun createModelFromImportedModelInfo(info: ImportedModel): Model {
+  internal fun createModelFromImportedModelInfo(info: ImportedModel): Model {
     val accelerators: MutableList<Accelerator> =
       info.llmConfig.compatibleAcceleratorsList
         .mapNotNull { acceleratorLabel ->
@@ -823,21 +849,16 @@ constructor(
           BuiltInTaskId.LLM_PROMPT_LAB,
         )
     }
-    // Box: For imported models, downloadFileName carries the IMPORTS_DIR prefix (see
-    // ModelHelperExt.kt's Model.runtimeHelper), so strip it the same way before checking the
-    // extension.
+    // Imported downloadFileName carries the IMPORTS_DIR prefix; strip it before checking the extension.
     val importedFileNameToCheck =
       if (info.fileName.startsWith("$IMPORTS_DIR/")) {
         info.fileName.substringAfter("$IMPORTS_DIR/")
       } else {
         info.fileName
       }
-    // Box: A GGUF import is not a LiteRT model -- it runs through llama.cpp (see
-    // ModelHelperExt.kt's Model.runtimeHelper, which routes by file extension regardless of
-    // runtimeType). Tagging it LITERT_LM would make Model.supportModelBenchmark (data/Model.kt)
-    // true for it, which puts it on Google's benchmark screen; that screen calls the LiteRT-LM
-    // native benchmark API with the .gguf path and crashes. Tag it UNKNOWN instead so
-    // supportModelBenchmark stays false for GGUF imports.
+    // GGUF imports run through llama.cpp, not LiteRT. Tagging them LITERT_LM would make
+    // supportModelBenchmark true, and Google's benchmark screen crashes calling the LiteRT-LM
+    // native API on a .gguf path -- tag UNKNOWN instead to keep it off that screen.
     val importedRuntimeType =
       if (InferenceEngineType.fromModelPath(importedFileNameToCheck) == InferenceEngineType.LLAMA_CPP) {
         RuntimeType.UNKNOWN

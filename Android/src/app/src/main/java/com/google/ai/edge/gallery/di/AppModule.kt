@@ -20,6 +20,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.DataStoreFactory
 import androidx.datastore.core.Serializer
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.dataStoreFile
 import com.google.ai.edge.gallery.AppLifecycleProvider
 import com.google.ai.edge.gallery.BenchmarkResultsSerializer
@@ -28,7 +29,6 @@ import com.google.ai.edge.gallery.CutoutsSerializer
 import com.google.ai.edge.gallery.GalleryLifecycleProvider
 import com.google.ai.edge.gallery.SettingsSerializer
 import com.google.ai.edge.gallery.SkillsSerializer
-import com.google.ai.edge.gallery.UserDataSerializer
 import com.google.ai.edge.gallery.data.ChatSessionRepository
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.data.DefaultChatSessionRepository
@@ -66,11 +66,10 @@ internal object AppModule {
     return CutoutsSerializer
   }
 
-  // Provides the UserDataSerializer
   @Provides
   @Singleton
   fun provideUserDataSerializer(@ApplicationContext context: Context): Serializer<UserData> {
-    return com.google.ai.edge.gallery.relay.security.EncryptedUserDataSerializer.create(context)
+    return com.google.ai.edge.gallery.security.EncryptedUserDataSerializer.create(context)
   }
 
   // Provides the BenchmarkResultsSerializer
@@ -122,6 +121,8 @@ internal object AppModule {
   ): DataStore<UserData> {
     return DataStoreFactory.create(
       serializer = userDataSerializer,
+      // Without this, a corrupt or undecryptable file throws on every read and takes the server down.
+      corruptionHandler = ReplaceFileCorruptionHandler { UserData.getDefaultInstance() },
       produceFile = { context.dataStoreFile("user_data.pb") },
     )
   }

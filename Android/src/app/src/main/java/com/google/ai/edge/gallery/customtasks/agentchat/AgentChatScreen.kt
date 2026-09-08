@@ -80,7 +80,6 @@ import com.google.ai.edge.gallery.GalleryEvent
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.agent.PromptExpander
 import com.google.ai.edge.gallery.common.LOCAL_URL_BASE
-import com.google.ai.edge.gallery.relay.customtasks.agentchat.AgentChatEmptyState
 import com.google.ai.edge.gallery.data.AgentSkillsURLs
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Model
@@ -503,8 +502,7 @@ fun AgentChatScreen(
         systemPromptUpdatedMessage = systemPromptUpdatedMessage,
       )
     },
-    emptyStateComposable = { _ -> AgentChatEmptyState() },
-    aboveInputComposable = { model ->
+    emptyStateComposable = { model ->
       val uiState by viewModel.uiState.collectAsState()
       val initStatus by model.initStatusFlow.collectAsState()
       Box(modifier = Modifier.fillMaxSize()) {

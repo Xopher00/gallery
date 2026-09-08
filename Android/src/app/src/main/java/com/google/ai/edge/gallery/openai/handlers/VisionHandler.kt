@@ -17,20 +17,20 @@
  * 10MB cap, http(s) URL rejection) by wrapping the single `image` field into the same
  * content-parts shape chat completions already accepts, rather than writing a second decoder.
  */
-package com.google.ai.edge.gallery.relay.openai.handlers
+package com.google.ai.edge.gallery.openai.handlers
 
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Base64
-import com.google.ai.edge.gallery.relay.openai.BoundingBoxData
-import com.google.ai.edge.gallery.relay.openai.DetectionData
-import com.google.ai.edge.gallery.relay.openai.ErrorBody
-import com.google.ai.edge.gallery.relay.openai.ErrorEnvelope
-import com.google.ai.edge.gallery.relay.openai.SegmentCategoryData
-import com.google.ai.edge.gallery.relay.openai.VisionDetectRequest
-import com.google.ai.edge.gallery.relay.openai.VisionDetectResponse
-import com.google.ai.edge.gallery.relay.openai.VisionSegmentRequest
-import com.google.ai.edge.gallery.relay.openai.VisionSegmentResponse
+import com.google.ai.edge.gallery.openai.BoundingBoxData
+import com.google.ai.edge.gallery.openai.DetectionData
+import com.google.ai.edge.gallery.openai.ErrorBody
+import com.google.ai.edge.gallery.openai.ErrorEnvelope
+import com.google.ai.edge.gallery.openai.SegmentCategoryData
+import com.google.ai.edge.gallery.openai.VisionDetectRequest
+import com.google.ai.edge.gallery.openai.VisionDetectResponse
+import com.google.ai.edge.gallery.openai.VisionSegmentRequest
+import com.google.ai.edge.gallery.openai.VisionSegmentResponse
 import com.google.ai.edge.gallery.relay.vision.ModelCatalog
 import com.google.ai.edge.gallery.relay.vision.ObjectDetectorWrapper
 import com.google.ai.edge.gallery.relay.vision.ImageSegmenterWrapper

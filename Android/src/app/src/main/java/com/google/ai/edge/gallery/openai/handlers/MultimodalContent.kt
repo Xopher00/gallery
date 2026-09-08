@@ -8,7 +8,7 @@
  * 127.0.0.1 and must not make outbound requests -- only `data:image/<type>;base64,<...>` URIs are
  * accepted; anything else is a 400.
  */
-package com.google.ai.edge.gallery.relay.openai.handlers
+package com.google.ai.edge.gallery.openai.handlers
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory

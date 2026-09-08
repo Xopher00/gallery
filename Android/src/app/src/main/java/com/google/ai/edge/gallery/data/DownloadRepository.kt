@@ -128,9 +128,8 @@ class DefaultDownloadRepository(
           extraFiles.joinToString(",") { it.downloadFileName },
         )
     }
-    if (model.accessToken != null) {
-      inputDataBuilder.putString(KEY_MODEL_DOWNLOAD_ACCESS_TOKEN, model.accessToken)
-    }
+    // Access token is not put in inputData: WorkManager persists it unencrypted. The worker
+    // fetches it at run time from the Tink-encrypted DataStoreRepository instead.
     val inputData = inputDataBuilder.build()
 
     // Create worker request.

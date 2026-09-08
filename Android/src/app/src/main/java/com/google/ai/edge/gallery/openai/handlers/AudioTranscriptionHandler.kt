@@ -8,16 +8,16 @@
  * device codec support) -- decoding failures surface as 400 rather than a generic 500 so a
  * caller can tell "your file" from "our bug".
  */
-package com.google.ai.edge.gallery.relay.openai.handlers
+package com.google.ai.edge.gallery.openai.handlers
 
 import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import com.google.ai.edge.gallery.relay.openai.ErrorBody
-import com.google.ai.edge.gallery.relay.openai.ErrorEnvelope
-import com.google.ai.edge.gallery.relay.openai.LoadResult
-import com.google.ai.edge.gallery.relay.openai.TranscriptionResponse
+import com.google.ai.edge.gallery.openai.ErrorBody
+import com.google.ai.edge.gallery.openai.ErrorEnvelope
+import com.google.ai.edge.gallery.openai.LoadResult
+import com.google.ai.edge.gallery.openai.TranscriptionResponse
 import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistry
 import com.google.ai.edge.gallery.whisper.WhisperEngine
 import io.ktor.http.ContentType

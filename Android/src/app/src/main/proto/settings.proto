@@ -104,6 +104,13 @@ message UserData {
   repeated ChatSessionProto chat_sessions = 3;
   // MCP server URL to MCP auth data.
   map<string, McpAuth> mcp_auths = 4;
+  // These mirror what openai_server_prefs SharedPreferences and Settings.start_server_on_boot hold today; call sites migrate in a later card.
+  string server_bind_mode = 5;
+  string server_selected_interface_name = 6;
+  repeated string server_allowed_tools = 7;
+  string server_last_pinned_model_name = 8;
+  string server_last_pinned_accelerator = 9;
+  bool server_start_on_boot = 10;
 }
 
 enum FillMode {

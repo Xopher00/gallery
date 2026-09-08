@@ -31,6 +31,12 @@ class LlamaCppEngine {
     var lastSystemPrompt: String = ""
         private set
 
+    // Prior-turn history to reseat as a conversation prefix on resetConversation. llama.cpp has
+    // no separate history object -- addChatMessage(role, content) IS the chat-template prompt
+    // builder, so replaying this list (including prior assistant replies) recreates that prefix.
+    var lastConversationHistory: List<Pair<String, String>> = emptyList()
+        private set
+
     @Volatile
     private var generationJob: Job? = null
 
@@ -114,9 +120,12 @@ class LlamaCppEngine {
         modelPath: String,
         params: SmolLM.InferenceParams = lastLoadParams ?: SmolLM.InferenceParams(),
         systemPrompt: String = "",
+        conversationHistory: List<Pair<String, String>> = emptyList(),
         onSuccess: () -> Unit = {},
         onError: (Exception) -> Unit = {},
     ) {
+        lastConversationHistory = conversationHistory
+
         stateLock.withLock {
             generationJob?.cancel()
             isGenerating = false
@@ -131,6 +140,13 @@ class LlamaCppEngine {
 
                     if (systemPrompt.isNotBlank()) {
                         instance.addSystemPrompt(systemPrompt)
+                    }
+
+                    // Seat prior turns (including the model's own replies) as the conversation
+                    // prefix for the next generateResponse call -- same native mechanism
+                    // loadModel's conversationHistory replay above uses.
+                    for ((role, content) in conversationHistory) {
+                        instance.addChatMessage(role, content)
                     }
 
                     isModelLoaded.set(true)

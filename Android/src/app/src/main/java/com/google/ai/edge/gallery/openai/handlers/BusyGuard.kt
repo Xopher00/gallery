@@ -32,7 +32,7 @@
  * call site map Busy/TimedOut to whatever status code and message wording that route already
  * used, so migrating a handler to this helper never has to change what a client sees on the wire.
  */
-package com.google.ai.edge.gallery.relay.openai.handlers
+package com.google.ai.edge.gallery.openai.handlers
 
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.TimeoutCancellationException

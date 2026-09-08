@@ -21,14 +21,13 @@ import android.content.Intent
 import android.util.Log
 import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
 import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistryEntryPoint
-import com.google.ai.edge.gallery.relay.openai.OpenAiServerService
-import com.google.ai.edge.gallery.relay.openai.OpenAiServerState
+import com.google.ai.edge.gallery.openai.OpenAiServerService
+import com.google.ai.edge.gallery.openai.ServerRuntime
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -64,7 +63,7 @@ class BootReceiver : BroadcastReceiver() {
             )
             .dataStoreRepository()
 
-        if (!dataStoreRepository.readStartServerOnBoot()) {
+        if (!dataStoreRepository.readServerStartOnBoot()) {
           Log.d(TAG, "startServerOnBoot is off; not starting the API server")
         } else {
           Log.i(TAG, "startServerOnBoot is on; loading the model allowlist and starting the server")
@@ -97,19 +96,12 @@ class BootReceiver : BroadcastReceiver() {
 
               OpenAiServerService.startService(context.applicationContext)
 
-              // Best-effort preload of the last-pinned model: poll briefly for
-              // OpenAiServerState.runningServer, set by OpenAiServer.start(), rather than
-              // racing the service's own async startup.
-              val lastPinned = OpenAiServerState.loadLastPinnedModel(context.applicationContext)
-              if (lastPinned != null) {
-                val (name, accelerator) = lastPinned
-                var server = OpenAiServerState.runningServer
-                var attempts = 0
-                while (server == null && attempts < BOOT_PRELOAD_MAX_ATTEMPTS) {
-                  delay(BOOT_PRELOAD_POLL_INTERVAL_MS)
-                  server = OpenAiServerState.runningServer
-                  attempts++
-                }
+              // Await ServerRuntime reaching READY rather than racing the service's own startup.
+              val (name, accelerator) = dataStoreRepository.readServerLastPinned()
+              if (name != null) {
+                val server = ServerRuntime.awaitReady(
+                  timeoutMs = BOOT_PRELOAD_MAX_ATTEMPTS * BOOT_PRELOAD_POLL_INTERVAL_MS,
+                )
                 if (server == null) {
                   Log.w(
                     TAG,

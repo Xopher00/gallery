@@ -186,7 +186,7 @@
 
         <!-- API server (ported from api-server branch): local OpenAI-compatible API server. -->
         <service
-            android:name=".relay.openai.OpenAiServerService"
+            android:name=".openai.OpenAiServerService"
             android:exported="false"
             android:foregroundServiceType="specialUse|dataSync">
             <property

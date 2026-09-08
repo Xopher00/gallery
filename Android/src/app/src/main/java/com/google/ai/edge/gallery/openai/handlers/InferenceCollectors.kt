@@ -15,7 +15,7 @@
  * CoroutineScope) is server-specific, so importing it into a UI file does not drag any server
  * plumbing along with it.
  */
-package com.google.ai.edge.gallery.relay.openai.handlers
+package com.google.ai.edge.gallery.openai.handlers
 
 import android.graphics.Bitmap
 import com.google.ai.edge.gallery.data.Model

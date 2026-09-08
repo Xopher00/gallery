@@ -55,56 +55,53 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
-import com.google.ai.edge.gallery.relay.openai.OpenAiServerService
-import com.google.ai.edge.gallery.relay.openai.OpenAiServerState
-import com.google.ai.edge.gallery.relay.openai.OpenAiServerState.BindMode
-import com.google.ai.edge.gallery.relay.openai.handlers.ALL_MOBILE_ACTION_TOOLS
-import com.google.ai.edge.gallery.relay.openai.handlers.DEFAULT_ALLOWED_TOOLS
-import com.google.ai.edge.gallery.relay.openai.handlers.RISKY_TOOLS
+import com.google.ai.edge.gallery.openai.ApiKey
+import com.google.ai.edge.gallery.openai.OpenAiServerService
+import com.google.ai.edge.gallery.openai.ServerRuntime
+import com.google.ai.edge.gallery.openai.ServerRuntime.BindMode
+import com.google.ai.edge.gallery.openai.handlers.ALL_MOBILE_ACTION_TOOLS
+import com.google.ai.edge.gallery.openai.handlers.DEFAULT_ALLOWED_TOOLS
+import com.google.ai.edge.gallery.openai.handlers.RISKY_TOOLS
 import dagger.hilt.android.EntryPointAccessors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ServerScreen(navigateUp: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val isRunning by OpenAiServerState.isRunning.collectAsState()
-    val localUrl by OpenAiServerState.localUrl.collectAsState()
-    val liveBoundHost by OpenAiServerState.liveBoundHost.collectAsState()
-    var apiKey by remember { mutableStateOf(OpenAiServerState.apiKey(context)) }
+    val isRunning by ServerRuntime.isRunning.collectAsState()
+    val localUrl by ServerRuntime.localUrl.collectAsState()
+    val liveBoundHost by ServerRuntime.liveBoundHost.collectAsState()
 
-    var bindMode by remember { mutableStateOf(OpenAiServerState.loadBindMode(context)) }
-
-    var copiedNotice by remember { mutableStateOf(false) }
-
-    var selectedInterfaceName by remember { mutableStateOf(OpenAiServerState.loadSelectedInterfaceName(context)) }
-    var availableInterfaces by remember { mutableStateOf(OpenAiServerState.listAvailableInterfaces()) }
-    val bindError by OpenAiServerState.bindError.collectAsState()
-
-    // WP-C2: per-tool agent allowlist. loadAllowedTools seeds the persisted store with
-    // DEFAULT_ALLOWED_TOOLS the first time it is read on an install that has never touched this
-    // screen, so nothing changes silently for an existing install. Toggling a switch persists
-    // immediately (setAllowedTools), same pattern as applyModeChange/applyInterfaceChange above.
-    var allowedTools by remember {
-        mutableStateOf(OpenAiServerState.loadAllowedTools(context, defaultIfUnset = DEFAULT_ALLOWED_TOOLS))
-    }
-
-    fun setToolAllowed(toolName: String, allowed: Boolean) {
-        val updated = if (allowed) allowedTools + toolName else allowedTools - toolName
-        allowedTools = updated
-        OpenAiServerState.setAllowedTools(context, updated)
-    }
-
-    // WP (spec section 6): boot auto-start + battery-optimisation opt-in controls. Reached via
-    // EntryPointAccessors (same pattern BootReceiver uses) rather than a Hilt-injected
-    // ViewModel, since this Composable has no @AndroidEntryPoint scaffolding of its own -- see
-    // DataStoreRepositoryEntryPoint.
+    // Reached via EntryPointAccessors (same pattern BootReceiver uses), since this Composable
+    // has no @AndroidEntryPoint scaffolding of its own.
     val dataStoreRepository = remember {
         EntryPointAccessors.fromApplication(
             context.applicationContext,
             DataStoreRepositoryEntryPoint::class.java,
         ).dataStoreRepository()
     }
-    var startServerOnBoot by remember { mutableStateOf(dataStoreRepository.readStartServerOnBoot()) }
+
+    var apiKey by remember { mutableStateOf(ApiKey.apiKey(context, dataStoreRepository)) }
+
+    var bindMode by remember { mutableStateOf(ServerRuntime.loadBindMode(dataStoreRepository)) }
+
+    var copiedNotice by remember { mutableStateOf(false) }
+
+    var selectedInterfaceName by remember { mutableStateOf(ServerRuntime.loadSelectedInterfaceName(dataStoreRepository)) }
+    var availableInterfaces by remember { mutableStateOf(ServerRuntime.listAvailableInterfaces()) }
+    val bindError by ServerRuntime.bindError.collectAsState()
+
+    var allowedTools by remember {
+        mutableStateOf(ServerRuntime.loadAllowedTools(dataStoreRepository, defaultIfUnset = DEFAULT_ALLOWED_TOOLS))
+    }
+
+    fun setToolAllowed(toolName: String, allowed: Boolean) {
+        val updated = if (allowed) allowedTools + toolName else allowedTools - toolName
+        allowedTools = updated
+        ServerRuntime.setAllowedTools(dataStoreRepository, updated)
+    }
+
+    var startServerOnBoot by remember { mutableStateOf(dataStoreRepository.readServerStartOnBoot()) }
 
     val powerManager = remember { context.getSystemService(PowerManager::class.java) }
     fun checkIgnoringBatteryOptimizations(): Boolean =
@@ -131,21 +128,17 @@ fun ServerScreen(navigateUp: () -> Unit, modifier: Modifier = Modifier) {
     // Rebinding automatically is out of scope for this card; reporting is not.
     LaunchedEffect(isRunning, bindMode) {
         while (isRunning && bindMode == BindMode.INTERFACE) {
-            OpenAiServerState.checkInterfaceDrift()
+            ServerRuntime.checkInterfaceDrift()
             delay(5000)
         }
     }
 
-    // Restarting the running service picks up a mode/provider/token change immediately; if the
-    // server is stopped the new value just takes effect the next time it's started.
-    // D14: never widen the bind scope silently. If the current mode/selection is not actually
-    // ready to bind (only possible today for INTERFACE mode -- see validateBindReady()), refuse
-    // to start the service at all and surface why via bindError instead.
+    // D14: never widen the bind scope silently -- refuse to start if not ready, surface why via bindError.
     fun applyModeChange(newMode: BindMode) {
         bindMode = newMode
-        OpenAiServerState.setBindMode(context, newMode)
+        ServerRuntime.setBindMode(dataStoreRepository, newMode)
         if (isRunning) {
-            val error = OpenAiServerState.refreshBindError()
+            val error = ServerRuntime.refreshBindError()
             if (error != null) {
                 OpenAiServerService.stopService(context)
             } else {
@@ -156,9 +149,9 @@ fun ServerScreen(navigateUp: () -> Unit, modifier: Modifier = Modifier) {
 
     fun applyInterfaceChange(name: String) {
         selectedInterfaceName = name
-        OpenAiServerState.setSelectedInterfaceName(context, name)
+        ServerRuntime.setSelectedInterfaceName(dataStoreRepository, name)
         if (isRunning && bindMode == BindMode.INTERFACE) {
-            val error = OpenAiServerState.refreshBindError()
+            val error = ServerRuntime.refreshBindError()
             if (error != null) {
                 OpenAiServerService.stopService(context)
             } else {
@@ -197,7 +190,7 @@ fun ServerScreen(navigateUp: () -> Unit, modifier: Modifier = Modifier) {
                         if (checked) {
                             // D14: refuse to start rather than silently widen the bind scope --
                             // e.g. an INTERFACE selection that is currently absent/no-IPv4.
-                            val error = OpenAiServerState.refreshBindError()
+                            val error = ServerRuntime.refreshBindError()
                             if (error == null) {
                                 OpenAiServerService.startService(context)
                             } else {
@@ -215,14 +208,14 @@ fun ServerScreen(navigateUp: () -> Unit, modifier: Modifier = Modifier) {
             val fallbackUrl = when (bindMode) {
                 BindMode.INTERFACE -> selectedInterfaceName
                     ?.let { name -> availableInterfaces.find { it.name == name }?.ipv4 }
-                    ?.let { ip -> "http://$ip:${OpenAiServerState.DEFAULT_PORT}" }
+                    ?.let { ip -> "http://$ip:${ServerRuntime.DEFAULT_PORT}" }
                 else -> null
-            } ?: localUrl ?: "http://127.0.0.1:${OpenAiServerState.DEFAULT_PORT}"
+            } ?: localUrl ?: "http://127.0.0.1:${ServerRuntime.DEFAULT_PORT}"
             // While running, prefer the live server's actual bound host over any pref-derived
             // guess -- liveBoundHost is set by the service right after a successful start() and
             // cleared on stop, so it can never point at a socket that isn't really listening.
             val reachableUrl = if (isRunning) {
-                liveBoundHost?.let { host -> "http://$host:${OpenAiServerState.DEFAULT_PORT}" } ?: fallbackUrl
+                liveBoundHost?.let { host -> "http://$host:${ServerRuntime.DEFAULT_PORT}" } ?: fallbackUrl
             } else {
                 fallbackUrl
             }
@@ -234,7 +227,7 @@ fun ServerScreen(navigateUp: () -> Unit, modifier: Modifier = Modifier) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("API key: $apiKey (fingerprint ${OpenAiServerState.fingerprint(apiKey)})")
+                Text("API key: $apiKey (fingerprint ${ApiKey.fingerprint(apiKey)})")
                 IconButton(onClick = { copyToClipboard(context, apiKey, "API key") }) {
                     Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy API key")
                 }
@@ -242,7 +235,7 @@ fun ServerScreen(navigateUp: () -> Unit, modifier: Modifier = Modifier) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(onClick = { apiKey = OpenAiServerState.regenerateApiKey(context) }) {
+            Button(onClick = { apiKey = ApiKey.regenerateApiKey(context, dataStoreRepository) }) {
                 Text("Regenerate API key")
             }
 
@@ -273,7 +266,7 @@ fun ServerScreen(navigateUp: () -> Unit, modifier: Modifier = Modifier) {
                 FilterChip(
                     selected = bindMode == BindMode.INTERFACE,
                     onClick = {
-                        availableInterfaces = OpenAiServerState.listAvailableInterfaces()
+                        availableInterfaces = ServerRuntime.listAvailableInterfaces()
                         applyModeChange(BindMode.INTERFACE)
                     },
                     label = { Text(stringResource(R.string.server_mode_interface)) },
@@ -306,7 +299,7 @@ fun ServerScreen(navigateUp: () -> Unit, modifier: Modifier = Modifier) {
                             stringResource(R.string.server_interface_section_title),
                             style = MaterialTheme.typography.titleMedium,
                         )
-                        Button(onClick = { availableInterfaces = OpenAiServerState.listAvailableInterfaces() }) {
+                        Button(onClick = { availableInterfaces = ServerRuntime.listAvailableInterfaces() }) {
                             Text(stringResource(R.string.server_interface_refresh))
                         }
                     }
@@ -372,7 +365,7 @@ fun ServerScreen(navigateUp: () -> Unit, modifier: Modifier = Modifier) {
                     checked = startServerOnBoot,
                     onCheckedChange = { checked ->
                         startServerOnBoot = checked
-                        dataStoreRepository.saveStartServerOnBoot(checked)
+                        dataStoreRepository.saveServerStartOnBoot(checked)
                     },
                 )
             }

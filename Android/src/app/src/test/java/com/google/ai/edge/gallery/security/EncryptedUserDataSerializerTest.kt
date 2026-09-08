@@ -1,4 +1,4 @@
-package com.google.ai.edge.gallery.relay.security
+package com.google.ai.edge.gallery.security
 
 import androidx.datastore.core.CorruptionException
 import com.google.ai.edge.gallery.proto.AccessTokenData

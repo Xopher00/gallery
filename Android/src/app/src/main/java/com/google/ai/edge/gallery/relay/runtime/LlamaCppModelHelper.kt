@@ -13,8 +13,10 @@ import com.google.ai.edge.gallery.data.DEFAULT_TOPK
 import com.google.ai.edge.gallery.data.DEFAULT_TOPP
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.relay.engine.LlamaCppEngine
+import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.Role
 import com.google.ai.edge.litertlm.ToolProvider
 import com.jegly.offlineLLM.smollm.SmolLM
 import kotlinx.coroutines.CoroutineScope
@@ -89,18 +91,28 @@ object LlamaCppModelHelper : LlmModelHelper {
         val modelPath = engine.lastModelPath ?: return
 
         Log.d(TAG, "Resetting conversation for ${model.name} (keeping model loaded)")
-        if (initialMessages.isNotEmpty()) {
-            Log.w(
-                TAG,
-                "initialMessages replay not supported by llama.cpp engine, ignoring " +
-                    "${initialMessages.size} message(s)",
-            )
+
+        // Map litertlm.Message role/content onto the (role, text) pairs
+        // LlamaCppEngine.resetConversation seats as a conversation prefix via
+        // instance.addChatMessage -- same role strings ("user"/"assistant") the native chat
+        // template already expects (see smollm.cpp / SmolLM.addChatMessage callers).
+        val conversationHistory = initialMessages.mapNotNull { message ->
+            val role = when (message.role) {
+                Role.USER -> "user"
+                Role.MODEL -> "assistant"
+                else -> return@mapNotNull null
+            }
+            val text = message.contents.contents
+                .filterIsInstance<Content.Text>()
+                .joinToString(separator = "") { it.text }
+            role to text
         }
 
         engine.resetConversation(
             modelPath = modelPath,
             params = engine.lastLoadParams ?: SmolLM.InferenceParams(),
             systemPrompt = engine.lastSystemPrompt,
+            conversationHistory = conversationHistory,
             onSuccess = {
                 // Update model instance reference
                 model.instance = engine

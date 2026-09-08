@@ -61,21 +61,6 @@ interface DataStoreRepository {
    */
   fun readFirebaseAnalytics(): Boolean
 
-  /**
-   * Saves the user's opt-in preference for whether [com.google.ai.edge.gallery.relay.openai
-   * .OpenAiServerService] should be started automatically by
-   * [com.google.ai.edge.gallery.notifications.BootReceiver] on `ACTION_BOOT_COMPLETED`.
-   *
-   * WP (spec section 6): defaults to `false` (the proto3 zero-value for
-   * `start_server_on_boot`) -- a server that starts itself on boot without the user asking is
-   * security-relevant behaviour, and this project's standing rule is that such behaviour is
-   * opt-in only.
-   */
-  fun saveStartServerOnBoot(enabled: Boolean)
-
-  /** Reads the current start-server-on-boot preference. `false` unless explicitly enabled. */
-  fun readStartServerOnBoot(): Boolean
-
   fun saveSecret(key: String, value: String)
 
   fun readSecret(key: String): String?
@@ -144,6 +129,26 @@ interface DataStoreRepository {
 
   /** Returns whether a promo with the specified ID has been viewed. */
   fun hasViewedPromo(promoId: String): Boolean
+
+  fun saveServerBindMode(bindMode: String)
+
+  fun readServerBindMode(): String?
+
+  fun saveServerSelectedInterfaceName(interfaceName: String)
+
+  fun readServerSelectedInterfaceName(): String?
+
+  fun saveServerAllowedTools(tools: Set<String>)
+
+  fun readServerAllowedTools(): Set<String>
+
+  fun saveServerLastPinned(modelName: String?, accelerator: String?)
+
+  fun readServerLastPinned(): Pair<String?, String?>
+
+  fun saveServerStartOnBoot(enabled: Boolean)
+
+  fun readServerStartOnBoot(): Boolean
 }
 
 /** Repository for managing data using Proto DataStore. */
@@ -204,19 +209,6 @@ class DefaultDataStoreRepository(
     return runBlocking {
       val settings = dataStore.data.first()
       !settings.disableFirebaseAnalytics
-    }
-  }
-
-  override fun saveStartServerOnBoot(enabled: Boolean) {
-    runBlocking {
-      dataStore.updateData { settings -> settings.toBuilder().setStartServerOnBoot(enabled).build() }
-    }
-  }
-
-  override fun readStartServerOnBoot(): Boolean {
-    return runBlocking {
-      val settings = dataStore.data.first()
-      settings.startServerOnBoot
     }
   }
 
@@ -497,6 +489,89 @@ class DefaultDataStoreRepository(
     return runBlocking {
       val settings = dataStore.data.first()
       settings.viewedPromoIdList.contains(promoId)
+    }
+  }
+
+  override fun saveServerBindMode(bindMode: String) {
+    runBlocking {
+      userDataDataStore.updateData { userData ->
+        userData.toBuilder().setServerBindMode(bindMode).build()
+      }
+    }
+  }
+
+  override fun readServerBindMode(): String? {
+    return runBlocking { userDataDataStore.data.first().serverBindMode.ifEmpty { null } }
+  }
+
+  override fun saveServerSelectedInterfaceName(interfaceName: String) {
+    runBlocking {
+      userDataDataStore.updateData { userData ->
+        userData.toBuilder().setServerSelectedInterfaceName(interfaceName).build()
+      }
+    }
+  }
+
+  override fun readServerSelectedInterfaceName(): String? {
+    return runBlocking {
+      userDataDataStore.data.first().serverSelectedInterfaceName.ifEmpty { null }
+    }
+  }
+
+  override fun saveServerAllowedTools(tools: Set<String>) {
+    runBlocking {
+      userDataDataStore.updateData { userData ->
+        userData.toBuilder().clearServerAllowedTools().addAllServerAllowedTools(tools).build()
+      }
+    }
+  }
+
+  override fun readServerAllowedTools(): Set<String> {
+    return runBlocking { userDataDataStore.data.first().serverAllowedToolsList.toSet() }
+  }
+
+  override fun saveServerLastPinned(modelName: String?, accelerator: String?) {
+    runBlocking {
+      userDataDataStore.updateData { userData ->
+        userData
+          .toBuilder()
+          .setServerLastPinnedModelName(modelName ?: "")
+          .setServerLastPinnedAccelerator(accelerator ?: "")
+          .build()
+      }
+    }
+  }
+
+  override fun readServerLastPinned(): Pair<String?, String?> {
+    return runBlocking {
+      val userData = userDataDataStore.data.first()
+      Pair(
+        userData.serverLastPinnedModelName.ifEmpty { null },
+        userData.serverLastPinnedAccelerator.ifEmpty { null },
+      )
+    }
+  }
+
+  override fun saveServerStartOnBoot(enabled: Boolean) {
+    runBlocking {
+      userDataDataStore.updateData { userData ->
+        userData.toBuilder().setServerStartOnBoot(enabled).build()
+      }
+    }
+  }
+
+  // One-time migration: proto3 bools can't distinguish false from never-set, so only
+  // legacy-true is copied forward (then cleared, making this idempotent).
+  override fun readServerStartOnBoot(): Boolean {
+    return runBlocking {
+      val current = userDataDataStore.data.first().serverStartOnBoot
+      if (current) return@runBlocking true
+      val legacy = dataStore.data.first().startServerOnBoot
+      if (legacy) {
+        userDataDataStore.updateData { userData -> userData.toBuilder().setServerStartOnBoot(true).build() }
+        dataStore.updateData { settings -> settings.toBuilder().setStartServerOnBoot(false).build() }
+      }
+      legacy
     }
   }
 }
