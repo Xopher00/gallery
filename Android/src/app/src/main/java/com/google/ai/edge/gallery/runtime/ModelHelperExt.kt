@@ -1,0 +1,47 @@
+/*
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.google.ai.edge.gallery.runtime
+
+import com.google.ai.edge.gallery.data.IMPORTS_DIR
+import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.data.RuntimeType
+import com.google.ai.edge.gallery.engine.InferenceEngineType
+import com.google.ai.edge.gallery.runtime.aicore.AICoreModelHelper
+import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
+
+var testingModelHelper: LlmModelHelper? = null
+
+val Model.runtimeHelper: LlmModelHelper
+  get() {
+    testingModelHelper?.let {
+      return it
+    }
+    if (this.runtimeType == RuntimeType.AICORE) {
+      return AICoreModelHelper
+    }
+    // Box: Route GGUF models through llama.cpp engine
+    // For imported models, downloadFileName includes the IMPORTS_DIR prefix, so extract just the filename
+    val fileNameToCheck = if (imported && downloadFileName.startsWith("$IMPORTS_DIR/")) {
+      downloadFileName.substringAfter("$IMPORTS_DIR/")
+    } else {
+      downloadFileName
+    }
+    if (InferenceEngineType.fromModelPath(fileNameToCheck) == InferenceEngineType.LLAMA_CPP) {
+      return LlamaCppModelHelper
+    }
+    return LlmChatModelHelper
+  }

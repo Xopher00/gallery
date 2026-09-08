@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<body>
+<script>
+  const STORAGE_KEY = 'budget_tracker_data';
+
+  const toLocalISO = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  function resolveDate(s) {
+    if (!s || s.toLowerCase() === 'today') return toLocalISO(new Date());
+    if (s.toLowerCase() === 'yesterday') {
+      const d = new Date(); d.setDate(d.getDate() - 1); return toLocalISO(d);
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const parsed = new Date(s);
+    return isNaN(parsed.getTime()) ? toLocalISO(new Date()) : toLocalISO(parsed);
+  }
+
+  function getData() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : { entries: [] };
+  }
+
+  function saveData(data) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }
+
+  function cutoffDate(days) {
+    const d = new Date();
+    d.setDate(d.getDate() - days);
+    return toLocalISO(d);
+  }
+
+  window['ai_edge_gallery_get_result'] = async (dataStr) => {
+    try {
+      const input = JSON.parse(dataStr);
+      const action = input.action;
+      const data = getData();
+
+      if (action === 'log_expense') {
+        const amount = parseFloat(input.amount);
+        if (isNaN(amount) || amount <= 0) throw new Error('Amount must be a positive number.');
+        const entry = {
+          id: Date.now().toString(),
+          type: 'expense',
+          amount,
+          category: input.category || 'Other',
+          note: input.note || '',
+          date: resolveDate(input.date),
+        };
+        data.entries.push(entry);
+        saveData(data);
+        return JSON.stringify({
+          result: `Logged expense: $${amount.toFixed(2)} · ${entry.category}${entry.note ? ' (' + entry.note + ')' : ''} on ${entry.date}.`
+        });
+
+      } else if (action === 'log_income') {
+        const amount = parseFloat(input.amount);
+        if (isNaN(amount) || amount <= 0) throw new Error('Amount must be a positive number.');
+        const entry = {
+          id: Date.now().toString(),
+          type: 'income',
+          amount,
+          category: 'Income',
+          note: input.note || '',
+          date: resolveDate(input.date),
+        };
+        data.entries.push(entry);
+        saveData(data);
+        return JSON.stringify({
+          result: `Logged income: $${amount.toFixed(2)}${entry.note ? ' (' + entry.note + ')' : ''} on ${entry.date}.`
+        });
+
+      } else if (action === 'get_summary') {
+        const days = parseInt(input.days) || 30;
+        const cutoff = cutoffDate(days);
+        const recent = data.entries.filter(e => e.date >= cutoff);
+        const expenses = recent.filter(e => e.type === 'expense');
+        const income = recent.filter(e => e.type === 'income');
+        const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+        const totalIncome = income.reduce((s, e) => s + e.amount, 0);
+
+        const byCategory = {};
+        expenses.forEach(e => {
+          byCategory[e.category] = (byCategory[e.category] || 0) + e.amount;
+        });
+
+        const catLines = Object.entries(byCategory)
+          .sort(([, a], [, b]) => b - a)
+          .map(([cat, amt]) => `  ${cat}: $${amt.toFixed(2)}`)
+          .join('\n');
+
+        const resultText =
+          `Budget Summary (last ${days} days):\n` +
+          `  Total Spent:  $${totalExpenses.toFixed(2)}\n` +
+          `  Total Income: $${totalIncome.toFixed(2)}\n` +
+          `  Balance:      $${(totalIncome - totalExpenses).toFixed(2)}\n\n` +
+          `Spending by Category:\n${catLines || '  No expenses logged.'}`;
+
+        const response = { result: resultText };
+        if (input.show_dashboard) {
+          response.webview = { url: `dashboard.html?days=${days}` };
+        }
+        return JSON.stringify(response);
+
+      } else if (action === 'get_history') {
+        const days = parseInt(input.days) || 7;
+        const cutoff = cutoffDate(days);
+        const recent = data.entries
+          .filter(e => e.date >= cutoff)
+          .sort((a, b) => b.date.localeCompare(a.date));
+
+        if (recent.length === 0) {
+          return JSON.stringify({ result: `No entries found in the last ${days} days.` });
+        }
+
+        const lines = recent.map(e =>
+          `[${e.id}] ${e.date} · ${e.type === 'income' ? '+' : '-'}$${e.amount.toFixed(2)} · ${e.category}${e.note ? ' (' + e.note + ')' : ''}`
+        );
+        return JSON.stringify({
+          result: `Last ${days} days (${recent.length} entries):\n${lines.join('\n')}`
+        });
+
+      } else if (action === 'delete_entry') {
+        const before = data.entries.length;
+        data.entries = data.entries.filter(e => e.id !== input.id);
+        if (data.entries.length === before) {
+          return JSON.stringify({ result: `No entry found with ID ${input.id}.` });
+        }
+        saveData(data);
+        return JSON.stringify({ result: `Deleted entry ${input.id}.` });
+
+      } else if (action === 'wipe_data') {
+        localStorage.removeItem(STORAGE_KEY);
+        return JSON.stringify({ result: 'All budget data has been cleared.' });
+
+      } else {
+        throw new Error(`Unknown action: ${action}`);
+      }
+    } catch (e) {
+      return JSON.stringify({ error: `Budget Tracker error: ${e.message}` });
+    }
+  };
+</script>
+</body>
+</html>

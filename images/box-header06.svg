@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 500" width="1600" height="500">
+  <defs>
+    <linearGradient id="bg-mint" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a0e0c"></stop>
+      <stop offset="1" stop-color="#0c1410"></stop>
+    </linearGradient>
+    <pattern id="grid-mint" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M 80 0 L 0 0 0 80" fill="none" stroke="rgba(160,220,200,0.05)" stroke-width="1"></path>
+    </pattern>
+    <radialGradient id="glow-mint" cx="0%" cy="100%" r="70%">
+      <stop offset="0%" stop-color="#0a2a1c" stop-opacity="0.55"></stop>
+      <stop offset="100%" stop-color="#0a2a1c" stop-opacity="0"></stop>
+    </radialGradient>
+    <linearGradient id="accent-mint" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3ad4a8"></stop>
+      <stop offset="1" stop-color="#3ad4a8"></stop>
+    </linearGradient>
+  </defs>
+
+  <rect width="1600" height="500" fill="url(#bg-mint)"></rect>
+  <rect width="1600" height="500" fill="url(#grid-mint)"></rect>
+  <rect width="1600" height="500" fill="url(#glow-mint)"></rect>
+
+  <g transform="translate(28,28) rotate(0)">
+    <line x1="0" y1="0" x2="28" y2="0" stroke="#3ad4a8" stroke-width="2"></line>
+    <line x1="0" y1="0" x2="0" y2="28" stroke="#3ad4a8" stroke-width="2"></line>
+  </g>
+  <g transform="translate(1572,28) rotate(90)">
+    <line x1="0" y1="0" x2="28" y2="0" stroke="#3ad4a8" stroke-width="2"></line>
+    <line x1="0" y1="0" x2="0" y2="28" stroke="#3ad4a8" stroke-width="2"></line>
+  </g>
+  <g transform="translate(28,472) rotate(270)">
+    <line x1="0" y1="0" x2="28" y2="0" stroke="#3ad4a8" stroke-width="2"></line>
+    <line x1="0" y1="0" x2="0" y2="28" stroke="#3ad4a8" stroke-width="2"></line>
+  </g>
+  <g transform="translate(1572,472) rotate(180)">
+    <line x1="0" y1="0" x2="28" y2="0" stroke="#3ad4a8" stroke-width="2"></line>
+    <line x1="0" y1="0" x2="0" y2="28" stroke="#3ad4a8" stroke-width="2"></line>
+  </g>
+
+  
+    <g transform="translate(90,130) scale(1.2)">
+      <polygon points="100,10 190,55 100,100 10,55" fill="#f0f4f2" stroke="#0a1410" stroke-width="1.5" stroke-linejoin="miter"></polygon>
+      <polygon points="10,55 100,100 100,210 10,165" fill="#1a2420" stroke="#0a1410" stroke-width="1.5" stroke-linejoin="miter"></polygon>
+      <polygon points="190,55 100,100 100,210 190,165" fill="#8aa89c" stroke="#0a1410" stroke-width="1.5" stroke-linejoin="miter"></polygon>
+    </g>
+
+  <rect x="380" y="70" width="16" height="16" fill="#ffffff"></rect><rect x="396" y="70" width="16" height="16" fill="#ffffff"></rect><rect x="412" y="70" width="16" height="16" fill="#ffffff"></rect><rect x="428" y="70" width="16" height="16" fill="#ffffff"></rect><rect x="380" y="86" width="16" height="16" fill="#ffffff"></rect><rect x="444" y="86" width="16" height="16" fill="#ffffff"></rect><rect x="380" y="102" width="16" height="16" fill="#ffffff"></rect><rect x="444" y="102" width="16" height="16" fill="#ffffff"></rect><rect x="380" y="118" width="16" height="16" fill="#ffffff"></rect><rect x="396" y="118" width="16" height="16" fill="#ffffff"></rect><rect x="412" y="118" width="16" height="16" fill="#ffffff"></rect><rect x="428" y="118" width="16" height="16" fill="#ffffff"></rect><rect x="380" y="134" width="16" height="16" fill="#ffffff"></rect><rect x="444" y="134" width="16" height="16" fill="#ffffff"></rect><rect x="380" y="150" width="16" height="16" fill="#ffffff"></rect><rect x="444" y="150" width="16" height="16" fill="#ffffff"></rect><rect x="380" y="166" width="16" height="16" fill="#ffffff"></rect><rect x="396" y="166" width="16" height="16" fill="#ffffff"></rect><rect x="412" y="166" width="16" height="16" fill="#ffffff"></rect><rect x="428" y="166" width="16" height="16" fill="#ffffff"></rect><rect x="495.2" y="102" width="16" height="16" fill="#ffffff"></rect><rect x="511.2" y="102" width="16" height="16" fill="#ffffff"></rect><rect x="527.2" y="102" width="16" height="16" fill="#ffffff"></rect><rect x="479.2" y="118" width="16" height="16" fill="#ffffff"></rect><rect x="543.2" y="118" width="16" height="16" fill="#ffffff"></rect><rect x="479.2" y="134" width="16" height="16" fill="#ffffff"></rect><rect x="543.2" y="134" width="16" height="16" fill="#ffffff"></rect><rect x="479.2" y="150" width="16" height="16" fill="#ffffff"></rect><rect x="543.2" y="150" width="16" height="16" fill="#ffffff"></rect><rect x="495.2" y="166" width="16" height="16" fill="#ffffff"></rect><rect x="511.2" y="166" width="16" height="16" fill="#ffffff"></rect><rect x="527.2" y="166" width="16" height="16" fill="#ffffff"></rect><rect x="578.4" y="102" width="16" height="16" fill="#ffffff"></rect><rect x="642.4" y="102" width="16" height="16" fill="#ffffff"></rect><rect x="594.4" y="118" width="16" height="16" fill="#ffffff"></rect><rect x="626.4" y="118" width="16" height="16" fill="#ffffff"></rect><rect x="610.4" y="134" width="16" height="16" fill="#ffffff"></rect><rect x="594.4" y="150" width="16" height="16" fill="#ffffff"></rect><rect x="626.4" y="150" width="16" height="16" fill="#ffffff"></rect><rect x="578.4" y="166" width="16" height="16" fill="#ffffff"></rect><rect x="642.4" y="166" width="16" height="16" fill="#ffffff"></rect>
+
+  <text x="380" y="206" fill="#7a9088" font-family="Inter, system-ui, sans-serif" font-size="26" font-weight="400" dominant-baseline="hanging">Feature rich Privacy-focused fork of Google AI Edge Gallery</text>
+
+  
+      <g>
+        <rect x="380" y="262" width="256" height="36" rx="18" ry="18" fill="none" stroke="#a8b8b0" stroke-width="1"></rect>
+        <text x="508" y="280" fill="#a8b8b0" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="500" text-anchor="middle" dominant-baseline="middle">Hybrid LiteRT + llama.cpp</text>
+      </g>
+      <g>
+        <rect x="652" y="262" width="168" height="36" rx="18" ry="18" fill="none" stroke="#a8b8b0" stroke-width="1"></rect>
+        <text x="736" y="280" fill="#a8b8b0" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="500" text-anchor="middle" dominant-baseline="middle">GPU · CPU · NPU</text>
+      </g>
+      <g>
+        <rect x="836" y="262" width="176.8" height="36" rx="18" ry="18" fill="none" stroke="#3ad4a8" stroke-width="1"></rect>
+        <text x="924.4" y="280" fill="#3ad4a8" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="500" text-anchor="middle" dominant-baseline="middle">Stable Diffusion</text>
+      </g>
+      <g>
+        <rect x="1028.8" y="262" width="132.8" height="36" rx="18" ry="18" fill="none" stroke="#a8b8b0" stroke-width="1"></rect>
+        <text x="1095.2" y="280" fill="#a8b8b0" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="500" text-anchor="middle" dominant-baseline="middle">Whisper STT</text>
+      </g>
+      <g>
+        <rect x="1177.6" y="262" width="132.8" height="36" rx="18" ry="18" fill="none" stroke="#a8b8b0" stroke-width="1"></rect>
+        <text x="1244" y="280" fill="#a8b8b0" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="500" text-anchor="middle" dominant-baseline="middle">GGUF Import</text>
+      </g>
+  
+      <g>
+        <rect x="380" y="314" width="168" height="36" rx="18" ry="18" fill="none" stroke="#3ad4a8" stroke-width="1"></rect>
+        <text x="464" y="332" fill="#3ad4a8" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="500" text-anchor="middle" dominant-baseline="middle">Free Talk · S2S</text>
+      </g>
+      <g>
+        <rect x="564" y="314" width="132.8" height="36" rx="18" ry="18" fill="none" stroke="#a8b8b0" stroke-width="1"></rect>
+        <text x="630.4" y="332" fill="#a8b8b0" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="500" text-anchor="middle" dominant-baseline="middle">Vision Talk</text>
+      </g>
+      <g>
+        <rect x="712.8" y="314" width="185.60000000000002" height="36" rx="18" ry="18" fill="none" stroke="#a8b8b0" stroke-width="1"></rect>
+        <text x="805.5999999999999" y="332" fill="#a8b8b0" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="500" text-anchor="middle" dominant-baseline="middle">Document Analysis</text>
+      </g>
+      <g>
+        <rect x="914.4" y="314" width="159.20000000000002" height="36" rx="18" ry="18" fill="none" stroke="#a8b8b0" stroke-width="1"></rect>
+        <text x="994" y="332" fill="#a8b8b0" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="500" text-anchor="middle" dominant-baseline="middle">Encrypted Chat</text>
+      </g>
+      <g>
+        <rect x="1089.6" y="314" width="159.20000000000002" height="36" rx="18" ry="18" fill="none" stroke="#a8b8b0" stroke-width="1"></rect>
+        <text x="1169.1999999999998" y="332" fill="#a8b8b0" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="500" text-anchor="middle" dominant-baseline="middle">Biometric Lock</text>
+      </g>
+      <g>
+        <rect x="1264.8" y="314" width="141.60000000000002" height="36" rx="18" ry="18" fill="none" stroke="#a8b8b0" stroke-width="1"></rect>
+        <text x="1335.6" y="332" fill="#a8b8b0" font-family="Inter, system-ui, sans-serif" font-size="16" font-weight="500" text-anchor="middle" dominant-baseline="middle">Hard Offline</text>
+      </g>
+
+  <rect x="380" y="372" width="380" height="2" fill="url(#accent-mint)"></rect>
+
+  <g font-family="JetBrains Mono, ui-monospace, monospace" font-size="14" letter-spacing="1.5">
+    <text x="380" y="420" fill="#4a5a52">ANDROID 16+</text>
+    <text x="540" y="420" fill="#4a5a52">· APACHE 2.0</text>
+    <text x="700" y="420" fill="#4a5a52">· KOTLIN + COMPOSE</text>
+    <text x="970" y="420" fill="#3ad4a8">· 100% ON-DEVICE</text>
+    <text x="1180" y="420" fill="#4a5a52">· OPEN SOURCE</text>
+  </g>
+</svg>

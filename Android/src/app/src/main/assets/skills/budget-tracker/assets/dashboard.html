@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Budget Tracker</title>
+  <style>
+    :root {
+      --bg: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
+      --glass: rgba(255,255,255,0.06);
+      --border: rgba(255,255,255,0.12);
+      --text: #ffffff;
+      --dim: rgba(255,255,255,0.55);
+      --accent: #4ecca3;
+      --accent2: #45b7d1;
+      --red: #e74c3c;
+      --shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
+    body {
+      background: var(--bg);
+      background-attachment: fixed;
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px 16px 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .container { width: 100%; max-width: 480px; }
+    h1 {
+      text-align: center;
+      font-size: 1.8rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+      background: linear-gradient(to right, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .period-label {
+      text-align: center;
+      color: var(--dim);
+      font-size: 0.85rem;
+      margin-bottom: 24px;
+    }
+    .summary-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .summary-card {
+      background: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px 10px;
+      text-align: center;
+      box-shadow: var(--shadow);
+    }
+    .summary-label {
+      font-size: 0.7rem;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .summary-value {
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .summary-value.spent { color: var(--red); }
+    .summary-value.income { color: var(--accent); }
+    .summary-value.balance-pos { color: var(--accent); }
+    .summary-value.balance-neg { color: var(--red); }
+    .section {
+      background: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow);
+    }
+    .section-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--accent2);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
+    }
+    .cat-row {
+      margin-bottom: 12px;
+    }
+    .cat-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 5px;
+    }
+    .cat-name { font-size: 0.9rem; }
+    .cat-amount { font-size: 0.9rem; font-weight: 600; color: var(--accent); }
+    .cat-bar-bg {
+      height: 6px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .cat-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: linear-gradient(to right, var(--accent), var(--accent2));
+      transition: width 0.6s ease;
+    }
+    .tx-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .tx-item:last-child { border-bottom: none; }
+    .tx-left { display: flex; flex-direction: column; gap: 2px; }
+    .tx-cat { font-size: 0.85rem; font-weight: 600; }
+    .tx-note { font-size: 0.75rem; color: var(--dim); }
+    .tx-date { font-size: 0.75rem; color: var(--dim); }
+    .tx-amount { font-size: 0.95rem; font-weight: 700; }
+    .tx-amount.expense { color: var(--red); }
+    .tx-amount.income { color: var(--accent); }
+    .empty { color: var(--dim); font-size: 0.9rem; text-align: center; padding: 20px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>💰 Budget</h1>
+    <p class="period-label" id="period-label">Loading...</p>
+
+    <div class="summary-row">
+      <div class="summary-card">
+        <div class="summary-label">Spent</div>
+        <div class="summary-value spent" id="total-spent">—</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Income</div>
+        <div class="summary-value income" id="total-income">—</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">Balance</div>
+        <div class="summary-value" id="balance">—</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Spending by Category</div>
+      <div id="categories"><div class="empty">No expenses logged.</div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Recent Transactions</div>
+      <div id="transactions"><div class="empty">No transactions found.</div></div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'budget_tracker_data';
+    const params = new URLSearchParams(window.location.search);
+    const days = parseInt(params.get('days')) || 30;
+
+    function toLocalISO(d) {
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    function fmt(amount) {
+      return '$' + amount.toFixed(2);
+    }
+
+    function render() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const data = raw ? JSON.parse(raw) : { entries: [] };
+
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      const cutoffISO = toLocalISO(cutoff);
+
+      const recent = data.entries.filter(e => e.date >= cutoffISO);
+      const expenses = recent.filter(e => e.type === 'expense');
+      const income = recent.filter(e => e.type === 'income');
+
+      const totalSpent = expenses.reduce((s, e) => s + e.amount, 0);
+      const totalIncome = income.reduce((s, e) => s + e.amount, 0);
+      const balance = totalIncome - totalSpent;
+
+      document.getElementById('period-label').textContent = `Last ${days} days`;
+      document.getElementById('total-spent').textContent = fmt(totalSpent);
+      document.getElementById('total-income').textContent = fmt(totalIncome);
+
+      const balEl = document.getElementById('balance');
+      balEl.textContent = fmt(Math.abs(balance));
+      balEl.className = `summary-value ${balance >= 0 ? 'balance-pos' : 'balance-neg'}`;
+
+      // Categories
+      const byCategory = {};
+      expenses.forEach(e => {
+        byCategory[e.category] = (byCategory[e.category] || 0) + e.amount;
+      });
+      const sorted = Object.entries(byCategory).sort(([,a],[,b]) => b - a);
+      const catContainer = document.getElementById('categories');
+      if (sorted.length === 0) {
+        catContainer.innerHTML = '<div class="empty">No expenses logged.</div>';
+      } else {
+        catContainer.innerHTML = '';
+        const max = sorted[0][1];
+        sorted.forEach(([cat, amt]) => {
+          const pct = max > 0 ? (amt / max * 100).toFixed(1) : 0;
+          const row = document.createElement('div');
+          row.className = 'cat-row';
+          row.innerHTML = `
+            <div class="cat-header">
+              <span class="cat-name">${cat}</span>
+              <span class="cat-amount">${fmt(amt)}</span>
+            </div>
+            <div class="cat-bar-bg">
+              <div class="cat-bar-fill" style="width:${pct}%"></div>
+            </div>`;
+          catContainer.appendChild(row);
+        });
+      }
+
+      // Recent transactions (latest 15)
+      const txContainer = document.getElementById('transactions');
+      const sortedTx = [...recent].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 15);
+      if (sortedTx.length === 0) {
+        txContainer.innerHTML = '<div class="empty">No transactions found.</div>';
+      } else {
+        txContainer.innerHTML = '';
+        sortedTx.forEach(e => {
+          const item = document.createElement('div');
+          item.className = 'tx-item';
+          item.innerHTML = `
+            <div class="tx-left">
+              <span class="tx-cat">${e.category}</span>
+              ${e.note ? `<span class="tx-note">${e.note}</span>` : ''}
+              <span class="tx-date">${e.date}</span>
+            </div>
+            <span class="tx-amount ${e.type}">${e.type === 'income' ? '+' : '-'}${fmt(e.amount)}</span>`;
+          txContainer.appendChild(item);
+        });
+      }
+    }
+
+    render();
+  </script>
+</body>
+</html>

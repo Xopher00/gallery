@@ -1,0 +1,91 @@
+<!--
+@license
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<body>
+  <script>
+    const STORAGE_KEY = 'translator_history';
+    const MAX_HISTORY = 50;
+
+    function getHistory() {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+      catch (_) { return []; }
+    }
+
+    function saveHistory(entries) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    }
+
+    window['ai_edge_gallery_get_result'] = async (dataStr) => {
+      try {
+        const input = JSON.parse(dataStr);
+        const action = input.action;
+
+        if (action === 'translate') {
+          if (!input.translated) throw new Error("translated field is required.");
+
+          const entry = {
+            id: Date.now(),
+            original: input.original || '',
+            translated: input.translated,
+            source_lang: input.source_lang || 'Unknown',
+            target_lang: input.target_lang || 'Unknown',
+            timestamp: new Date().toISOString(),
+          };
+
+          const history = getHistory();
+          history.unshift(entry);
+          if (history.length > MAX_HISTORY) history.length = MAX_HISTORY;
+          saveHistory(history);
+
+          return JSON.stringify({
+            result: `Translated from ${entry.source_lang} to ${entry.target_lang}.`,
+            webview: { url: `display.html?id=${entry.id}` },
+          });
+        }
+
+        if (action === 'history') {
+          const history = getHistory();
+          if (history.length === 0) {
+            return JSON.stringify({ result: "No translation history yet." });
+          }
+          const lines = history.slice(0, 10).map((e, i) =>
+            `${i + 1}. [${e.source_lang} → ${e.target_lang}] "${e.original}" → "${e.translated}"`
+          );
+          return JSON.stringify({
+            result: `Recent translations:\n${lines.join('\n')}`,
+            webview: { url: 'display.html?mode=history' },
+          });
+        }
+
+        if (action === 'clear') {
+          localStorage.removeItem(STORAGE_KEY);
+          return JSON.stringify({ result: "Translation history cleared." });
+        }
+
+        throw new Error(`Unknown action: ${action}`);
+
+      } catch (e) {
+        console.error(e);
+        return JSON.stringify({ error: `Translator error: ${e.message}` });
+      }
+    };
+  </script>
+</body>
+</html>

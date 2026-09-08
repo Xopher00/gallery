@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Password Generator</title>
+  <style>
+    :root {
+      --bg: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
+      --glass: rgba(255,255,255,0.06);
+      --border: rgba(255,255,255,0.12);
+      --text: #ffffff;
+      --dim: rgba(255,255,255,0.55);
+      --accent: #4ecca3;
+      --accent2: #45b7d1;
+      --shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
+    body {
+      background: var(--bg);
+      background-attachment: fixed;
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .container { width: 100%; max-width: 480px; }
+    h1 {
+      text-align: center;
+      font-size: 1.8rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      background: linear-gradient(to right, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .subtitle {
+      text-align: center;
+      color: var(--dim);
+      font-size: 0.85rem;
+      margin-bottom: 28px;
+    }
+    .strength-bar {
+      display: flex;
+      gap: 4px;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+    .strength-segment {
+      height: 5px;
+      flex: 1;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.1);
+      transition: background 0.4s;
+    }
+    .strength-segment.active { background: var(--accent); }
+    .strength-segment.active.warn { background: #f5a623; }
+    .strength-segment.active.danger { background: #e74c3c; }
+    .strength-label {
+      text-align: center;
+      font-size: 0.78rem;
+      color: var(--dim);
+      margin-top: 6px;
+      margin-bottom: 20px;
+    }
+    .password-card {
+      background: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 20px;
+      margin-bottom: 14px;
+      box-shadow: var(--shadow);
+    }
+    .password-text {
+      font-family: 'Courier New', monospace;
+      font-size: 1rem;
+      word-break: break-all;
+      line-height: 1.6;
+      color: var(--accent);
+      margin-bottom: 14px;
+      user-select: all;
+    }
+    .copy-btn {
+      width: 100%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border: none;
+      color: #1a1a2e;
+      font-weight: 700;
+      font-size: 0.9rem;
+      padding: 10px;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .copy-btn:active { transform: scale(0.97); opacity: 0.85; }
+    .copy-btn.copied { background: linear-gradient(135deg, #2ecc71, #27ae60); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔐 Passwords</h1>
+    <p class="subtitle" id="subtitle">Loading...</p>
+    <div class="strength-bar" id="strength-bar">
+      <div class="strength-segment" id="s1"></div>
+      <div class="strength-segment" id="s2"></div>
+      <div class="strength-segment" id="s3"></div>
+      <div class="strength-segment" id="s4"></div>
+      <div class="strength-segment" id="s5"></div>
+    </div>
+    <div class="strength-label" id="strength-label"></div>
+    <div id="cards"></div>
+  </div>
+  <script>
+    const STORAGE_KEY = 'password_gen_result';
+
+    function render() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        document.getElementById('subtitle').textContent = 'No passwords generated yet.';
+        return;
+      }
+      const { passwords, length, strengthLabel, strength } = JSON.parse(raw);
+
+      document.getElementById('subtitle').textContent =
+        `${passwords.length} password${passwords.length > 1 ? 's' : ''} · ${length} characters`;
+
+      // Strength bar
+      const colorClass = strength <= 2 ? 'danger' : strength <= 3 ? 'warn' : 'active';
+      for (let i = 1; i <= 5; i++) {
+        const el = document.getElementById(`s${i}`);
+        if (i <= strength) { el.classList.add('active'); if (colorClass !== 'active') el.classList.add(colorClass); }
+      }
+      document.getElementById('strength-label').textContent = `Strength: ${strengthLabel}`;
+
+      const container = document.getElementById('cards');
+      passwords.forEach((pw, idx) => {
+        const card = document.createElement('div');
+        card.className = 'password-card';
+        card.innerHTML = `
+          <div class="password-text">${pw}</div>
+          <button class="copy-btn" id="btn-${idx}">Copy</button>
+        `;
+        container.appendChild(card);
+
+        document.getElementById(`btn-${idx}`).addEventListener('click', () => {
+          navigator.clipboard.writeText(pw).then(() => {
+            const btn = document.getElementById(`btn-${idx}`);
+            btn.textContent = 'Copied!';
+            btn.classList.add('copied');
+            setTimeout(() => {
+              btn.textContent = 'Copy';
+              btn.classList.remove('copied');
+            }, 2000);
+          });
+        });
+      });
+    }
+
+    render();
+  </script>
+</body>
+</html>

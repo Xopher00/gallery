@@ -1,0 +1,285 @@
+<!--
+@license
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Translator</title>
+  <style>
+    :root {
+      --bg: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+      --glass: rgba(255,255,255,0.07);
+      --border: rgba(255,255,255,0.12);
+      --text: #ffffff;
+      --dim: rgba(255,255,255,0.55);
+      --accent: #7c6af7;
+      --accent2: #56cfb2;
+      --shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      background-attachment: fixed;
+      color: var(--text);
+      min-height: 100vh;
+      padding: 20px 16px 32px;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    .card {
+      background: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      backdrop-filter: blur(12px);
+      padding: 18px;
+      box-shadow: var(--shadow);
+      margin-bottom: 14px;
+    }
+    .lang-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .lang-chip {
+      background: rgba(124,106,247,0.25);
+      border: 1px solid var(--accent);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #c4b9ff;
+    }
+    .lang-arrow {
+      color: var(--dim);
+      font-size: 18px;
+    }
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--dim);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .text-block {
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--text);
+      word-break: break-word;
+    }
+    .translated-block {
+      font-size: 18px;
+      line-height: 1.6;
+      color: #c4f0e8;
+      word-break: break-word;
+    }
+    .copy-btn {
+      margin-top: 12px;
+      background: rgba(86,207,178,0.15);
+      border: 1px solid var(--accent2);
+      color: var(--accent2);
+      border-radius: 8px;
+      padding: 7px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .copy-btn:active { background: rgba(86,207,178,0.35); }
+    .copy-btn.copied { color: #fff; background: rgba(86,207,178,0.4); }
+    h2 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--dim);
+      margin-bottom: 12px;
+      letter-spacing: 0.04em;
+    }
+    .history-item {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .history-item:last-child { border-bottom: none; }
+    .history-langs {
+      font-size: 11px;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .history-original { font-size: 13px; color: var(--dim); }
+    .history-translated { font-size: 14px; color: var(--text); margin-top: 2px; }
+    .empty { text-align: center; color: var(--dim); padding: 32px 0; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    const STORAGE_KEY = 'translator_history';
+
+    function getHistory() {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+      catch (_) { return []; }
+    }
+
+    const params = new URLSearchParams(location.search);
+    const mode = params.get('mode');
+    const targetId = params.get('id') ? parseInt(params.get('id')) : null;
+    const history = getHistory();
+    const root = document.getElementById('root');
+
+    function copyText(text, btn) {
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = '✓ Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy translation'; btn.classList.remove('copied'); }, 2000);
+      }).catch(() => {
+        btn.textContent = 'Copy failed';
+        setTimeout(() => { btn.textContent = 'Copy translation'; }, 2000);
+      });
+    }
+
+    if (mode === 'history') {
+      // History view
+      const h2 = document.createElement('h2');
+      h2.textContent = 'Recent Translations';
+      root.appendChild(h2);
+
+      if (history.length === 0) {
+        const el = document.createElement('div');
+        el.className = 'empty';
+        el.textContent = 'No translations yet.';
+        root.appendChild(el);
+      } else {
+        history.slice(0, 20).forEach(entry => {
+          const card = document.createElement('div');
+          card.className = 'card';
+
+          const langs = document.createElement('div');
+          langs.className = 'history-langs';
+          langs.textContent = `${entry.source_lang} → ${entry.target_lang}`;
+
+          const orig = document.createElement('div');
+          orig.className = 'history-original';
+          orig.textContent = entry.original;
+
+          const trans = document.createElement('div');
+          trans.className = 'history-translated';
+          trans.textContent = entry.translated;
+
+          card.appendChild(langs);
+          card.appendChild(orig);
+          card.appendChild(trans);
+          root.appendChild(card);
+        });
+      }
+    } else {
+      // Single translation view
+      const entry = targetId
+        ? history.find(e => e.id === targetId)
+        : history[0];
+
+      if (!entry) {
+        const el = document.createElement('div');
+        el.className = 'empty';
+        el.textContent = 'Translation not found.';
+        root.appendChild(el);
+      } else {
+        // Language bar
+        const langBar = document.createElement('div');
+        langBar.className = 'lang-bar';
+        const src = document.createElement('span');
+        src.className = 'lang-chip';
+        src.textContent = entry.source_lang;
+        const arrow = document.createElement('span');
+        arrow.className = 'lang-arrow';
+        arrow.textContent = '→';
+        const tgt = document.createElement('span');
+        tgt.className = 'lang-chip';
+        tgt.style.background = 'rgba(86,207,178,0.2)';
+        tgt.style.borderColor = 'var(--accent2)';
+        tgt.style.color = '#a0efe0';
+        tgt.textContent = entry.target_lang;
+        langBar.appendChild(src);
+        langBar.appendChild(arrow);
+        langBar.appendChild(tgt);
+        root.appendChild(langBar);
+
+        // Original card
+        const origCard = document.createElement('div');
+        origCard.className = 'card';
+        const origLabel = document.createElement('div');
+        origLabel.className = 'section-label';
+        origLabel.textContent = 'Original';
+        const origText = document.createElement('div');
+        origText.className = 'text-block';
+        origText.textContent = entry.original;
+        origCard.appendChild(origLabel);
+        origCard.appendChild(origText);
+        root.appendChild(origCard);
+
+        // Translation card
+        const transCard = document.createElement('div');
+        transCard.className = 'card';
+        const transLabel = document.createElement('div');
+        transLabel.className = 'section-label';
+        transLabel.textContent = 'Translation';
+        const transText = document.createElement('div');
+        transText.className = 'translated-block';
+        transText.textContent = entry.translated;
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'copy-btn';
+        copyBtn.textContent = 'Copy translation';
+        copyBtn.onclick = () => copyText(entry.translated, copyBtn);
+        transCard.appendChild(transLabel);
+        transCard.appendChild(transText);
+        transCard.appendChild(copyBtn);
+        root.appendChild(transCard);
+
+        // Recent history (if any others exist)
+        const others = history.filter(e => e.id !== entry.id).slice(0, 5);
+        if (others.length > 0) {
+          const histCard = document.createElement('div');
+          histCard.className = 'card';
+          const histTitle = document.createElement('h2');
+          histTitle.textContent = 'Recent';
+          histCard.appendChild(histTitle);
+          others.forEach(e => {
+            const item = document.createElement('div');
+            item.className = 'history-item';
+            const langs = document.createElement('div');
+            langs.className = 'history-langs';
+            langs.textContent = `${e.source_lang} → ${e.target_lang}`;
+            const orig = document.createElement('div');
+            orig.className = 'history-original';
+            orig.textContent = e.original;
+            const trans = document.createElement('div');
+            trans.className = 'history-translated';
+            trans.textContent = e.translated;
+            item.appendChild(langs);
+            item.appendChild(orig);
+            item.appendChild(trans);
+            histCard.appendChild(item);
+          });
+          root.appendChild(histCard);
+        }
+      }
+    }
+  </script>
+</body>
+</html>
