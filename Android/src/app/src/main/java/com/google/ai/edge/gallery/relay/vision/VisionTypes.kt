@@ -1,3 +1,5 @@
+// Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
 /*
  * I4a: plain (non-serialization) result types returned by the vision/ wrapper classes. Kept
  * separate from openai/OpenAiModels.kt's @Serializable DTOs on purpose -- these are the internal

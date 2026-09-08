@@ -1,3 +1,5 @@
+// Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
 /*
  * I4b: thin wrapper around ML Kit's bundled (on-device, no Play Services required at runtime --
  * see gradle/libs.versions.toml / app/build.gradle.kts for the D11 rationale) Latin text

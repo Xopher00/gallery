@@ -75,8 +75,8 @@ import com.google.ai.edge.gallery.huggingface.isFileCompatibleWithDevice
 import com.google.ai.edge.gallery.huggingface.isFileTooLarge
 import com.google.ai.edge.gallery.huggingface.modelName
 import com.google.ai.edge.gallery.proto.HfModelItemProto
-import com.google.ai.edge.gallery.relay.discovery.getGgufFiles
-import com.google.ai.edge.gallery.relay.discovery.isGgufFileName
+import com.google.ai.edge.gallery.huggingface.heuristics.getGgufFiles
+import com.google.ai.edge.gallery.huggingface.heuristics.isGgufFileName
 import com.google.ai.edge.gallery.ui.common.formatCount
 import com.google.ai.edge.gallery.ui.common.formatLastModifiedDate
 import com.google.ai.edge.gallery.ui.common.humanReadableSize

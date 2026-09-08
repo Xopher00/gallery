@@ -112,7 +112,7 @@
              dialog theme (DeviceDefault.Dialog) so this presents as a small floating card
              over the caller app rather than a full-screen launch. -->
         <activity
-            android:name="com.google.ai.edge.gallery.relay.ui.intents.ProcessTextActivity"
+            android:name="com.google.ai.edge.gallery.intents.ProcessTextActivity"
             android:exported="true"
             android:label="@string/process_text_label"
             android:theme="@android:style/Theme.DeviceDefault.Dialog"
@@ -186,7 +186,7 @@
 
         <!-- API server (ported from api-server branch): local OpenAI-compatible API server. -->
         <service
-            android:name=".openai.OpenAiServerService"
+            android:name=".relay.server.OpenAiServerService"
             android:exported="false"
             android:foregroundServiceType="specialUse|dataSync">
             <property

@@ -1,0 +1,203 @@
+// Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
+package com.google.ai.edge.gallery.relay.model
+
+import android.util.Log
+import com.google.ai.edge.gallery.R
+import com.google.ai.edge.gallery.data.Accelerator
+import com.google.ai.edge.gallery.data.BuiltInTaskId
+import com.google.ai.edge.gallery.data.Config
+import com.google.ai.edge.gallery.data.ConfigKey
+import com.google.ai.edge.gallery.data.ConfigKeys
+import com.google.ai.edge.gallery.data.DataStoreRepository
+import com.google.ai.edge.gallery.data.IMPORTS_DIR
+import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.data.ModelCapability
+import com.google.ai.edge.gallery.data.NumberSliderConfig
+import com.google.ai.edge.gallery.data.RuntimeType
+import com.google.ai.edge.gallery.data.SD_IMPORTS_DIR
+import com.google.ai.edge.gallery.data.ValueType
+import com.google.ai.edge.gallery.data.createLlmChatConfigs
+import com.google.ai.edge.gallery.proto.ImportedModel
+import com.google.ai.edge.gallery.runtime.InferenceEngineType
+import java.io.File
+
+internal val RESET_CONVERSATION_TURN_COUNT_CONFIG =
+  NumberSliderConfig(
+    key = ConfigKeys.RESET_CONVERSATION_TURN_COUNT,
+    sliderMin = 1f,
+    sliderMax = 30f,
+    defaultValue = 3f,
+    valueType = ValueType.INT,
+  )
+
+class ImportedModelStore(
+  private val modelsDir: File,
+  private val taskCatalog: TaskCatalog,
+  private val dataStoreRepository: DataStoreRepository,
+) {
+
+  fun restoreImportedModels() {
+    val curTasks = taskCatalog.getActiveCustomTasks().map { it.task }
+
+    for (importedModel in dataStoreRepository.readImportedModels()) {
+      Log.d(TAG, "stored imported model: $importedModel")
+      val model = createModelFromImportedModelInfo(info = importedModel)
+
+      taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_CHAT }, model)
+      taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_PROMPT_LAB }, model)
+      taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_AGENT_CHAT }, model)
+      if (model.llmSupportImage) {
+        taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_ASK_IMAGE }, model)
+      }
+      if (model.llmSupportAudio) {
+        taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_ASK_AUDIO }, model)
+      }
+      if (model.llmSupportTinyGarden) {
+        taskCatalog.addModelIfAbsent(
+          curTasks.find { it.id == BuiltInTaskId.LLM_TINY_GARDEN },
+          model,
+        )
+        val newConfigs = model.configs.toMutableList()
+        newConfigs.add(RESET_CONVERSATION_TURN_COUNT_CONFIG)
+        model.configs = newConfigs
+        model.preProcess()
+      }
+      if (model.llmSupportMobileActions) {
+        taskCatalog.addModelIfAbsent(
+          curTasks.find { it.id == BuiltInTaskId.LLM_MOBILE_ACTIONS },
+          model,
+        )
+      }
+    }
+
+    val sdImportsDir = File(modelsDir, SD_IMPORTS_DIR)
+    if (sdImportsDir.exists()) {
+      val imageGenTask = curTasks.find { it.id == BuiltInTaskId.IMAGE_GEN }
+      for (file in sdImportsDir.listFiles { _, name -> name.endsWith(".gguf") } ?: emptyArray()) {
+        val model = createImportedSdModel(fileName = file.name, fileSize = file.length())
+        taskCatalog.addModelIfAbsent(imageGenTask, model)
+      }
+    }
+  }
+
+  fun createImportedSdModel(fileName: String, fileSize: Long, url: String = ""): Model =
+    Model(
+        name = fileName,
+        info = "Imported SD GGUF model",
+        url = url,
+        sizeInBytes = fileSize,
+        downloadFileName = "$SD_IMPORTS_DIR${File.separator}$fileName",
+        configs =
+          mutableListOf(
+            NumberSliderConfig(
+              key = ConfigKey("sd_steps", "Steps", R.string.config_label_sd_steps),
+              sliderMin = 1f,
+              sliderMax = 50f,
+              defaultValue = 20f,
+              valueType = ValueType.INT,
+              needReinitialization = false,
+            ),
+            NumberSliderConfig(
+              key = ConfigKey("sd_cfg", "CFG Scale", R.string.config_label_sd_cfg),
+              sliderMin = 1f,
+              sliderMax = 20f,
+              defaultValue = 7.5f,
+              valueType = ValueType.FLOAT,
+              needReinitialization = false,
+            ),
+          ),
+        showRunAgainButton = false,
+        imported = true,
+      )
+      .also { it.preProcess() }
+
+  internal fun createModelFromImportedModelInfo(info: ImportedModel): Model {
+    val accelerators: MutableList<Accelerator> =
+      info.llmConfig.compatibleAcceleratorsList
+        .mapNotNull { acceleratorLabel ->
+          when (acceleratorLabel.trim()) {
+            Accelerator.GPU.label -> Accelerator.GPU
+            Accelerator.CPU.label -> Accelerator.CPU
+            Accelerator.NPU.label -> Accelerator.NPU
+
+            else -> null
+          }
+        }
+        .toMutableList()
+    val llmMaxToken = info.llmConfig.defaultMaxTokens
+    val llmSupportImage = info.llmConfig.supportImage
+    val llmSupportAudio = info.llmConfig.supportAudio
+    val llmSupportTinyGarden = info.llmConfig.supportTinyGarden
+    val llmSupportMobileActions = info.llmConfig.supportMobileActions
+    val llmSupportThinking = info.llmConfig.supportThinking
+    val llmSupportSpeculativeDecoding = info.llmConfig.supportSpeculativeDecoding
+    val configs: MutableList<Config> =
+      createLlmChatConfigs(
+          defaultMaxToken = llmMaxToken,
+          defaultTopK = info.llmConfig.defaultTopk,
+          defaultTopP = info.llmConfig.defaultTopp,
+          defaultTemperature = info.llmConfig.defaultTemperature,
+          accelerators = accelerators,
+          supportThinking = llmSupportThinking,
+          supportSpeculativeDecoding = llmSupportSpeculativeDecoding,
+        )
+        .toMutableList()
+    val capabilities: MutableList<ModelCapability> = mutableListOf()
+    val capabilityToTaskTypes: MutableMap<ModelCapability, List<String>> = mutableMapOf()
+    if (llmSupportThinking) {
+      capabilities.add(ModelCapability.LLM_THINKING)
+      capabilityToTaskTypes[ModelCapability.LLM_THINKING] =
+        listOf(BuiltInTaskId.LLM_CHAT, BuiltInTaskId.LLM_ASK_IMAGE, BuiltInTaskId.LLM_ASK_AUDIO)
+    }
+    if (llmSupportSpeculativeDecoding) {
+      capabilities.add(ModelCapability.SPECULATIVE_DECODING)
+      capabilityToTaskTypes[ModelCapability.SPECULATIVE_DECODING] =
+        listOf(
+          BuiltInTaskId.LLM_CHAT,
+          BuiltInTaskId.LLM_ASK_IMAGE,
+          BuiltInTaskId.LLM_ASK_AUDIO,
+          BuiltInTaskId.LLM_PROMPT_LAB,
+        )
+    }
+    val importedFileNameToCheck =
+      if (info.fileName.startsWith("$IMPORTS_DIR/")) {
+        info.fileName.substringAfter("$IMPORTS_DIR/")
+      } else {
+        info.fileName
+      }
+    val importedRuntimeType =
+      if (
+        InferenceEngineType.fromModelPath(importedFileNameToCheck) ==
+          InferenceEngineType.LLAMA_CPP
+      ) {
+        RuntimeType.UNKNOWN
+      } else {
+        RuntimeType.LITERT_LM
+      }
+    val model =
+      Model(
+        name = info.fileName,
+        info = info.modelCardText,
+        url = info.url,
+        configs = configs,
+        sizeInBytes = info.fileSize,
+        downloadFileName = info.fileName,
+        showRunAgainButton = false,
+        imported = true,
+        llmSupportImage = llmSupportImage,
+        llmSupportAudio = llmSupportAudio,
+        llmSupportTinyGarden = llmSupportTinyGarden,
+        llmSupportMobileActions = llmSupportMobileActions,
+        capabilities = capabilities.toList(),
+        capabilityToTaskTypes = capabilityToTaskTypes.toMap(),
+        llmMaxToken = llmMaxToken,
+        accelerators = accelerators,
+        isLlm = true,
+        runtimeType = importedRuntimeType,
+      )
+    model.preProcess()
+
+    return model
+  }
+}

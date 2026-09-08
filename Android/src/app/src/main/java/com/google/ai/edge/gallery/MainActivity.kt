@@ -53,9 +53,10 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.google.ai.edge.gallery.openai.ServerRuntime
-import com.google.ai.edge.gallery.relay.ui.lock.AppLockScreen
-import com.google.ai.edge.gallery.security.AppLockManager
+import com.google.ai.edge.gallery.relay.server.ServerRuntime
+import com.google.ai.edge.gallery.relay.server.loadModel
+import com.google.ai.edge.gallery.ui.lock.AppLockScreen
+import com.google.ai.edge.gallery.relay.security.AppLockManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.theme.GalleryTheme
 import com.google.ai.edge.litertlm.ExperimentalApi
@@ -82,7 +83,7 @@ class MainActivity : FragmentActivity() {
     // cannot start it directly. Starting it from inside the app process is always allowed, so
     // launching MainActivity with `--ez start_api_server true` boots the server with no UI taps.
     if (intent?.getBooleanExtra("start_api_server", false) == true) {
-      com.google.ai.edge.gallery.openai.OpenAiServerService.startService(applicationContext)
+      com.google.ai.edge.gallery.relay.server.OpenAiServerService.startService(applicationContext)
     }
 
     // Scriptable headless load: `--es load_model <id> [--es accelerator <cpu|gpu|npu>]`

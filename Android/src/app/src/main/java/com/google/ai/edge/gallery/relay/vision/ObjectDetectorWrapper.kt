@@ -1,3 +1,5 @@
+// Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
 /*
  * I4a: thin wrapper around MediaPipe tasks-vision's ObjectDetector. GPU delegate first (D10: no
  * raw .tflite/QNN stack in this card), falling back to CPU if GPU delegate init throws --

@@ -19,10 +19,10 @@ package com.google.ai.edge.gallery
 import android.app.Application
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.notifications.NotificationScheduleManager
-import com.google.ai.edge.gallery.security.AppLockManager
-import com.google.ai.edge.gallery.security.OfflineMode
-import com.google.ai.edge.gallery.security.SecurityAuditLog
-import com.google.ai.edge.gallery.security.SignatureVerifier
+import com.google.ai.edge.gallery.relay.security.AppLockManager
+import com.google.ai.edge.gallery.relay.security.OfflineMode
+import com.google.ai.edge.gallery.relay.security.SecurityAuditLog
+import com.google.ai.edge.gallery.relay.security.SignatureVerifier
 import com.google.ai.edge.gallery.ui.theme.ThemeSettings
 import com.google.firebase.FirebaseApp
 import dagger.hilt.android.HiltAndroidApp

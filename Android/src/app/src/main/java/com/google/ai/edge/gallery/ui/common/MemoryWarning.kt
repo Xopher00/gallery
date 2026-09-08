@@ -25,7 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.Model
-import com.google.ai.edge.gallery.relay.capability.DeviceProfileEntryPoint
+import com.google.ai.edge.gallery.relay.device.DeviceProfileEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 
 private const val TAG = "AGMemoryWarning"

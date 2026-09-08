@@ -63,9 +63,9 @@ import com.google.ai.edge.gallery.firebaseAnalytics
 import com.google.ai.edge.gallery.huggingface.HuggingFaceApiClient
 // relay: this fork's own code. See relay/modelmanager/ModelRegistry.kt.
 import com.google.ai.edge.gallery.data.SD_IMPORTS_DIR
-import com.google.ai.edge.gallery.relay.capability.DeviceProfile
-import com.google.ai.edge.gallery.relay.engine.InferenceEngineType
-import com.google.ai.edge.gallery.relay.modelmanager.ModelRegistry
+import com.google.ai.edge.gallery.relay.device.DeviceProfile
+import com.google.ai.edge.gallery.runtime.InferenceEngineType
+import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import com.google.ai.edge.gallery.proto.AccessTokenData
 import com.google.ai.edge.gallery.proto.HfModelItemProto
 import com.google.ai.edge.gallery.proto.ImportedModel

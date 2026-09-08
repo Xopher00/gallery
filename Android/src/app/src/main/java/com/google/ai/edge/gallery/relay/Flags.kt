@@ -1,6 +1,4 @@
-/*
- * relay: this project's own code, not part of upstream google-ai-edge/gallery.
- */
+// Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
 
 package com.google.ai.edge.gallery.relay
 

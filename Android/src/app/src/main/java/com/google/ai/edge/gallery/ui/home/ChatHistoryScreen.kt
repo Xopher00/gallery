@@ -1,3 +1,5 @@
+// Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
 package com.google.ai.edge.gallery.ui.home
 
 import androidx.compose.animation.animateColorAsState

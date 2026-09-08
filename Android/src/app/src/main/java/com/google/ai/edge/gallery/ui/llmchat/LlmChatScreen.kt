@@ -51,7 +51,6 @@ import com.google.ai.edge.gallery.ui.common.chat.ChatMessageText
 import com.google.ai.edge.gallery.ui.common.chat.ChatView
 import com.google.ai.edge.gallery.ui.common.chat.SendMessageTrigger
 import com.google.ai.edge.gallery.ui.common.chat.convertToLitertMessage
-import com.google.ai.edge.gallery.relay.ui.llmchat.ContextWindowIndicator
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.theme.emptyStateContent
 import com.google.ai.edge.gallery.ui.theme.emptyStateTitle

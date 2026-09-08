@@ -87,7 +87,7 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.firebaseAnalytics
-import com.google.ai.edge.gallery.sessions.resumeSession
+import com.google.ai.edge.gallery.relay.sessions.resumeSession
 import com.google.ai.edge.gallery.ui.common.ModelPageAppBar
 import com.google.ai.edge.gallery.ui.common.copyBitmapToClipboard
 import com.google.ai.edge.gallery.ui.common.saveBitmapToMediaStore

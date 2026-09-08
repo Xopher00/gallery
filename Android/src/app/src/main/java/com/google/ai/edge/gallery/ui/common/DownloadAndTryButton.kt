@@ -81,8 +81,10 @@ import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.relay.Flags
-import com.google.ai.edge.gallery.relay.capability.DeviceProfileEntryPoint
+import com.google.ai.edge.gallery.relay.device.DeviceProfileEntryPoint
+import com.google.ai.edge.gallery.relay.device.needsStorageWarning
 import com.google.ai.edge.gallery.huggingface.HuggingFaceApiClient
+import com.google.ai.edge.gallery.ui.common.storage.StorageWarningDialog
 import com.google.ai.edge.gallery.ui.common.tos.GemmaTermsOfUseDialog
 import com.google.ai.edge.gallery.ui.common.tos.TosViewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
@@ -338,7 +340,7 @@ fun DownloadAndTryButton(
 
   // Estimate only: sizeBytes come from the allowlist/HF metadata, not a live probe.
   val checkStorageAndClickDownloadButton = {
-    if (model.totalBytes > 0L && model.totalBytes > deviceProfile.freeStorageBytes()) {
+    if (needsStorageWarning(model.totalBytes, deviceProfile.freeStorageBytes())) {
       showStorageWarning = true
     } else {
       pendingBypassStorageCheck = false
@@ -581,34 +583,15 @@ fun DownloadAndTryButton(
   }
 
   if (showStorageWarning) {
-    AlertDialog(
-      title = { Text(stringResource(R.string.storage_warning_title)) },
-      text = {
-        Text(
-          stringResource(
-            R.string.storage_warning_content,
-            model.totalBytes.humanReadableSize(),
-            deviceProfile.freeStorageBytes().humanReadableSize(),
-          )
-        )
+    StorageWarningDialog(
+      requiredBytes = model.totalBytes,
+      freeBytes = deviceProfile.freeStorageBytes(),
+      onProceedAnyway = {
+        showStorageWarning = false
+        pendingBypassStorageCheck = true
+        checkMemoryAndClickDownloadButton()
       },
-      onDismissRequest = { showStorageWarning = false },
-      confirmButton = {
-        TextButton(
-          onClick = {
-            showStorageWarning = false
-            pendingBypassStorageCheck = true
-            checkMemoryAndClickDownloadButton()
-          }
-        ) {
-          Text(stringResource(R.string.storage_warning_proceed_anyway))
-        }
-      },
-      dismissButton = {
-        TextButton(onClick = { showStorageWarning = false }) {
-          Text(stringResource(R.string.cancel))
-        }
-      },
+      onDismiss = { showStorageWarning = false },
     )
   }
 

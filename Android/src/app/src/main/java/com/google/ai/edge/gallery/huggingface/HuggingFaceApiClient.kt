@@ -25,7 +25,7 @@ import com.google.ai.edge.gallery.proto.HfSiblingProto
 import com.google.ai.edge.gallery.proto.HfSortOptionProto
 import com.google.ai.edge.gallery.proto.hfModelItemProto
 import com.google.ai.edge.gallery.proto.hfSiblingProto
-import com.google.ai.edge.gallery.relay.discovery.hasGgufFiles
+import com.google.ai.edge.gallery.huggingface.heuristics.hasGgufFiles
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.net.HttpURLConnection

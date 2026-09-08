@@ -123,8 +123,6 @@ import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Category
 import com.google.ai.edge.gallery.data.CategoryInfo
 import com.google.ai.edge.gallery.data.Task
-import com.google.ai.edge.gallery.relay.ui.home.HomeApiServerDrawerItem
-import com.google.ai.edge.gallery.relay.ui.home.HomeQuickActionsRow
 import com.google.ai.edge.gallery.ui.common.RevealingText
 import com.google.ai.edge.gallery.ui.common.TaskIcon
 import com.google.ai.edge.gallery.ui.common.buildTrackableUrlAnnotatedString

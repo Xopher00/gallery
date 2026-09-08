@@ -81,7 +81,6 @@ import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.proto.Theme
 import com.google.ai.edge.gallery.ui.common.ClickableLink
 import com.google.ai.edge.gallery.ui.common.tos.AppTosDialog
-import com.google.ai.edge.gallery.relay.ui.home.SecuritySettingsSection
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.theme.ThemeSettings
 import com.google.ai.edge.gallery.ui.theme.labelSmallNarrow

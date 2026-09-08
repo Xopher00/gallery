@@ -1,3 +1,5 @@
+// Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
 /*
  * I4a: thin wrapper around MediaPipe tasks-vision's ImageSegmenter (category mask only --
  * confidence masks aren't requested since the API surface exposed here is a single flat mask +

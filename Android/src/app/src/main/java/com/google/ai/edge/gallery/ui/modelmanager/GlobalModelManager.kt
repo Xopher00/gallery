@@ -95,15 +95,15 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.supportModelBenchmark
 import com.google.ai.edge.gallery.relay.Flags
-import com.google.ai.edge.gallery.relay.capability.DeviceProfileEntryPoint
-import com.google.ai.edge.gallery.relay.discovery.isKnownPublisherNamespace
+import com.google.ai.edge.gallery.relay.device.DeviceProfileEntryPoint
+import com.google.ai.edge.gallery.huggingface.heuristics.isKnownPublisherNamespace
 import com.google.ai.edge.gallery.huggingface.extractHfUrlInfo
 import com.google.ai.edge.gallery.proto.HfModelItemProto
 import com.google.ai.edge.gallery.proto.ImportedModel
 import com.google.ai.edge.gallery.ui.common.TaskIcon
-import com.google.ai.edge.gallery.ui.common.humanReadableSize
 import com.google.ai.edge.gallery.ui.common.isHttpOrHttps
 import com.google.ai.edge.gallery.ui.common.modelitem.ModelItem
+import com.google.ai.edge.gallery.ui.common.storage.StorageWarningDialog
 import com.google.ai.edge.gallery.ui.common.tos.TosViewModel
 import dagger.hilt.android.EntryPointAccessors
 import kotlin.text.endsWith
@@ -618,32 +618,13 @@ fun GlobalModelManager(
   val storageConfirmationModel =
     uiState.modelNeedingStorageConfirmation?.let { viewModel.getModelByName(it) }
   if (storageConfirmationModel != null) {
-    AlertDialog(
-      title = { Text(stringResource(R.string.storage_warning_title)) },
-      text = {
-        Text(
-          stringResource(
-            R.string.storage_warning_content,
-            storageConfirmationModel.totalBytes.humanReadableSize(),
-            deviceProfile.freeStorageBytes().humanReadableSize(),
-          )
-        )
+    StorageWarningDialog(
+      requiredBytes = storageConfirmationModel.totalBytes,
+      freeBytes = deviceProfile.freeStorageBytes(),
+      onProceedAnyway = {
+        viewModel.proceedWithDownloadDespiteStorageWarning(model = storageConfirmationModel)
       },
-      onDismissRequest = { viewModel.dismissStorageConfirmation() },
-      confirmButton = {
-        TextButton(
-          onClick = {
-            viewModel.proceedWithDownloadDespiteStorageWarning(model = storageConfirmationModel)
-          }
-        ) {
-          Text(stringResource(R.string.storage_warning_proceed_anyway))
-        }
-      },
-      dismissButton = {
-        TextButton(onClick = { viewModel.dismissStorageConfirmation() }) {
-          Text(stringResource(R.string.cancel))
-        }
-      },
+      onDismiss = { viewModel.dismissStorageConfirmation() },
     )
   }
 

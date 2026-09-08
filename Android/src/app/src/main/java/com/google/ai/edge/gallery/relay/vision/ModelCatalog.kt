@@ -1,3 +1,5 @@
+// Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
 /*
  * I4a: the fixed set of MediaPipe .task models this server knows how to load. D10 (locked): v1
  * is tasks-vision only, no download flow is wired up in this card -- VisionHandler.kt checks

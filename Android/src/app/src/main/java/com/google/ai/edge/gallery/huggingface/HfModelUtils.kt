@@ -21,8 +21,8 @@ import android.os.Build
 import com.google.ai.edge.gallery.data.SOC
 import com.google.ai.edge.gallery.proto.HfModelItemProto
 import com.google.ai.edge.gallery.proto.HfSortOptionProto
-import com.google.ai.edge.gallery.relay.capability.DeviceProfileEntryPoint
-import com.google.ai.edge.gallery.relay.discovery.getGgufFiles
+import com.google.ai.edge.gallery.relay.device.DeviceProfileEntryPoint
+import com.google.ai.edge.gallery.huggingface.heuristics.getGgufFiles
 import dagger.hilt.android.EntryPointAccessors
 import java.net.URI
 

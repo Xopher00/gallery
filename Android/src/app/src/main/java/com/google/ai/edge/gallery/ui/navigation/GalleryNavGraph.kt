@@ -89,10 +89,6 @@ import com.google.ai.edge.gallery.ui.modelmanager.GlobalModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManager
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.ui.notifications.NotificationsScreen
-import com.google.ai.edge.gallery.relay.ui.discovery.DiscoveryScreen
-import com.google.ai.edge.gallery.relay.ui.navigation.ROUTE_CHAT_HISTORY
-import com.google.ai.edge.gallery.relay.ui.navigation.ROUTE_SERVER
-import com.google.ai.edge.gallery.relay.ui.navigation.relayRoutes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -102,9 +98,9 @@ private const val ROUTE_HOMESCREEN = "homepage"
 private const val ROUTE_MODEL_LIST = "model_list"
 private const val ROUTE_MODEL = "route_model"
 private const val ROUTE_BENCHMARK = "benchmark"
-private const val ROUTE_MODEL_MANAGER = "model_manager"
+internal const val ROUTE_MODEL_MANAGER = "model_manager"
 private const val ROUTE_NOTIFICATIONS = "notifications"
-private const val ROUTE_DISCOVERY = "discovery"
+internal const val ROUTE_DISCOVERY = "discovery"
 private const val ENTER_ANIMATION_DURATION_MS = 500
 private val ENTER_ANIMATION_EASING = EaseOutExpo
 private const val ENTER_ANIMATION_DELAY_MS = 100
@@ -199,6 +195,8 @@ fun GalleryNavHost(
       navController = navController,
       modelManagerViewModel = modelManagerViewModel,
       disableHomeScreenAnimation = { enableHomeScreenAnimation = false },
+      discoveryEnterTransition = { slideUpEnter() },
+      discoveryExitTransition = { slideDownExit() },
     )
 
     // Home screen.
@@ -488,31 +486,6 @@ fun GalleryNavHost(
         startImport = startImport,
         importUrl = importUrl,
         importIsImageGen = importIsImageGen,
-      )
-    }
-
-    // Hugging Face model discovery page.
-    composable(
-      route = "$ROUTE_DISCOVERY?taskId={taskId}",
-      arguments =
-        listOf(
-          navArgument("taskId") {
-            type = NavType.StringType
-            nullable = true
-            defaultValue = null
-          }
-        ),
-      enterTransition = { slideUpEnter() },
-      exitTransition = { slideDownExit() },
-    ) { backStackEntry ->
-      DiscoveryScreen(
-        navigateUp = { navController.navigateUp() },
-        onImportUrl = { encodedUrl, isImageGen ->
-          navController.navigate(
-            "$ROUTE_MODEL_MANAGER?importUrl=$encodedUrl&importIsImageGen=$isImageGen"
-          )
-        },
-        taskId = backStackEntry.arguments?.getString("taskId"),
       )
     }
 

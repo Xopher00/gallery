@@ -98,8 +98,8 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
   override suspend fun doWork(): Result {
     // Box: Block downloads when offline mode is enabled
     try {
-      com.google.ai.edge.gallery.security.OfflineMode.assertOnlineOrThrow()
-    } catch (e: com.google.ai.edge.gallery.security.OfflineMode.OfflineModeException) {
+      com.google.ai.edge.gallery.relay.security.OfflineMode.assertOnlineOrThrow()
+    } catch (e: com.google.ai.edge.gallery.relay.security.OfflineMode.OfflineModeException) {
       return Result.failure(
         Data.Builder()
           .putString(KEY_MODEL_DOWNLOAD_ERROR_MESSAGE, e.message)
