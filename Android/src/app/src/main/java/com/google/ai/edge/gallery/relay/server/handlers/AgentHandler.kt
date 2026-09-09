@@ -23,7 +23,7 @@
  *
  * SAFETY: these tools act on the user's real phone (send SMS, dial, write contacts/calendar,
  * open arbitrary URLs). Real execution of a tool's Action -- actually calling
- * MobileActionsViewModel.performAction(action, context), which fires the Android
+ * MobileActionExecutor.performAction(action, context), which fires the Android
  * Intent/CameraManager side effect -- only happens for tool names in the persisted allowlist
  * (ServerRuntime.allowedTools, seeded from [DEFAULT_ALLOWED_TOOLS] the first time it's read
  * on a given install -- see [allowedToolsForApiKey]); everything else still gets a canned
@@ -36,8 +36,8 @@ package com.google.ai.edge.gallery.relay.server.handlers
 import android.content.Context
 import android.util.Log
 import com.google.ai.edge.gallery.customtasks.mobileactions.Action
+import com.google.ai.edge.gallery.customtasks.mobileactions.MobileActionExecutor
 import com.google.ai.edge.gallery.customtasks.mobileactions.MobileActionsTools
-import com.google.ai.edge.gallery.customtasks.mobileactions.MobileActionsViewModel
 import com.google.ai.edge.gallery.customtasks.mobileactions.ToolOutcome
 import com.google.ai.edge.gallery.data.Accelerator
 import com.google.ai.edge.gallery.data.Model
@@ -269,12 +269,6 @@ suspend fun handleAgentRun(
 
         val steps = mutableListOf<AgentStepData>()
         var blockedTool: String? = null
-        // Fresh, unmanaged instance -- MobileActionsViewModel's constructor only needs an
-        // application Context, no Hilt graph required to call its public performAction(). This
-        // IS the app's real execution path (Intent building / CameraManager torch toggling
-        // lives there, private, and is intentionally not duplicated here).
-        val actionsViewModel = MobileActionsViewModel(context)
-
         val toolSet =
             MobileActionsTools(
                 onFunctionCalled = { action: Action ->
@@ -305,13 +299,9 @@ suspend fun handleAgentRun(
                                         reason = "the step limit for this run has been reached",
                                     )
                             else -> {
-                                // The real device-side effect. performAction already try/catches
-                                // internally and returns an error string instead of throwing; it
-                                // also unconditionally adds Intent.FLAG_ACTIVITY_NEW_TASK, so a
-                                // failure surfaced via `sideEffectError` below is a real one (no
-                                // target app installed, bad arguments, etc.), not a structural
-                                // headless-Context limitation.
-                                val sideEffectError = actionsViewModel.performAction(action, context)
+                                // performAction already try/catches internally and returns an error
+                                // string instead of throwing, so a non-empty result here is real.
+                                val sideEffectError = MobileActionExecutor.performAction(action, context)
                                 if (sideEffectError.isEmpty()) {
                                     "ok" to ToolOutcome.Success
                                 } else {

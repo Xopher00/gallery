@@ -37,7 +37,9 @@ class ModelLifecycle(
   private val cleaningUpDeferreds = mutableMapOf<String, CompletableDeferred<Unit>>()
   private val cleaningUpLock = Any()
 
+  // Guarded by initializedBackendsLock -- same cross-coroutine race hazard as engineAccelerators.
   private val initializedBackends = mutableMapOf<String, MutableSet<String>>()
+  private val initializedBackendsLock = Any()
 
   // ConcurrentHashMap: its two writer sites run on different coroutine owners and can race the
   // same key. Callers must also check model.instance != null before trusting a lookup.
@@ -81,11 +83,12 @@ class ModelLifecycle(
   fun isFirstInitialization(model: Model): Boolean {
     val backend =
       model.getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = Accelerator.GPU.label)
-    return !initializedBackends.getOrDefault(model.name, emptySet()).contains(backend)
+    val backends = synchronized(initializedBackendsLock) { initializedBackends[model.name] }
+    return !(backends?.contains(backend) ?: false)
   }
 
   fun forgetInitializedBackends(modelName: String) {
-    initializedBackends.remove(modelName)
+    synchronized(initializedBackendsLock) { initializedBackends.remove(modelName) }
   }
 
   fun initializeModel(
@@ -126,7 +129,9 @@ class ModelLifecycle(
               key = ConfigKeys.ACCELERATOR,
               defaultValue = Accelerator.GPU.label,
             )
-          initializedBackends.getOrPut(model.name) { mutableSetOf() }.add(backend)
+          synchronized(initializedBackendsLock) {
+            initializedBackends.getOrPut(model.name) { mutableSetOf() }.add(backend)
+          }
           recordEngineAccelerator(model.name, backend)
           if (model.cleanUpAfterInit) {
             model.markInitializationFailed(
