@@ -17,7 +17,9 @@
 package com.google.ai.edge.gallery.runtime
 
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.data.ModelCapability
 import com.google.ai.edge.gallery.data.RuntimeType
+import com.google.ai.edge.gallery.relay.runtime.LiteRtLmEmbeddingModelHelper
 import com.google.ai.edge.gallery.relay.runtime.ModelEngine
 import com.google.ai.edge.gallery.relay.runtime.engineFor
 import com.google.ai.edge.gallery.runtime.aicore.AICoreModelHelper
@@ -30,6 +32,11 @@ val Model.runtimeHelper: LlmModelHelper
   get() {
     testingModelHelper?.let {
       return it
+    }
+    // GGUF embedding models stay on LlamaCppModelHelper -- the native load path self-detects
+    // pooling type. litertlm has no such signal, so it needs the declared capability here.
+    if (ModelCapability.EMBEDDING in this.capabilities) {
+      return LiteRtLmEmbeddingModelHelper
     }
     if (this.runtimeType == RuntimeType.AICORE) {
       return AICoreModelHelper

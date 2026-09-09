@@ -2,6 +2,7 @@
 
 package com.google.ai.edge.gallery.runtime.llamacpp
 
+import com.google.ai.edge.gallery.relay.runtime.EmbeddingCapable
 import com.jegly.offlineLLM.smollm.SmolLM
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -20,7 +21,7 @@ import kotlin.time.measureTime
  * Provides the same lifecycle (load → generate → unload) as LiteRT
  * but backed by llama.cpp via the smollm JNI module.
  */
-class LlamaCppEngine {
+class LlamaCppEngine : EmbeddingCapable {
 
     private var instance = SmolLM()
     private val stateLock = ReentrantLock()
@@ -291,4 +292,9 @@ class LlamaCppEngine {
     }
 
     fun isReady(): Boolean = isModelLoaded.get() && !isGenerating
+
+    // Throws IllegalStateException if this GGUF has no pooling-type metadata (a chat model).
+    override suspend fun embed(text: String): FloatArray = withContext(Dispatchers.Default) {
+        instance.getEmbedding(text)
+    }
 }

@@ -393,6 +393,29 @@ data class OcrBoundingBoxData(
     val height: Float,
 )
 
+// --- Embeddings API (POST /v1/embeddings) ---
+// `input` is string-or-array, same JsonElement convention as ChatMessageIn.content.
+
+@Serializable
+data class EmbeddingsRequest(
+    val model: String,
+    val input: JsonElement,
+)
+
+@Serializable
+data class EmbeddingsResponse(
+    val `object`: String = "list",
+    val data: List<EmbeddingData>,
+    val model: String,
+)
+
+@Serializable
+data class EmbeddingData(
+    val `object`: String = "embedding",
+    val embedding: List<Float>,
+    val index: Int,
+)
+
 // --- Agent tools API (WP-H): POST /v1/agent/run, GET /v1/agent/tools ---
 // Runs the app's OWN compiled-in agent tools (MobileActionsTools.kt -- flashlight, wifi/
 // bluetooth/sound settings, dial, SMS-compose, calendar, contacts, etc.) headlessly. This is

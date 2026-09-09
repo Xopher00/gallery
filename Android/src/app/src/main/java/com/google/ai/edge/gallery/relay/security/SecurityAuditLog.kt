@@ -7,6 +7,7 @@ import android.util.Base64
 import android.util.Log
 import com.google.crypto.tink.Aead
 import com.google.crypto.tink.KeyTemplates
+import com.google.crypto.tink.RegistryConfiguration
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import java.io.File
@@ -49,7 +50,9 @@ object SecurityAuditLog {
                 .withMasterKeyUri(MASTER_KEY_URI)
                 .build()
                 .keysetHandle
-        return keysetHandle.getPrimitive(Aead::class.java)
+        // getPrimitive(Class) is deprecated in Tink 1.23; RegistryConfiguration.get() reads the
+        // same global registry AeadConfig.register() just populated, so behavior is unchanged.
+        return keysetHandle.getPrimitive(RegistryConfiguration.get(), Aead::class.java)
     }
 
     /**

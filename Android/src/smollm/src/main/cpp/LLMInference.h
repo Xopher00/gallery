@@ -19,6 +19,7 @@ public:
     std::string completionLoop();
     void stopCompletion();
     std::string benchModel(int pp, int tg, int pl, int nr);
+    std::vector<float> getEmbedding(const char *text);
     ~LLMInference();
 
 private:
@@ -42,6 +43,8 @@ private:
     int _nCtxUsed = 0;
 
     llama_batch g_batch;
+    // Set from the GGUF's own pooling-type metadata; getEmbedding() refuses to run otherwise.
+    bool _isEmbeddingModel = false;
 
     static bool _isValidUtf8(const char *response);
 };

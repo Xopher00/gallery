@@ -8,6 +8,7 @@ import androidx.datastore.core.Serializer
 import com.google.ai.edge.gallery.proto.UserData
 import com.google.crypto.tink.Aead
 import com.google.crypto.tink.KeyTemplates
+import com.google.crypto.tink.RegistryConfiguration
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
 import com.google.protobuf.InvalidProtocolBufferException
@@ -48,7 +49,10 @@ class EncryptedUserDataSerializer(private val aead: Aead) : Serializer<UserData>
               .withMasterKeyUri(MASTER_KEY_URI)
               .build()
               .keysetHandle
-      return EncryptedUserDataSerializer(keysetHandle.getPrimitive(Aead::class.java))
+      // getPrimitive(Class) is deprecated in Tink 1.23; RegistryConfiguration.get() reads the
+      // same global registry AeadConfig.register() just populated, so behavior is unchanged.
+      return EncryptedUserDataSerializer(
+          keysetHandle.getPrimitive(RegistryConfiguration.get(), Aead::class.java))
     }
   }
 

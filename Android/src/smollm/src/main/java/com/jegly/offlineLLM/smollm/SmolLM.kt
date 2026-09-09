@@ -190,6 +190,12 @@ class SmolLM {
         return benchModel(nativePtr, pp, tg, pl, nr)
     }
 
+    // Throws if this GGUF has no pooling-type metadata -- see LLMInference::getEmbedding.
+    fun getEmbedding(text: String): FloatArray {
+        verifyHandle()
+        return getEmbedding(nativePtr, text)
+    }
+
     fun close() {
         if (nativePtr != 0L) {
             close(nativePtr)
@@ -217,4 +223,5 @@ class SmolLM {
     private external fun completionLoop(modelPtr: Long): String
     private external fun stopCompletion(modelPtr: Long)
     private external fun benchModel(modelPtr: Long, pp: Int, tg: Int, pl: Int, nr: Int): String
+    private external fun getEmbedding(modelPtr: Long, text: String): FloatArray
 }

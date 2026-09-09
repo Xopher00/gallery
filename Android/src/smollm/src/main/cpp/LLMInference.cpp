@@ -46,6 +46,21 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, f
     ctx_params.n_batch = contextSize;
     ctx_params.n_threads = nThreads;
     ctx_params.no_perf = true;
+
+    // startCompletion's hand-rolled batch doesn't mark all tokens as outputs, so only opt into
+    // embeddings=true when the GGUF's own metadata declares a pooling type.
+    char archBuf[128] = {0};
+    if (llama_model_meta_val_str(_model, "general.architecture", archBuf, sizeof(archBuf)) >= 0) {
+        std::string poolingKey = std::string(archBuf) + ".pooling_type";
+        char poolingBuf[32] = {0};
+        if (llama_model_meta_val_str(_model, poolingKey.c_str(), poolingBuf, sizeof(poolingBuf)) >= 0
+            && atoi(poolingBuf) != LLAMA_POOLING_TYPE_NONE) {
+            ctx_params.embeddings = true;
+            ctx_params.n_ubatch = ctx_params.n_batch;
+            _isEmbeddingModel = true;
+        }
+    }
+
     _ctx = llama_init_from_model(_model, ctx_params);
     if (!_ctx) {
         LOGe("llama_new_context_with_model() returned null");
@@ -120,6 +135,9 @@ LLMInference::getContextSizeUsed() const {
 
 void
 LLMInference::startCompletion(const char *query) {
+    if (_isEmbeddingModel) {
+        throw std::runtime_error("this GGUF has a pooling type and produces embeddings, not chat replies -- use /v1/embeddings");
+    }
     if (!_storeChats) {
         _formattedMessages.clear();
         _formattedMessages = std::vector<char>(llama_n_ctx(_ctx));
@@ -357,4 +375,36 @@ LLMInference::benchModel(int pp, int tg, int pl, int nr) {
     result << "PP " << pp << ": " << pp_avg << " +/- " << pp_std << " t/s\n";
     result << "TG " << tg << ": " << tg_avg << " +/- " << tg_std << " t/s\n";
     return result.str();
+}
+
+std::vector<float>
+LLMInference::getEmbedding(const char *text) {
+    if (!_isEmbeddingModel) {
+        throw std::runtime_error("context not created in embedding mode -- this GGUF has no pooling type");
+    }
+
+    std::vector<llama_token> tokens = common_tokenize(_ctx, text, true, true);
+    llama_batch batch = llama_batch_init(int32_t(tokens.size()), 0, 1);
+    for (size_t i = 0; i < tokens.size(); i++) {
+        common_batch_add(batch, tokens[i], llama_pos(i), {0}, true);
+    }
+
+    llama_memory_clear(llama_get_memory(_ctx), false);
+    if (llama_decode(_ctx, batch) < 0) {
+        llama_batch_free(batch);
+        throw std::runtime_error("llama_decode() failed during embedding");
+    }
+
+    const float *raw = llama_get_embeddings_seq(_ctx, 0);
+    if (!raw) {
+        llama_batch_free(batch);
+        throw std::runtime_error("llama_get_embeddings_seq() returned null");
+    }
+
+    int nEmbd = llama_model_n_embd_out(_model);
+    std::vector<float> result(nEmbd);
+    common_embd_normalize(raw, result.data(), nEmbd, 2);
+
+    llama_batch_free(batch);
+    return result;
 }

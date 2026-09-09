@@ -21,6 +21,9 @@ import com.google.gson.annotations.SerializedName
 enum class ModelCapability {
   @SerializedName("llm_thinking") LLM_THINKING,
   @SerializedName("speculative_decoding") SPECULATIVE_DECODING,
+  // litertlm has no file-intrinsic way to tell an embedding model from a chat model, unlike a
+  // GGUF's own pooling-type metadata -- this is declared, via the allowlist or import.
+  @SerializedName("embedding") EMBEDDING,
 }
 
 enum class RuntimeType {

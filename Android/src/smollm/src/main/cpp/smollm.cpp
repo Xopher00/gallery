@@ -97,3 +97,21 @@ Java_com_jegly_offlineLLM_smollm_SmolLM_benchModel(JNIEnv* env, jobject /*unused
     std::string result       = llmInference->benchModel(pp, tg, pl, nr);
     return env->NewStringUTF(result.c_str());
 }
+
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_com_jegly_offlineLLM_smollm_SmolLM_getEmbedding(JNIEnv* env, jobject thiz, jlong modelPtr, jstring text) {
+    jboolean    isCopy       = true;
+    const char* textCstr     = env->GetStringUTFChars(text, &isCopy);
+    auto*       llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    try {
+        std::vector<float> embedding = llmInference->getEmbedding(textCstr);
+        env->ReleaseStringUTFChars(text, textCstr);
+        jfloatArray result = env->NewFloatArray(jsize(embedding.size()));
+        env->SetFloatArrayRegion(result, 0, jsize(embedding.size()), embedding.data());
+        return result;
+    } catch (std::exception& error) {
+        env->ReleaseStringUTFChars(text, textCstr);
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), error.what());
+        return nullptr;
+    }
+}

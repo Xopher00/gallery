@@ -20,6 +20,7 @@ import com.google.ai.edge.gallery.relay.server.handlers.handleAnthropicMessages
 import com.google.ai.edge.gallery.relay.server.handlers.handleAudioTranscriptions
 import com.google.ai.edge.gallery.relay.server.handlers.handleChatCompletion
 import com.google.ai.edge.gallery.relay.server.handlers.handleCompletion
+import com.google.ai.edge.gallery.relay.server.handlers.handleEmbeddings
 import com.google.ai.edge.gallery.relay.server.handlers.handleImageEdits
 import com.google.ai.edge.gallery.relay.server.handlers.handleImageGenerations
 import com.google.ai.edge.gallery.relay.server.handlers.handleOcr
@@ -200,6 +201,17 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
     // above, there is no 503 "not downloaded" case here.
     post("/v1/vision/ocr") {
         handleOcr(call, server.ocrMutexes)
+    }
+
+    post("/v1/embeddings") {
+        val request = call.receive<EmbeddingsRequest>()
+        handleEmbeddings(
+            call = call,
+            request = request,
+            modelRegistry = server.modelRegistry,
+            modelMutexes = server.modelMutexes,
+            loadModel = onDemandLoadModel,
+        )
     }
 
     // Honest 501: SD image editing is CPU-only/minutes-per-image on this device, so
