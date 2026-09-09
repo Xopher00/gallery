@@ -113,3 +113,33 @@ jobs:
             --title "${{ steps.version.outputs.release_name }}" \
             --notes "Automated signed release build from $(git rev-parse HEAD)." \
             Android/src/app/build/outputs/apk/release/app-release.apk
+
+  report_failure:
+    name: File an issue for a failed build
+    needs: build_and_release
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Ensure the ci-build-failure label exists
+        run: |
+          gh label create "ci-build-failure" --repo "${{ github.repository }}" \
+            --description "An automated Release APK build failed" --color B60205 --force
+
+      # Marker is read by build-diagnostics.yaml's release_failure_diagnosis job.
+      - name: Open the issue
+        run: |
+          set -euo pipefail
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          {
+            echo "<!-- ci-build-failure: run_id=${{ github.run_id }} sha=${{ github.sha }} -->"
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "Commit: \`${{ github.sha }}\`"
+          } > /tmp/issue_body.md
+          gh issue create --repo "${{ github.repository }}" \
+            --title "Release APK failed on $SHORT_SHA" \
+            --label "ci-build-failure" \
+            --body-file /tmp/issue_body.md

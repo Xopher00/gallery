@@ -31,11 +31,31 @@ Release builds read `keystore.properties` from `Android/src/`. The file is gitig
 ## Upstream
 
 This repository is a fork of `google-ai-edge/gallery`, merged with `jegly/Box`. The
-`upstream` remote tracks Google. `.github/workflows/upstream-drift.yaml` runs daily: it
-reports drift to a reusable issue, then attempts a merge — a clean merge that also
-builds is pushed straight to `main`, a clean merge whose build then fails opens a draft
-PR, and an actual conflict opens a reusable issue instead. `workflow_dispatch` runs it
-by hand.
+`upstream` remote tracks Google.
+
+`.github/workflows/upstream-drift.yaml` runs daily. It reports drift to a reusable
+issue, then attempts a merge. A clean merge that also builds pushes straight to `main`.
+A clean merge whose build then fails opens a draft PR. A real conflict opens a reusable
+issue instead, with no branch and no PR. `workflow_dispatch` runs it by hand.
+
+The conflict issue includes a diff of each conflicting file against the merge base, for
+both the fork's side and upstream's side. This shows what each side changed on its own,
+not just the raw conflict markers. The issue body also carries a hidden HTML comment
+with both commit SHAs, for the diagnostic workflow below to read.
+
+`.github/workflows/build-diagnostics.yaml` holds two independent jobs. Neither job opens
+an issue. Each one only comments on an issue that some other workflow already opened.
+
+`conflict_diagnosis` runs when `upstream-drift.yaml` opens a conflict issue. It resolves
+the conflict with `git merge -X ours`, a throwaway pick that favors the fork's side, then
+tries to compile the result. A plain text diff cannot show that one side deleted a symbol
+the other side still calls. Only a real compile catches that. The job never commits or
+pushes this merge. It posts the compile result as a comment on the issue.
+
+`release.yaml` opens a fresh `ci-build-failure` issue on its own failure, one per
+failure, since each one ties to a specific commit. `release_failure_diagnosis` runs when
+that issue opens. It finds the last commit where `Release APK` passed, then diffs the
+files named in the compiler error against that commit, and posts both as a comment.
 
 `build_android.yaml` is upstream's own workflow, kept identical to upstream. It does not
 fetch submodules and cannot build this tree. `ci-build.yaml` is the fork's build.

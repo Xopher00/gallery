@@ -250,6 +250,44 @@ jobs:
         if: steps.merge.outputs.clean == 'false'
         run: cp /tmp/conflict_files.txt /tmp/conflict_files_saved.txt || touch /tmp/conflict_files_saved.txt
 
+      # Static only -- no merge attempt, no build. Shows what each side changed
+      # independently, so a reader isn't left staring at bare conflict markers.
+      - name: Trace conflicting files against merge-base
+        id: trace
+        if: steps.merge.outputs.clean == 'false'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          UPSTREAM_REF="${{ github.event.inputs.upstream_ref }}"
+          UPSTREAM_REF="${UPSTREAM_REF:-upstream/main}"
+          MERGE_BASE=$(git merge-base HEAD "$UPSTREAM_REF")
+          echo "merge_base=$MERGE_BASE" >> "$GITHUB_OUTPUT"
+
+          # Caps keep one huge file from blowing past GitHub's issue-body size limit.
+          DIFF_LINE_CAP=200
+
+          : > /tmp/conflict_trace.md
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            {
+              echo "<details>"
+              echo "<summary><code>$f</code></summary>"
+              echo
+              echo "**Our change (\`main\` vs merge base):**"
+              echo '```diff'
+              git diff "$MERGE_BASE" HEAD -- "$f" | head -n "$DIFF_LINE_CAP"
+              echo '```'
+              echo
+              echo "**Upstream's change (\`$UPSTREAM_REF\` vs merge base):**"
+              echo '```diff'
+              git diff "$MERGE_BASE" "$UPSTREAM_REF" -- "$f" | head -n "$DIFF_LINE_CAP"
+              echo '```'
+              echo
+              echo "</details>"
+              echo
+            } >> /tmp/conflict_trace.md
+          done < /tmp/conflict_files_saved.txt
+
       # arm64-v8a is enforced by abiFilters in the build files already.
       - name: Build (only if merge was clean and non-empty)
         id: build
@@ -342,6 +380,8 @@ jobs:
           set -euo pipefail
           UPSTREAM_REF="${{ github.event.inputs.upstream_ref || 'upstream/main' }}"
           {
+            # upstream-conflict-diagnostic.yaml parses this exact key=value shape.
+            echo "<!-- upstream-merge-conflict: ours=$(git rev-parse main) upstream=$(git rev-parse "$UPSTREAM_REF") -->"
             echo "## Assisted upstream merge — CONFLICTS"
             echo
             echo "Merged ref: \`$UPSTREAM_REF\`"
@@ -357,6 +397,13 @@ jobs:
             cat /tmp/conflict_files_saved.txt 2>/dev/null || echo "(list unavailable)"
             echo '```'
             echo
+            echo "### What each side changed"
+            echo
+            echo "Diffed against the merge base (\`${{ steps.trace.outputs.merge_base }}\`) -- what our"
+            echo "fork changed and what upstream changed, independently of each other. Long diffs are"
+            echo "capped at 200 lines per side."
+            echo
+            cat /tmp/conflict_trace.md 2>/dev/null || echo "_Trace unavailable._"
             echo "A human must resolve this conflict manually — this workflow does not"
             echo "attempt conflict resolution."
           } > /tmp/conflict_issue_body.md
