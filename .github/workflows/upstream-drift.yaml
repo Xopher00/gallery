@@ -1,36 +1,33 @@
-# Daily check for how far `main` (our fork) has drifted from
-# `upstream/main` (google-ai-edge/gallery). Reports commit count, a
-# merge-tree conflict preview, and watchlist-file changes into ONE reusable
-# GitHub issue (labelled `upstream-drift`) that this workflow edits in place
-# on every run, rather than filing a new issue each time.
-name: Upstream drift check
+# Reports drift to one reusable issue, then (only if anything's new) attempts a real
+# merge: clean+builds -> pushed straight to main; clean but build fails -> draft PR;
+# an actual conflict -> one reusable issue, never a branch or PR.
+name: Upstream drift and merge
 
 on:
   schedule:
-    # Daily at 03:17 UTC. Off the hour deliberately: GitHub queues scheduled
-    # workflows and on-the-hour slots are the most contended, so an odd minute
-    # tends to start closer to on time.
-    #
-    # Daily rather than weekly because upstream averages ~58 commits/month --
-    # roughly a push every other day -- so a weekly cadence could let a week of
-    # divergence pile up before anyone saw it. The run costs ~15 seconds (no
-    # submodules, no build) and edits one reusable issue in place instead of
-    # opening a new one, so daily adds negligible cost and no extra noise.
+    # Daily, off the hour; upstream averages ~58 commits/month so weekly risks a pile-up.
     - cron: '17 3 * * *'
   workflow_dispatch:
-
-permissions:
-  issues: write
-  contents: read
+    inputs:
+      upstream_ref:
+        description: 'Upstream ref to merge (as fetched under the upstream remote)'
+        required: false
+        default: 'upstream/main'
 
 env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   DRIFT_LABEL: upstream-drift
+  MERGE_CONFLICT_LABEL: upstream-merge-conflict
 
 jobs:
   check_drift:
     name: Check upstream drift
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    outputs:
+      ahead_count: ${{ steps.drift.outputs.ahead_count }}
     steps:
       - name: Checkout main (no submodules needed for a text/log diff)
         uses: actions/checkout@v4
@@ -66,21 +63,22 @@ jobs:
           CONFLICT_FILES=$(echo "$MERGE_TREE_OUT" | grep '^CONFLICT' || true)
           CONFLICT_COUNT=$(echo "$CONFLICT_FILES" | grep -c '^CONFLICT' || true)
 
-          # Watchlist: files heavily edited on both sides. An upstream change
-          # to any of these is an early warning EVEN IF the merge-tree above
-          # shows zero conflicts, because API-shape changes often merge
-          # textually clean and then fail to compile.
-          WATCHLIST='ModelManagerViewModel LlmChatViewModel LlmChatScreen MessageInputText ChatPanel AgentChatScreen libs.versions.toml'
+          # Computed, not hand-maintained -- a name list goes stale the moment a new
+          # file crosses the risk line. 5 is the natural gap in this fork's own hunk
+          # counts: {1,1,3} below it, {6,7,7,9,9,17} above.
+          WATCHLIST_HUNK_THRESHOLD=5
           CHANGED_SINCE_BASE=$(git diff --name-only "$MERGE_BASE" upstream/main)
 
           WATCHLIST_HITS=""
-          for f in $WATCHLIST; do
-            hits=$(echo "$CHANGED_SINCE_BASE" | grep -F "$f" || true)
-            if [ -n "$hits" ]; then
-              WATCHLIST_HITS="${WATCHLIST_HITS}${hits}
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            git cat-file -e "upstream/main:$f" 2>/dev/null || continue
+            HUNKS=$(git diff "$MERGE_BASE" main -- "$f" | grep -c '^@@' || true)
+            if [ "$HUNKS" -ge "$WATCHLIST_HUNK_THRESHOLD" ]; then
+              WATCHLIST_HITS="${WATCHLIST_HITS}${f} (${HUNKS} fork hunks)
           "
             fi
-          done
+          done <<< "$CHANGED_SINCE_BASE"
 
           {
             echo "merge_base=$MERGE_BASE"
@@ -123,10 +121,8 @@ jobs:
             echo
             echo "### Watchlist files changed upstream since merge base"
             echo
-            echo "Reported regardless of the conflict count above: these files are"
-            echo "heavily edited on both sides, and API-shape changes often merge"
-            echo "textually clean and then fail to compile. A clean merge-tree is"
-            echo "not proof of a working merge."
+            echo "Computed each run (files with 5+ fork hunks that upstream also touched)."
+            echo "A clean merge-tree is not proof of a working merge for one of these."
             echo
             if [ -s /tmp/watchlist_hits.txt ]; then
               echo '```'
@@ -181,3 +177,221 @@ jobs:
           gh issue edit "$NUM" --repo "${{ github.repository }}" --body-file /tmp/issue_body.md
           gh issue comment "$NUM" --repo "${{ github.repository }}" \
             --body "Drift check run $(date -u +"%Y-%m-%dT%H:%M:%SZ"): ${{ steps.drift.outputs.ahead_count }} commits behind, ${{ steps.drift.outputs.conflict_count }} conflicting files. See updated issue body above."
+
+  merge:
+    name: Attempt merge
+    needs: check_drift
+    if: needs.check_drift.outputs.ahead_count != '0'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    defaults:
+      run:
+        working-directory: ./Android/src
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout main (with submodules, for a real build attempt)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Configure git identity for the bot
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add and fetch upstream
+        working-directory: .
+        run: |
+          git remote add upstream https://github.com/google-ai-edge/gallery.git
+          git fetch upstream
+
+      - name: Create sync branch
+        id: branch
+        working-directory: .
+        run: |
+          set -euo pipefail
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          BRANCH="sync/upstream-${SHORT_SHA}"
+          git checkout -b "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Attempt merge (do not fail the job on conflicts)
+        id: merge
+        working-directory: .
+        run: |
+          set -euo pipefail
+          UPSTREAM_REF="${{ github.event.inputs.upstream_ref }}"
+          UPSTREAM_REF="${UPSTREAM_REF:-upstream/main}"
+
+          if git merge --no-edit "$UPSTREAM_REF"; then
+            echo "clean=true" >> "$GITHUB_OUTPUT"
+            NEW_COMMITS=$(git rev-list --count main..HEAD)
+            if [ "$NEW_COMMITS" -eq 0 ]; then
+              echo "has_new_commits=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            # Abort so no partial/unresolved merge is ever pushed.
+            git diff --name-only --diff-filter=U > /tmp/conflict_files.txt || true
+            git merge --abort
+            echo "clean=false" >> "$GITHUB_OUTPUT"
+            echo "has_new_commits=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save conflict list
+        if: steps.merge.outputs.clean == 'false'
+        run: cp /tmp/conflict_files.txt /tmp/conflict_files_saved.txt || touch /tmp/conflict_files_saved.txt
+
+      # arm64-v8a is enforced by abiFilters in the build files already.
+      - name: Build (only if merge was clean and non-empty)
+        id: build
+        if: steps.merge.outputs.clean == 'true' && steps.merge.outputs.has_new_commits == 'true'
+        run: |
+          set -euo pipefail
+          if ./gradlew assembleRelease --no-daemon; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+        continue-on-error: true
+
+      - name: Auto-merge into main (clean and builds)
+        if: steps.merge.outputs.clean == 'true' && steps.merge.outputs.has_new_commits == 'true' && steps.build.outputs.passed == 'true'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          git push origin HEAD:main
+
+      - name: Report auto-merge to job summary
+        if: steps.merge.outputs.clean == 'true' && steps.merge.outputs.has_new_commits == 'true' && steps.build.outputs.passed == 'true'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          {
+            echo "## Assisted upstream merge — merged automatically"
+            echo
+            echo "Merged ref: \`${{ github.event.inputs.upstream_ref || 'upstream/main' }}\`"
+            echo "New \`main\`: \`$(git rev-parse HEAD)\`"
+            echo
+            echo "Clean merge, \`assembleRelease\` passed — pushed directly, no PR needed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Clean merge, build failed: needs a human with the real merged tree.
+      - name: Push sync branch (build failed)
+        if: steps.merge.outputs.clean == 'true' && steps.merge.outputs.has_new_commits == 'true' && steps.build.outputs.passed == 'false'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          git push origin "${{ steps.branch.outputs.branch }}"
+
+      - name: Assemble PR body
+        if: steps.merge.outputs.clean == 'true' && steps.merge.outputs.has_new_commits == 'true' && steps.build.outputs.passed == 'false'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          {
+            echo "## Assisted upstream merge — build failed"
+            echo
+            echo "Merged ref: \`${{ github.event.inputs.upstream_ref || 'upstream/main' }}\`"
+            echo
+            echo "Merge was textually clean, but \`assembleRelease\` **FAILED** — see the"
+            echo "workflow run logs. A clean merge is not proof of a working one."
+            echo
+            echo "---"
+            echo "Opened as a **draft** by an automated workflow. Never auto-merged — a"
+            echo "human must fix the build before merging."
+          } > /tmp/pr_body.md
+
+      - name: Open draft PR (build failed)
+        if: steps.merge.outputs.clean == 'true' && steps.merge.outputs.has_new_commits == 'true' && steps.build.outputs.passed == 'false'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          gh pr create \
+            --repo "${{ github.repository }}" \
+            --base main \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --draft \
+            --title "Assisted upstream merge (build failed): ${{ steps.branch.outputs.branch }}" \
+            --body-file /tmp/pr_body.md
+
+      # Conflict path: no branch, no PR -- one reusable issue instead.
+      - name: Ensure the merge-conflict label exists
+        if: steps.merge.outputs.clean == 'false'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          gh label create "$MERGE_CONFLICT_LABEL" \
+            --repo "${{ github.repository }}" \
+            --description "Automated upstream merge hit a real conflict" \
+            --color D93F0B \
+            --force
+
+      - name: Assemble conflict issue body
+        if: steps.merge.outputs.clean == 'false'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          UPSTREAM_REF="${{ github.event.inputs.upstream_ref || 'upstream/main' }}"
+          {
+            echo "## Assisted upstream merge — CONFLICTS"
+            echo
+            echo "Merged ref: \`$UPSTREAM_REF\`"
+            echo
+            echo "- Our \`main\`: \`$(git rev-parse main)\`"
+            echo "- Upstream (\`$UPSTREAM_REF\`): \`$(git rev-parse "$UPSTREAM_REF")\`"
+            echo
+            echo "Merge was attempted and **aborted** — the working tree was left clean."
+            echo "No branch was pushed and no PR was opened."
+            echo
+            echo "### Conflicting files"
+            echo '```'
+            cat /tmp/conflict_files_saved.txt 2>/dev/null || echo "(list unavailable)"
+            echo '```'
+            echo
+            echo "A human must resolve this conflict manually — this workflow does not"
+            echo "attempt conflict resolution."
+          } > /tmp/conflict_issue_body.md
+
+      - name: Find or create the reusable conflict issue
+        if: steps.merge.outputs.clean == 'false'
+        id: conflict_issue
+        working-directory: .
+        run: |
+          set -euo pipefail
+          EXISTING=$(gh issue list \
+            --repo "${{ github.repository }}" \
+            --label "$MERGE_CONFLICT_LABEL" \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')
+          echo "number=$EXISTING" >> "$GITHUB_OUTPUT"
+
+      - name: Create conflict issue (first occurrence)
+        if: steps.merge.outputs.clean == 'false' && steps.conflict_issue.outputs.number == ''
+        working-directory: .
+        run: |
+          set -euo pipefail
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "Upstream merge conflict (google-ai-edge/gallery)" \
+            --label "$MERGE_CONFLICT_LABEL" \
+            --body-file /tmp/conflict_issue_body.md
+
+      - name: Update conflict issue in place
+        if: steps.merge.outputs.clean == 'false' && steps.conflict_issue.outputs.number != ''
+        working-directory: .
+        run: |
+          set -euo pipefail
+          NUM="${{ steps.conflict_issue.outputs.number }}"
+          gh issue edit "$NUM" --repo "${{ github.repository }}" --body-file /tmp/conflict_issue_body.md
+          gh issue comment "$NUM" --repo "${{ github.repository }}" \
+            --body "Merge attempted again $(date -u +"%Y-%m-%dT%H:%M:%SZ"), still conflicting. See updated issue body above."

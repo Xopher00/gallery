@@ -1,19 +1,9 @@
-# This workflow exists because Google's `.github/workflows/build_android.yaml`
-# checks out with `actions/checkout@v3` and NO submodule fetching. Our fork
-# needs three git submodules (llama.cpp, stable-diffusion.cpp, whisper.cpp)
-# for the native Gradle modules (:smollm, :stablediffusion, :whisper), so
-# Google's workflow cannot build our tree. `build_android.yaml` is kept
-# byte-identical to upstream on purpose and MUST NOT be edited or replaced by
-# this file — this is a separate, additive workflow for the fork's own CI.
-name: Build (fork)
+# Google's build_android.yaml (removed 2026-09-09) checked out with no submodule
+# fetching, so it couldn't build our tree's 3 native submodules.
+name: Build Android APK
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ "main" ]
-    paths:
-      - 'Android/**'
-      - '.github/workflows/ci-build.yaml'
   pull_request:
     branches: [ "main" ]
     paths:

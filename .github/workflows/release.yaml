@@ -1,0 +1,115 @@
+# Builds a real-signed release APK and publishes it as a GitHub Release on every
+# push to main. PRs run ci-build.yaml's debug-signed artifact build instead.
+name: Release APK
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - 'Android/**'
+      - '.github/workflows/release.yaml'
+
+permissions:
+  contents: write
+
+jobs:
+  build_and_release:
+    name: Build signed release APK and publish
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./Android/src
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_SLOPPINESS: time_macros,include_file_mtime,include_file_ctime,file_macro
+      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 2G
+    steps:
+      - name: Checkout the source code (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install ccache
+        run: sudo apt-get update && sudo apt-get install -y ccache
+
+      - name: Record submodule SHAs for cache key
+        working-directory: .
+        run: git submodule status > ci-submodule-shas.txt
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK Platform 37
+        run: echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-37.0"
+
+      - name: Cache Android NDK
+        id: ndk-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+          key: android-ndk-27.2.12479018
+
+      - name: Install Android NDK 27.2.12479018
+        if: steps.ndk-cache.outputs.cache-hit != 'true'
+        run: echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;27.2.12479018"
+
+      - name: Cache ccache directory
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-release-${{ runner.os }}-${{ hashFiles('ci-submodule-shas.txt', '.github/workflows/release.yaml') }}
+          restore-keys: |
+            ccache-release-${{ runner.os }}-
+            ccache-${{ runner.os }}-
+
+      # keystore.properties is gitignored; the build falls back to debug signing
+      # when it's absent, which is why this step exists.
+      - name: Write release keystore
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
+          cat > keystore.properties <<KEYSTORE_EOF
+          storeFile=$(pwd)/keystore.jks
+          storePassword=${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          keyAlias=${{ secrets.KEYSTORE_KEY_ALIAS }}
+          keyPassword=${{ secrets.KEYSTORE_KEY_PASSWORD }}
+          KEYSTORE_EOF
+
+      - name: Build (release, signed)
+        run: ./gradlew assembleRelease --no-daemon -PuseCcache
+
+      - name: Show ccache stats
+        run: ccache -s
+
+      - name: Remove keystore material from the runner
+        if: always()
+        run: rm -f keystore.jks keystore.properties
+
+      - name: Read version info
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION_NAME=$(grep -m1 'versionName =' app/build.gradle.kts | sed -E 's/.*"(.*)".*/\1/')
+          VERSION_CODE=$(grep -m1 'versionCode =' app/build.gradle.kts | grep -oE '[0-9]+')
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "tag=v${VERSION_NAME}-${VERSION_CODE}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "release_name=box-api ${VERSION_NAME} (${VERSION_CODE})" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --title "${{ steps.version.outputs.release_name }}" \
+            --notes "Automated signed release build from $(git rev-parse HEAD)." \
+            Android/src/app/build/outputs/apk/release/app-release.apk

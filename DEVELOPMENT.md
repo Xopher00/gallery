@@ -31,9 +31,11 @@ Release builds read `keystore.properties` from `Android/src/`. The file is gitig
 ## Upstream
 
 This repository is a fork of `google-ai-edge/gallery`, merged with `jegly/Box`. The
-`upstream` remote tracks Google. Two workflows in `.github/workflows/` support syncing:
-`upstream-drift.yaml` reports drift daily to an issue, and `upstream-merge.yaml` opens a
-draft pull request for a merge when run by hand. Neither one changes `main`.
+`upstream` remote tracks Google. `.github/workflows/upstream-drift.yaml` runs daily: it
+reports drift to a reusable issue, then attempts a merge — a clean merge that also
+builds is pushed straight to `main`, a clean merge whose build then fails opens a draft
+PR, and an actual conflict opens a reusable issue instead. `workflow_dispatch` runs it
+by hand.
 
 `build_android.yaml` is upstream's own workflow, kept identical to upstream. It does not
 fetch submodules and cannot build this tree. `ci-build.yaml` is the fork's build.
