@@ -11,6 +11,8 @@ import com.google.ai.edge.gallery.data.ModelDownloadStatus
 import com.google.ai.edge.gallery.data.SystemPromptRepository
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.proto.ImportedModel
+import com.google.ai.edge.gallery.relay.runtime.ModelEngine
+import com.google.ai.edge.gallery.relay.runtime.engineFor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -54,6 +56,9 @@ constructor(
     get() = taskCatalog.tasks
 
   fun getModelByName(name: String): Model? = taskCatalog.getModelByName(name)
+
+  fun engineOf(model: Model): ModelEngine =
+    model.engineFor(taskCatalog.getTaskForModel(model)?.id)
 
   fun getAllModels(): List<Model> = taskCatalog.getAllModels()
 

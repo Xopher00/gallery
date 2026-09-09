@@ -19,7 +19,6 @@ import com.google.ai.edge.gallery.data.SD_IMPORTS_DIR
 import com.google.ai.edge.gallery.data.ValueType
 import com.google.ai.edge.gallery.data.createLlmChatConfigs
 import com.google.ai.edge.gallery.proto.ImportedModel
-import com.google.ai.edge.gallery.runtime.InferenceEngineType
 import java.io.File
 
 internal val RESET_CONVERSATION_TURN_COUNT_CONFIG =
@@ -167,10 +166,7 @@ class ImportedModelStore(
         info.fileName
       }
     val importedRuntimeType =
-      if (
-        InferenceEngineType.fromModelPath(importedFileNameToCheck) ==
-          InferenceEngineType.LLAMA_CPP
-      ) {
+      if (importedFileNameToCheck.endsWith(".gguf", ignoreCase = true)) {
         RuntimeType.UNKNOWN
       } else {
         RuntimeType.LITERT_LM

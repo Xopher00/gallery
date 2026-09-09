@@ -13,10 +13,11 @@
 package com.google.ai.edge.gallery.relay.server
 
 import com.google.ai.edge.gallery.data.Accelerator
-import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
+import com.google.ai.edge.gallery.relay.runtime.EngineFamily
+import com.google.ai.edge.gallery.relay.runtime.engineFor
 import com.google.ai.edge.gallery.relay.server.handlers.BusyResult
 import com.google.ai.edge.gallery.relay.server.handlers.NO_BUSY_GUARD_TIMEOUT_MS
 import com.google.ai.edge.gallery.relay.server.handlers.withBusyGuard
@@ -40,16 +41,6 @@ sealed class LoadResult {
     data class Conflict(val message: String) : LoadResult()
     data class Error(val message: String) : LoadResult()
     data class TimedOut(val message: String) : LoadResult()
-}
-
-// Single-holder "engine kind" for the one-pinned-model-per-kind rule in loadModel() -- derived
-// from the Task id since this must work before the model is initialized (instance still null).
-private enum class EngineKind { LLM, STABLE_DIFFUSION, WHISPER }
-
-private fun engineKindForTask(taskId: String): EngineKind = when (taskId) {
-    BuiltInTaskId.IMAGE_GEN -> EngineKind.STABLE_DIFFUSION
-    BuiltInTaskId.WHISPER -> EngineKind.WHISPER
-    else -> EngineKind.LLM
 }
 
 // Fallback when a model's ACCELERATOR config key was never set. Public so ChatHandler can
@@ -190,12 +181,13 @@ suspend fun OpenAiServer.loadModel(
 
     // One held model per engine kind: refuse a second load of the same kind rather than
     // silently evicting the held one.
-    val kind = engineKindForTask(task.id)
+    val engine = model.engineFor(task.id)
     val conflicting = modelRegistry.heldModelNames()
         .filter { it != name }
         .firstOrNull { heldName ->
+            val heldModel = tasks.flatMap { it.models }.find { it.name == heldName }
             val heldTask = tasks.find { t -> t.models.any { it.name == heldName } }
-            heldTask != null && engineKindForTask(heldTask.id) == kind
+            heldModel != null && heldTask != null && heldModel.engineFor(heldTask.id).family == engine.family
         }
     if (conflicting != null) {
         return LoadResult.Conflict("Unload '$conflicting' first")
@@ -210,9 +202,9 @@ suspend fun OpenAiServer.loadModel(
 
     // StableDiffusion/Whisper are CPU-only; a non-CPU request for one fails clearly here (400)
     // rather than reaching reinitializeModel()'s LLM-only path and failing with an opaque 500.
-    if (requestedAccel != null && kind != EngineKind.LLM && requestedAccel != Accelerator.CPU) {
+    if (requestedAccel != null && engine.family != EngineFamily.LLM && requestedAccel != Accelerator.CPU) {
         return LoadResult.Error(
-            "Model '$name' uses a CPU-only ${kind.name.lowercase()} engine and does not " +
+            "Model '$name' uses a CPU-only ${engine.wireName} engine and does not " +
                 "support accelerator '${requestedAccel.label.lowercase()}'."
         )
     }
@@ -226,7 +218,7 @@ suspend fun OpenAiServer.loadModel(
     ) {
         if (model.instance != null) {
             LoadResult.Loaded(name, currentAcceleratorLabel(model)) as LoadResult
-        } else if (requestedAccel == null && kind != EngineKind.LLM) {
+        } else if (requestedAccel == null && engine.family != EngineFamily.LLM) {
             // No explicit accelerator + CPU-only kind: initialise the way the app's UI does
             // (initializeModelFn) instead of forcing the recorded (often stale) default accelerator.
             val initError = CompletableDeferred<String?>()

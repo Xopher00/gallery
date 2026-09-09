@@ -14,20 +14,11 @@ package com.google.ai.edge.gallery.relay.server
 
 import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.Model
-import com.google.ai.edge.gallery.runtime.aicore.AICoreModelHelper
-import com.google.ai.edge.gallery.runtime.llamacpp.LlamaCppModelHelper
-import com.google.ai.edge.gallery.runtime.runtimeHelper
 
 // Builds the OpenAI-shaped model DTO, surfacing the runtime this model actually loaded
 // under and its configured accelerators so a client can tell what it is getting.
 internal fun Model.toModelData(server: OpenAiServer): ModelData {
-    // Box: reports the engine that will ACTUALLY serve this model (the often-stale RuntimeType
-    // enum hardcodes LITERT_LM for every import) -- mirrors runtimeHelper's dispatch by identity.
-    val runtime = when (this.runtimeHelper) {
-        AICoreModelHelper -> "aicore"
-        LlamaCppModelHelper -> "llama_cpp"
-        else -> "litert_lm"
-    }
+    val runtime = server.modelRegistry.engineOf(this).wireName
     // Stored ACCELERATOR preference -- independent of what the engine actually runs on (a
     // per-request override can reinit without durably changing this; see ChatHandler snapshot/restore).
     val preferredAccelerator = this

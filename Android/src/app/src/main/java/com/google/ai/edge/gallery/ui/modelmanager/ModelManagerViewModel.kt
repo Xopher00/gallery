@@ -55,6 +55,7 @@ import com.google.ai.edge.gallery.data.TMP_FILE_EXT
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.ValueType
 import com.google.ai.edge.gallery.data.createLlmChatConfigs
+import com.google.ai.edge.gallery.data.isManagedDownload
 import com.google.ai.edge.gallery.data.markInitializationFailed
 import com.google.ai.edge.gallery.data.markInitializationStarted
 import com.google.ai.edge.gallery.data.markInitialized
@@ -64,7 +65,6 @@ import com.google.ai.edge.gallery.huggingface.HuggingFaceApiClient
 // relay: this fork's own code. See relay/modelmanager/ModelRegistry.kt.
 import com.google.ai.edge.gallery.data.SD_IMPORTS_DIR
 import com.google.ai.edge.gallery.relay.device.DeviceProfile
-import com.google.ai.edge.gallery.runtime.InferenceEngineType
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import com.google.ai.edge.gallery.proto.AccessTokenData
 import com.google.ai.edge.gallery.proto.HfModelItemProto
@@ -419,7 +419,7 @@ constructor(
 
   fun cancelDownloadModel(model: Model) {
     // AICore models cannot be deleted from the download repository within the app.
-    if (model.runtimeType == RuntimeType.AICORE) {
+    if (!model.isManagedDownload) {
       return
     }
     downloadRepository.cancelDownloadModel(model)

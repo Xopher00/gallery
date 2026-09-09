@@ -430,6 +430,10 @@ val Model.supportModelBenchmark: Boolean
     runtimeType == RuntimeType.LITERT_LM ||
       false
 
+// AICore models have no local file to download, retry, or delete -- everything else does.
+val Model.isManagedDownload: Boolean
+  get() = runtimeType != RuntimeType.AICORE
+
 /** Marks the model as initialization started. */
 fun Model.markInitializationStarted(timeSource: TimeSource = TimeSource.Monotonic) {
   this._initStatusFlow.update { Model.InitializationStatus.Initializing(timeSource.markNow()) }

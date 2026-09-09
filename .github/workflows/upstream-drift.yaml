@@ -70,7 +70,7 @@ jobs:
           # to any of these is an early warning EVEN IF the merge-tree above
           # shows zero conflicts, because API-shape changes often merge
           # textually clean and then fail to compile.
-          WATCHLIST='ModelManagerViewModel LlmChatViewModel LlmChatScreen MessageInputText ChatPanel AgentChatScreen'
+          WATCHLIST='ModelManagerViewModel LlmChatViewModel LlmChatScreen MessageInputText ChatPanel AgentChatScreen libs.versions.toml'
           CHANGED_SINCE_BASE=$(git diff --name-only "$MERGE_BASE" upstream/main)
 
           WATCHLIST_HITS=""

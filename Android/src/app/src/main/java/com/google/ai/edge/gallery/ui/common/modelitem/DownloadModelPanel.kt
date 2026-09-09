@@ -45,8 +45,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
-import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.Task
+import com.google.ai.edge.gallery.data.isManagedDownload
 import com.google.ai.edge.gallery.data.supportModelBenchmark
 import com.google.ai.edge.gallery.ui.common.DownloadAndTryButton
 import com.google.ai.edge.gallery.ui.common.tos.TosViewModel
@@ -78,8 +78,7 @@ fun DownloadModelPanel(
     ) {
       fun isDownloadButtonEnabled(downloadStatus: ModelDownloadStatusType?, model: Model): Boolean {
         val downloadFailed = downloadStatus == ModelDownloadStatusType.FAILED
-        val isLitertLm = model.runtimeType == RuntimeType.LITERT_LM
-        return !downloadFailed || isLitertLm
+        return !downloadFailed || model.isManagedDownload
       }
 
       val downloadSucceeded = downloadStatus == ModelDownloadStatusType.SUCCEEDED

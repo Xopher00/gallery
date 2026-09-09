@@ -38,6 +38,17 @@ class TaskCatalog(private val customTasks: Set<CustomTask>) {
     return null
   }
 
+  fun getTaskForModel(model: Model): Task? {
+    for (task in getActiveCustomTasks().map { it.task }) {
+      for (m in task.models) {
+        if (m.name == model.name) {
+          return task
+        }
+      }
+    }
+    return null
+  }
+
   fun getAllModels(): List<Model> {
     val allModels = mutableSetOf<Model>()
     for (task in getActiveCustomTasks().map { it.task }) {

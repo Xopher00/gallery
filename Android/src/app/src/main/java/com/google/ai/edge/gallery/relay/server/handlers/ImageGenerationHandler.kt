@@ -20,6 +20,7 @@ import com.google.ai.edge.gallery.relay.server.LoadResult
 import com.google.ai.edge.gallery.relay.server.ImageGenerationRequest
 import com.google.ai.edge.gallery.relay.server.ImageGenerationResponse
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
+import com.google.ai.edge.gallery.relay.runtime.ModelEngine
 import com.google.ai.edge.gallery.stablediffusion.StableDiffusion
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -103,13 +104,24 @@ suspend fun handleImageGenerations(
 
     val sdModels = modelRegistry.tasks
         .flatMap { it.models }
-        .filter { it.instance is StableDiffusion }
+        .filter { modelRegistry.engineOf(it) == ModelEngine.StableDiffusion }
         .distinctBy { it.name }
 
     var model = if (request.model != null) {
         sdModels.find { it.name == request.model }
     } else {
         sdModels.firstOrNull()
+    }
+
+    if (model == null && request.model != null) {
+        val requestedModel = modelRegistry.tasks.flatMap { it.models }.find { it.name == request.model }
+        if (requestedModel != null && modelRegistry.engineOf(requestedModel) != ModelEngine.StableDiffusion) {
+            call.respond(
+                HttpStatusCode.BadRequest,
+                ErrorEnvelope(ErrorBody(message = "Model '${request.model}' is not an image-generation model"))
+            )
+            return
+        }
     }
 
     // WP: not currently loaded as a StableDiffusion instance -- if a specific model name was

@@ -52,8 +52,8 @@ import com.google.ai.edge.gallery.data.MODEL_INFO_ICON_SIZE
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatus
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
-import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.Task
+import com.google.ai.edge.gallery.data.isManagedDownload
 import com.google.ai.edge.gallery.ui.common.ClickableLink
 import com.google.ai.edge.gallery.ui.common.humanReadableSize
 import com.google.ai.edge.gallery.ui.theme.customColors
@@ -156,7 +156,7 @@ fun ModelNameAndStatus(
     )
 
     // Status icon + size + download progress details.
-    if (model.runtimeType != RuntimeType.AICORE && showModelSizeAndDownloadProgressLabel) {
+    if (model.isManagedDownload && showModelSizeAndDownloadProgressLabel) {
       ModelStatusDetails(
         model = model,
         task = task,

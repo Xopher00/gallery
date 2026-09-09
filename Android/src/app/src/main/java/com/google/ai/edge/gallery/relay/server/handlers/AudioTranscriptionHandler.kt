@@ -21,6 +21,7 @@ import com.google.ai.edge.gallery.relay.server.ErrorEnvelope
 import com.google.ai.edge.gallery.relay.server.LoadResult
 import com.google.ai.edge.gallery.relay.server.TranscriptionResponse
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
+import com.google.ai.edge.gallery.relay.runtime.ModelEngine
 import com.google.ai.edge.gallery.whisper.WhisperEngine
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -105,10 +106,21 @@ suspend fun handleAudioTranscriptions(
 
         val whisperModels = modelRegistry.tasks
             .flatMap { it.models }
-            .filter { it.instance is WhisperEngine }
+            .filter { modelRegistry.engineOf(it) == ModelEngine.Whisper }
             .distinctBy { it.name }
 
         var model = whisperModels.find { it.name == requestedModel }
+
+        if (model == null) {
+            val existingModel = modelRegistry.tasks.flatMap { it.models }.find { it.name == requestedModel }
+            if (existingModel != null && modelRegistry.engineOf(existingModel) != ModelEngine.Whisper) {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    ErrorEnvelope(ErrorBody(message = "Model '$requestedModel' is not a transcription model"))
+                )
+                return
+            }
+        }
 
         // WP: not currently loaded as a WhisperEngine instance -- try loading it on demand
         // before giving up (matches ChatHandler's pattern).

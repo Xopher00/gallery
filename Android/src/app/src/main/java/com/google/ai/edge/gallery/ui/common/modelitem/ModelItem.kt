@@ -70,6 +70,7 @@ import com.google.ai.edge.gallery.data.ModelDownloadStatus
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.Task
+import com.google.ai.edge.gallery.data.isManagedDownload
 import com.google.ai.edge.gallery.ui.common.MarkdownText
 import com.google.ai.edge.gallery.ui.common.tos.TosViewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
@@ -175,7 +176,7 @@ fun ModelItem(
                   !showBenchmarkActionButton &&
                   downloadStatus?.status == ModelDownloadStatusType.SUCCEEDED,
               showDeleteButton =
-                showDeleteButton && model.localFileRelativeDirPathOverride.isEmpty() && !isAicore,
+                showDeleteButton && model.localFileRelativeDirPathOverride.isEmpty() && model.isManagedDownload,
               onBenchmarkClicked = { onBenchmarkClicked(model) },
               modifier = Modifier.offset(y = (-12).dp),
             )
@@ -437,7 +438,7 @@ fun ModelVariantHeader(
         showDeleteButton =
           showDeleteButton &&
             variantModel.localFileRelativeDirPathOverride.isEmpty() &&
-            variantModel.runtimeType != RuntimeType.AICORE,
+            variantModel.isManagedDownload,
         onBenchmarkClicked = { onBenchmarkClicked(variantModel) },
         modifier = menuModifier.offset(y = (-12).dp),
       )
