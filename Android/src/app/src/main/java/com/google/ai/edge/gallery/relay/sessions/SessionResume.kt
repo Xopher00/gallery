@@ -4,10 +4,12 @@ package com.google.ai.edge.gallery.relay.sessions
 
 import android.util.Log
 import com.google.ai.edge.gallery.agent.sessions.LlmSessionManager
+import com.google.ai.edge.gallery.agent.sessions.SessionConfig
 import com.google.ai.edge.gallery.data.ChatSessionRepository
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.proto.ChatMessageProto
 import com.google.ai.edge.gallery.proto.ChatSessionProto
+import com.google.ai.edge.litertlm.Contents
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -28,11 +30,15 @@ private suspend fun loadSessionMessages(
   withContext(Dispatchers.IO) {
     sessionManager.loadSession(
       sessionId = sessionId,
-      model = model,
-      taskId = taskId,
-      supportImage = supportImage,
-      supportAudio = supportAudio,
-      defaultSystemPrompt = defaultSystemPrompt,
+      config =
+        SessionConfig(
+          model = model,
+          taskId = taskId,
+          supportImage = supportImage,
+          supportAudio = supportAudio,
+          systemInstruction =
+            if (!defaultSystemPrompt.isNullOrEmpty()) Contents.of(defaultSystemPrompt) else null,
+        ),
     )
   }
 
