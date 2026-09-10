@@ -2,6 +2,7 @@
 
 package com.google.ai.edge.gallery.relay.server.handlers
 
+import android.util.Base64
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import com.google.ai.edge.gallery.relay.runtime.EmbeddingCapable
 import com.google.ai.edge.gallery.relay.server.EmbeddingData
@@ -13,6 +14,8 @@ import com.google.ai.edge.gallery.relay.server.LoadResult
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.respond
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.json.JsonArray
@@ -29,6 +32,31 @@ private fun parseEmbeddingsInput(input: JsonElement): List<String>? {
   }
 }
 
+internal enum class EncodingFormat { FLOAT, BASE64 }
+
+internal fun parseEncodingFormat(raw: String): EncodingFormat? = when (raw) {
+  "float" -> EncodingFormat.FLOAT
+  "base64" -> EncodingFormat.BASE64
+  else -> null
+}
+
+internal fun packLittleEndianFloatBytes(vector: FloatArray): ByteArray {
+  val buffer = ByteBuffer.allocate(vector.size * Float.SIZE_BYTES).order(ByteOrder.LITTLE_ENDIAN)
+  vector.forEach { buffer.putFloat(it) }
+  return buffer.array()
+}
+
+// base64Encode is injectable so callers/tests can substitute an alternate encoder; production
+// always uses the default.
+internal fun embeddingElement(
+  vector: FloatArray,
+  format: EncodingFormat,
+  base64Encode: (ByteArray) -> String = { Base64.encodeToString(it, Base64.NO_WRAP) },
+): JsonElement = when (format) {
+  EncodingFormat.FLOAT -> JsonArray(vector.map { JsonPrimitive(it) })
+  EncodingFormat.BASE64 -> JsonPrimitive(base64Encode(packLittleEndianFloatBytes(vector)))
+}
+
 suspend fun handleEmbeddings(
   call: ApplicationCall,
   request: EmbeddingsRequest,
@@ -41,6 +69,16 @@ suspend fun handleEmbeddings(
     call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = "'input' must be a string or array of strings")))
     return
   }
+
+  val encodingFormat = request.encoding_format?.let { raw ->
+    parseEncodingFormat(raw) ?: run {
+      call.respond(
+        HttpStatusCode.BadRequest,
+        ErrorEnvelope(ErrorBody(message = "Invalid encoding_format '$raw'. Valid values: float, base64"))
+      )
+      return
+    }
+  } ?: EncodingFormat.FLOAT
 
   var model = modelRegistry.getModelByName(request.model)
   if (model == null) {
@@ -78,7 +116,9 @@ suspend fun handleEmbeddings(
       val vectors = inputs.map { embedder.embed(it) }
       call.respond(
         EmbeddingsResponse(
-          data = vectors.mapIndexed { index, vector -> EmbeddingData(embedding = vector.toList(), index = index) },
+          data = vectors.mapIndexed { index, vector ->
+            EmbeddingData(embedding = embeddingElement(vector, encodingFormat), index = index)
+          },
           model = loadedModel.name,
         )
       )

@@ -1007,7 +1007,7 @@
   <string name="discovery_type_unknown" translatable="true" description="Filter chip label to show Discovery results whose type could not be determined from any signal. [CHAR_LIMIT=18]">Unknown</string>
   <string name="discovery_format_litert" translatable="true" description="Small chip on a Discovery result row marking it as a LiteRT-LM model, which can reach the NPU. [CHAR_LIMIT=12]">LiteRT</string>
   <string name="discovery_format_gguf" translatable="true" description="Small chip on a Discovery result row marking it as a GGUF model, which runs on CPU via llama.cpp. [CHAR_LIMIT=12]">GGUF</string>
-  <string name="discovery_model_card_expand" translatable="true" description="Content description for the icon button that expands a Discovery result row to show the model card (README). [CHAR_LIMIT=40]">Show model card</string>
-  <string name="discovery_model_card_collapse" translatable="true" description="Content description for the icon button that collapses a Discovery result row's expanded model card (README). [CHAR_LIMIT=40]">Hide model card</string>
+  <string name="discovery_model_card_expand" translatable="true" description="Content description for the icon button that expands a Discovery result row to show the model's details. [CHAR_LIMIT=40]">Show details</string>
+  <string name="discovery_model_card_collapse" translatable="true" description="Content description for the icon button that collapses a Discovery result row's expanded model details. [CHAR_LIMIT=40]">Hide details</string>
 
 </resources>

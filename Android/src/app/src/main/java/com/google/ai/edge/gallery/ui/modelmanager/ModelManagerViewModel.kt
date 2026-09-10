@@ -1049,35 +1049,6 @@ constructor(
       viewModelScope.launch(Dispatchers.Main) { downloadModel(task = null, model = model) }
     }
 
-    // Card backfill (url imports only): async, off the durability path above; a failed or
-    // empty fetch leaves the already-persisted entry untouched -- no second write.
-    if (info.url.isNotEmpty()) {
-      viewModelScope.launch(Dispatchers.IO) {
-        val modelId = info.url.substringAfter("huggingface.co/", "").substringBefore("/resolve/")
-        if (modelId.isEmpty()) return@launch
-        val modelCardText =
-          try {
-            huggingFaceApiClient.fetchModelCard(
-              modelId = modelId,
-              accessToken = dataStoreRepository.readAccessTokenData()?.accessToken,
-            ) ?: ""
-          } catch (e: Exception) {
-            Log.e(TAG, "Failed to fetch model card for $modelId", e)
-            ""
-          }
-        if (modelCardText.isEmpty()) return@launch
-
-        val infoToPersist = info.toBuilder().setModelCardText(modelCardText).build()
-        val currentModels = dataStoreRepository.readImportedModels().toMutableList()
-        val currentIndex = currentModels.indexOfFirst { infoToPersist.fileName == it.fileName }
-        if (currentIndex >= 0) {
-          currentModels[currentIndex] = infoToPersist
-        } else {
-          currentModels.add(infoToPersist)
-        }
-        dataStoreRepository.saveImportedModels(importedModels = currentModels)
-      }
-    }
   }
 
   // Box: imported Stable-Diffusion GGUF models. The Model factory itself lives in

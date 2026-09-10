@@ -19,6 +19,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 // Exists for callers (OpenAiServer, boot paths) that must not depend on Activity-owned state.
 @Singleton
@@ -29,6 +30,8 @@ constructor(
   private val customTasks: Set<@JvmSuppressWildcards CustomTask>,
   private val systemPromptRepository: SystemPromptRepository,
   private val dataStoreRepository: DataStoreRepository,
+  private val cardDescriptionStore: HfCardDescriptionStore,
+  private val cardDescriptions: HfCardDescriptions,
 ) {
 
   private val modelsDir = getModelStorageDir(context)
@@ -39,7 +42,16 @@ constructor(
 
   private val taskCatalog = TaskCatalog(customTasks)
   private val modelFiles = ModelFiles(context, modelsDir)
-  private val importedModelStore = ImportedModelStore(modelsDir, taskCatalog, dataStoreRepository)
+  private val importedModelStore =
+    ImportedModelStore(
+      modelsDir,
+      taskCatalog,
+      dataStoreRepository,
+      cardDescriptionStore,
+      queueCardDescription = { modelId ->
+        registryScope.launch { cardDescriptions.ensureDescription(modelId) }
+      },
+    )
   private val modelAllowlistLoader =
     ModelAllowlistLoader(context, modelsDir, registryScope, taskCatalog)
   private val modelLifecycle = ModelLifecycle(registryScope, taskCatalog, systemPromptRepository)
@@ -91,7 +103,9 @@ constructor(
     importedModelStore.createImportedSdModel(fileName, fileSize, url)
 
   internal fun createModelFromImportedModelInfo(info: ImportedModel): Model =
-    importedModelStore.createModelFromImportedModelInfo(info)
+    importedModelStore.createModelFromImportedModelInfo(info).also {
+      importedModelStore.queueDescriptionFor(info)
+    }
 
   fun loadModelAllowlist(onDone: () -> Unit = {}, onError: (String) -> Unit = {}) =
     modelAllowlistLoader.loadModelAllowlist(onDone, onError)

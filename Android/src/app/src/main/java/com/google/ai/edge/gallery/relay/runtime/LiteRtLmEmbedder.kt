@@ -20,6 +20,8 @@ class LiteRtLmEmbedder private constructor(private val engine: EmbeddingEngine) 
 
     companion object {
         fun create(modelPath: String): LiteRtLmEmbedder {
+            // Hardcoded to CPU: no accelerator UI wiring yet (Chat's ConfigKeys.ACCELERATOR was
+            // never threaded through here) -- not a correctness requirement.
             val engine = EmbeddingEngine(EmbeddingEngineConfig(modelPath = modelPath, backend = Backend.CPU()))
             engine.initialize()
             return LiteRtLmEmbedder(engine)

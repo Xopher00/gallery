@@ -400,6 +400,9 @@ data class OcrBoundingBoxData(
 data class EmbeddingsRequest(
     val model: String,
     val input: JsonElement,
+    // Box: optional "float" (default) | "base64" per OpenAI's encoding_format. Validated in
+    // EmbeddingsHandler; unknown value -> HTTP 400. Omitted -> "float" (unchanged behavior).
+    val encoding_format: String? = null,
 )
 
 @Serializable
@@ -412,7 +415,9 @@ data class EmbeddingsResponse(
 @Serializable
 data class EmbeddingData(
     val `object`: String = "embedding",
-    val embedding: List<Float>,
+    // Box: JsonElement, not List<Float>, because encoding_format changes the wire shape --
+    // JsonArray of floats vs. a base64-encoded JsonPrimitive string.
+    val embedding: JsonElement,
     val index: Int,
 )
 

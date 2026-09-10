@@ -14,6 +14,7 @@ import com.google.ai.edge.gallery.huggingface.heuristics.resolveType
 import com.google.ai.edge.gallery.huggingface.sortModels
 import com.google.ai.edge.gallery.proto.HfModelItemProto
 import com.google.ai.edge.gallery.proto.HfSortOptionProto
+import com.google.ai.edge.gallery.relay.model.HfCardDescriptions
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +43,7 @@ class DiscoveryViewModel
 constructor(
   private val huggingFaceApiClient: HuggingFaceApiClient,
   private val dataStoreRepository: DataStoreRepository,
+  private val hfCardDescriptions: HfCardDescriptions,
 ) : ViewModel() {
 
   private val _uiState = MutableStateFlow(DiscoveryUiState())
@@ -119,15 +121,14 @@ constructor(
     }
   }
 
-  /** Fetches [modelId]'s model card (README); null on any failure -- a missing card is quiet. */
-  fun loadModelCard(modelId: String, onResult: (String?) -> Unit) {
+  /** Fetches [modelId]'s description; null on any failure -- a missing description is quiet. */
+  fun loadDescription(modelId: String, onResult: (String?) -> Unit) {
     viewModelScope.launch {
       try {
-        val accessToken = dataStoreRepository.readAccessTokenData()?.accessToken
-        val card = huggingFaceApiClient.fetchModelCard(modelId, accessToken = accessToken)
-        onResult(card)
+        val description = hfCardDescriptions.ensureDescription(modelId)
+        onResult(description)
       } catch (e: Exception) {
-        Log.e(TAG, "Failed to load model card for $modelId", e)
+        Log.e(TAG, "Failed to load description for $modelId", e)
         onResult(null)
       }
     }

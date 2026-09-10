@@ -34,14 +34,20 @@ class ImportedModelStore(
   private val modelsDir: File,
   private val taskCatalog: TaskCatalog,
   private val dataStoreRepository: DataStoreRepository,
+  private val cardDescriptionStore: HfCardDescriptionStore,
+  private val queueCardDescription: (String) -> Unit = {},
 ) {
 
   fun restoreImportedModels() {
     val curTasks = taskCatalog.getActiveCustomTasks().map { it.task }
+    dropStoredCardText()
 
     for (importedModel in dataStoreRepository.readImportedModels()) {
       Log.d(TAG, "stored imported model: $importedModel")
       val model = createModelFromImportedModelInfo(info = importedModel)
+      // Backfills models imported before descriptions existed. Safe here because it is a metadata
+      // fetch, never a model load.
+      queueDescriptionFor(importedModel)
 
       taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_CHAT }, model)
       taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_PROMPT_LAB }, model)
@@ -171,10 +177,15 @@ class ImportedModelStore(
       } else {
         RuntimeType.LITERT_LM
       }
+    val hfModelId = hfModelIdFromUrl(info.url)
     val model =
       Model(
+        // name stays the file name: it is the identity key for downloads, mutexes and the API.
         name = info.fileName,
-        info = info.modelCardText,
+        displayName = importedDisplayName(fileName = info.fileName, hfModelId = hfModelId),
+        // Lookup only. The fetch is triggered by queueDescriptionFor, on import not on restore.
+        info =
+          if (hfModelId.isEmpty()) "" else cardDescriptionStore.get(hfModelId)?.description.orEmpty(),
         url = info.url,
         configs = configs,
         sizeInBytes = info.fileSize,
@@ -195,5 +206,42 @@ class ImportedModelStore(
     model.preProcess()
 
     return model
+  }
+
+  fun queueDescriptionFor(info: ImportedModel) {
+    val hfModelId = hfModelIdFromUrl(info.url)
+    if (hfModelId.isNotEmpty() && cardDescriptionStore.get(hfModelId) == null) {
+      queueCardDescription(hfModelId)
+    }
+  }
+
+  // Named after cardData.base_model, the upstream model the repo was derived from. That is
+  // published data, so packaging suffixes never appear and the casing is the original author's.
+  private fun importedDisplayName(fileName: String, hfModelId: String): String {
+    val stem = fileName.substringAfterLast('/').substringBeforeLast('.')
+    val baseModel = hfModelId.takeIf { it.isNotEmpty() }?.let { cardDescriptionStore.get(it) }
+      ?.baseModel?.substringAfterLast('/')
+    if (baseModel.isNullOrEmpty()) return stem
+
+    // Whatever the file name adds beyond the base model name is the variant, with no vocabulary
+    // of quantization tokens to keep up to date.
+    val variant =
+      stem.takeIf { it.startsWith(baseModel, ignoreCase = true) }
+        ?.drop(baseModel.length)
+        ?.trim('-', '_', '.', ' ')
+    return if (variant.isNullOrEmpty()) baseModel else "$baseModel ($variant)"
+  }
+
+  // Empty for a local-file import, which correctly yields no description.
+  private fun hfModelIdFromUrl(url: String): String =
+    url.substringAfter("huggingface.co/", "").substringBefore("/resolve/")
+
+  // One-time cleanup of the raw README blobs a previous version persisted; nothing reads them now.
+  private fun dropStoredCardText() {
+    val stored = dataStoreRepository.readImportedModels()
+    if (stored.none { it.modelCardText.isNotEmpty() }) return
+    dataStoreRepository.saveImportedModels(
+      importedModels = stored.map { it.toBuilder().clearModelCardText().build() }
+    )
   }
 }

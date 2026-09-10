@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,7 +20,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -217,7 +215,7 @@ fun DiscoveryScreen(
                     }
                   }
                 },
-                onLoadCard = viewModel::loadModelCard,
+                onLoadDescription = viewModel::loadDescription,
               )
             }
 
@@ -289,12 +287,12 @@ private fun DiscoveryResultRow(
   model: HfModelItemProto,
   isLoadingDetails: Boolean,
   onClick: () -> Unit,
-  onLoadCard: (modelId: String, onResult: (String?) -> Unit) -> Unit,
+  onLoadDescription: (modelId: String, onResult: (String?) -> Unit) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  var cardExpanded by remember(model.id) { mutableStateOf(false) }
-  var isLoadingCard by remember(model.id) { mutableStateOf(false) }
-  var cardText by remember(model.id) { mutableStateOf<String?>(null) }
+  var descriptionExpanded by remember(model.id) { mutableStateOf(false) }
+  var isLoadingDescription by remember(model.id) { mutableStateOf(false) }
+  var descriptionText by remember(model.id) { mutableStateOf<String?>(null) }
 
   Surface(
     shape = RoundedCornerShape(12.dp),
@@ -346,45 +344,42 @@ private fun DiscoveryResultRow(
         }
         IconButton(
           onClick = {
-            cardExpanded = !cardExpanded
-            if (cardExpanded && cardText == null && !isLoadingCard) {
-              isLoadingCard = true
-              onLoadCard(model.id) { result ->
-                isLoadingCard = false
-                cardText = result
+            descriptionExpanded = !descriptionExpanded
+            if (descriptionExpanded && descriptionText == null && !isLoadingDescription) {
+              isLoadingDescription = true
+              onLoadDescription(model.id) { result ->
+                isLoadingDescription = false
+                descriptionText = result
               }
             }
           }
         ) {
           Icon(
-            imageVector = if (cardExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+            imageVector =
+              if (descriptionExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
             contentDescription =
               stringResource(
-                if (cardExpanded) R.string.discovery_model_card_collapse
+                if (descriptionExpanded) R.string.discovery_model_card_collapse
                 else R.string.discovery_model_card_expand
               ),
           )
         }
       }
-      if (cardExpanded) {
+      if (descriptionExpanded) {
         when {
-          isLoadingCard -> {
+          isLoadingDescription -> {
             CircularProgressIndicator(
               modifier = Modifier.padding(top = 8.dp).size(20.dp)
             )
           }
-          !cardText.isNullOrBlank() -> {
+          !descriptionText.isNullOrBlank() -> {
             MarkdownText(
-              text = cardText!!,
+              text = descriptionText!!,
               smallFontSize = true,
-              modifier =
-                Modifier.fillMaxWidth()
-                  .heightIn(max = 200.dp)
-                  .verticalScroll(rememberScrollState())
-                  .padding(top = 8.dp),
+              modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
           }
-          // Fetch failed or the repo has no README -- quiet, not an error dialog.
+          // Fetch failed or there is nothing to show -- quiet, not an error dialog.
         }
       }
     }

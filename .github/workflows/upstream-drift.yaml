@@ -89,9 +89,10 @@ jobs:
             echo "conflict_count=$CONFLICT_COUNT"
           } >> "$GITHUB_OUTPUT"
 
-          # Multi-line values go to files; body assembly step reads them back.
-          echo "$CONFLICT_FILES" > /tmp/conflict_files.txt
-          echo "$WATCHLIST_HITS" > /tmp/watchlist_hits.txt
+          # printf, not echo: echo of an empty variable still writes a newline, which leaves the
+          # file non-empty and makes the body print a blank code fence instead of "none".
+          printf '%s' "$CONFLICT_FILES" > /tmp/conflict_files.txt
+          printf '%s' "$WATCHLIST_HITS" > /tmp/watchlist_hits.txt
 
       - name: Assemble issue body
         id: body
@@ -160,7 +161,7 @@ jobs:
           echo "number=$EXISTING" >> "$GITHUB_OUTPUT"
 
       - name: Create issue (first run only)
-        if: steps.issue.outputs.number == ''
+        if: steps.issue.outputs.number == '' && steps.drift.outputs.ahead_count != '0'
         run: |
           set -euo pipefail
           gh issue create \
@@ -170,13 +171,22 @@ jobs:
             --body-file /tmp/issue_body.md
 
       - name: Update existing issue in place
-        if: steps.issue.outputs.number != ''
+        if: steps.issue.outputs.number != '' && steps.drift.outputs.ahead_count != '0'
         run: |
           set -euo pipefail
           NUM="${{ steps.issue.outputs.number }}"
           gh issue edit "$NUM" --repo "${{ github.repository }}" --body-file /tmp/issue_body.md
           gh issue comment "$NUM" --repo "${{ github.repository }}" \
             --body "Drift check run $(date -u +"%Y-%m-%dT%H:%M:%SZ"): ${{ steps.drift.outputs.ahead_count }} commits behind, ${{ steps.drift.outputs.conflict_count }} conflicting files. See updated issue body above."
+
+      # Otherwise a tracker opened during real drift outlives the merge that resolved it.
+      - name: Close the tracker when drift has cleared
+        if: steps.issue.outputs.number != '' && steps.drift.outputs.ahead_count == '0'
+        run: |
+          set -euo pipefail
+          NUM="${{ steps.issue.outputs.number }}"
+          gh issue close "$NUM" --repo "${{ github.repository }}" \
+            --comment "Drift check run $(date -u +"%Y-%m-%dT%H:%M:%SZ"): upstream is 0 commits ahead. Closing; a new tracker opens if drift returns."
 
   merge:
     name: Attempt merge
