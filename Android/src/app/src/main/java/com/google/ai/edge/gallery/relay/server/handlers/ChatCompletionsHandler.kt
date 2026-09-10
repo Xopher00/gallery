@@ -257,7 +257,24 @@ suspend fun handleChatCompletion(
                     val id = "chatcmpl-" + UUID.randomUUID().toString()
                     val created = System.currentTimeMillis() / 1000
                     val assistantText = StringBuilder()
-                    collectInferenceStream(this, model, prompt, lastParsed.images) { text ->
+                    collectInferenceStream(
+                        this,
+                        model,
+                        prompt,
+                        lastParsed.images,
+                        encodeUsageChunk = { usage ->
+                            Json.encodeToString(
+                                ChatCompletionChunk(
+                                    id = id,
+                                    created = created,
+                                    model = model.name,
+                                    choices = emptyList(),
+                                    usage = usage.toUsage(),
+                                    x_box_usage_exactness = usage.exactnessLabel(),
+                                )
+                            )
+                        },
+                    ) { text ->
                         assistantText.append(text)
                         Json.encodeToString(
                             ChatCompletionChunk(

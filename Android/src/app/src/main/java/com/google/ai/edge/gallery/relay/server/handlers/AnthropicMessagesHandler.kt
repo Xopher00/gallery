@@ -21,6 +21,7 @@ import com.google.ai.edge.gallery.relay.server.ErrorBody
 import com.google.ai.edge.gallery.relay.server.ErrorEnvelope
 import com.google.ai.edge.gallery.relay.server.LoadResult
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
+import com.google.ai.edge.gallery.runtime.TurnUsageStore
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.relay.sessions.openSession
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
@@ -210,8 +211,14 @@ suspend fun handleAnthropicMessages(
                     model = model.name,
                     content = listOf(AnthropicContentBlock(text = resultText)),
                     stop_reason = "end_turn",
-                    // Runtime doesn't expose token counts, so usage is always 0/0, not faked.
-                    usage = AnthropicUsage(input_tokens = 0, output_tokens = 0),
+                    // 0/0 when the engine recorded nothing for this turn: unknown, not faked.
+                    usage =
+                        TurnUsageStore.peek(model.name).let { usage ->
+                            AnthropicUsage(
+                                input_tokens = usage?.prompt?.tokens ?: 0,
+                                output_tokens = usage?.completion?.tokens ?: 0,
+                            )
+                        },
                     session_id = effectiveSessionId,
                 )
             )

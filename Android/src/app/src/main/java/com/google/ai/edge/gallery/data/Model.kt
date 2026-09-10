@@ -16,6 +16,9 @@
 
 package com.google.ai.edge.gallery.data
 
+import com.google.ai.edge.gallery.relay.runtime.ModelEngine
+import com.google.ai.edge.gallery.relay.runtime.engineFor
+
 import android.content.Context
 import com.google.ai.edge.gallery.common.getModelStorageDir
 import java.io.File
@@ -449,8 +452,13 @@ val EMPTY_MODEL: Model =
 
 val Model.supportModelBenchmark: Boolean
   get() =
-    runtimeType == RuntimeType.LITERT_LM ||
-      false
+    when (engineFor(taskId = null)) {
+      ModelEngine.LlamaCpp -> true
+      // engineFor falls back to LiteRtLm for any non-.gguf import, so the runtime check stays:
+      // an imported SD or Whisper file must not reach the LiteRT benchmark call.
+      ModelEngine.LiteRtLm -> runtimeType == RuntimeType.LITERT_LM
+      else -> false
+    }
 
 // AICore models have no local file to download, retry, or delete -- everything else does.
 val Model.isManagedDownload: Boolean

@@ -4,6 +4,7 @@
 // that each answered this differently.
 package com.google.ai.edge.gallery.relay.runtime
 
+import com.google.ai.edge.gallery.data.Accelerator
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.IMPORTS_DIR
 import com.google.ai.edge.gallery.data.Model
@@ -35,6 +36,12 @@ fun Model.engineFor(taskId: String?): ModelEngine {
     }
     return if (isLlamaCppFile(fileNameToCheck)) ModelEngine.LlamaCpp else ModelEngine.LiteRtLm
 }
+
+/** What this model can be benchmarked on. The llama.cpp build here is CPU-only. */
+val Model.benchmarkAccelerators: List<Accelerator>
+    get() =
+        if (engineFor(taskId = null) == ModelEngine.LlamaCpp) listOf(Accelerator.CPU)
+        else accelerators
 
 // Absorbed from the deleted InferenceEngineType: the only distinction that ever mattered.
 private fun isLlamaCppFile(path: String): Boolean = path.endsWith(".gguf", ignoreCase = true)

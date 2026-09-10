@@ -90,12 +90,23 @@ Java_com_jegly_offlineLLM_smollm_SmolLM_stopCompletion(JNIEnv* env, jobject thiz
     llmInference->stopCompletion();
 }
 
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_jegly_offlineLLM_smollm_SmolLM_benchModel(JNIEnv* env, jobject /*unused*/, jlong modelPtr, jint pp, jint tg, jint pl,
-                                             jint nr) {
-    auto*       llmInference = reinterpret_cast<LLMInference*>(modelPtr);
-    std::string result       = llmInference->benchModel(pp, tg, pl, nr);
-    return env->NewStringUTF(result.c_str());
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_jegly_offlineLLM_smollm_SmolLM_benchModel(JNIEnv* env, jobject /*unused*/, jlong modelPtr, jint pp, jint tg,
+                                             jint pl) {
+    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    try {
+        LLMInference::BenchResult r = llmInference->benchModel(pp, tg, pl);
+        // Flat array, not a Kotlin object: building one from JNI needs a mangled inner-class
+        // lookup that R8 can strip, which then fails at runtime rather than at build time.
+        jdouble      vals[4] = { r.prefill_seconds, r.decode_seconds, r.prefill_tokens_per_second,
+                                 r.decode_tokens_per_second };
+        jdoubleArray result  = env->NewDoubleArray(4);
+        env->SetDoubleArrayRegion(result, 0, 4, vals);
+        return result;
+    } catch (std::exception& error) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), error.what());
+        return nullptr;
+    }
 }
 
 extern "C" JNIEXPORT jfloatArray JNICALL

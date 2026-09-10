@@ -2,9 +2,13 @@
 
 package com.google.ai.edge.gallery.runtime.llamacpp
 
+import com.google.ai.edge.gallery.runtime.CountKind
 import com.google.ai.edge.gallery.runtime.LlmModelHelper
 import com.google.ai.edge.gallery.runtime.ResultListener
 import com.google.ai.edge.gallery.runtime.CleanUpListener
+import com.google.ai.edge.gallery.runtime.TokenCount
+import com.google.ai.edge.gallery.runtime.TurnTokenUsage
+import com.google.ai.edge.gallery.runtime.TurnUsageStore
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -162,16 +166,38 @@ object LlamaCppModelHelper : LlmModelHelper {
             Log.w(TAG, "Image input not supported with llama.cpp engine, ignoring ${images.size} images")
         }
 
+        // Both counts are exact here: the KV-cache difference covers the whole turn, and every
+        // flow emission is one decoded token, so the prompt side is what remains.
+        val turnSequence = TurnUsageStore.begin(model.name)
+        val contextBefore = engine.contextLengthUsed()
+
+        fun recordUsage(result: LlamaCppEngine.GenerationResult?) {
+            val completion = result?.pieceCount ?: 0
+            val contextAfter = result?.contextLengthUsed ?: engine.contextLengthUsed()
+            val turnTotal = (contextAfter - contextBefore).coerceAtLeast(completion)
+            TurnUsageStore.record(
+                model.name,
+                TurnTokenUsage(
+                    prompt = TokenCount((turnTotal - completion).coerceAtLeast(0), CountKind.EXACT),
+                    completion = TokenCount(completion, CountKind.EXACT),
+                    exactTotal = turnTotal,
+                    turnSequence = turnSequence,
+                ),
+            )
+        }
+
         engine.generateResponse(
             query = input,
             onToken = { partialResponse ->
                 resultListener(partialResponse, false, null)
             },
             onComplete = { result ->
+                recordUsage(result)
                 // Send the final delta (empty string) with done=true
                 resultListener("", true, null)
             },
             onCancelled = {
+                recordUsage(null)
                 resultListener("", true, null)
             },
             onError = { e ->

@@ -22,20 +22,17 @@ import androidx.lifecycle.viewModelScope
 import com.google.ai.edge.gallery.BuildConfig
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.data.Model
-import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.supportModelBenchmark
 import com.google.ai.edge.gallery.proto.BenchmarkResult
 import com.google.ai.edge.gallery.proto.LlmBenchmarkBasicInfo
 import com.google.ai.edge.gallery.proto.LlmBenchmarkResult
 import com.google.ai.edge.gallery.proto.LlmBenchmarkStats
 import com.google.ai.edge.gallery.proto.ValueSeries
+import com.google.ai.edge.gallery.runtime.BenchmarkSpec
+import com.google.ai.edge.gallery.runtime.ModelBenchmarkRunner
 import com.google.ai.edge.gallery.runtime.runtimeHelper
-import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.ExperimentalApi
-import com.google.ai.edge.litertlm.benchmark
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.File
 import javax.inject.Inject
 import kotlin.coroutines.resume
 import kotlin.math.ceil
@@ -76,6 +73,7 @@ data class BenchmarkUiState(
   val totalRunCount: Int = 0,
   val completedRunCount: Int = 0,
   val unsupportedModelError: Boolean = false,
+  val benchmarkError: String? = null,
 )
 
 @HiltViewModel
@@ -96,7 +94,6 @@ constructor(
     collapseAll()
   }
 
-  @OptIn(ExperimentalApi::class)
   fun runBenchmark(
     model: Model,
     accelerator: String,
@@ -127,7 +124,6 @@ constructor(
         )
       Log.d(TAG, "Running benchmark: ${parts.joinToString("\n")}")
 
-      // TODO: handle error.
       val startMs = System.currentTimeMillis()
       val prefillSpeeds = mutableListOf<Double>()
       val decodeSpeeds = mutableListOf<Double>()
@@ -135,59 +131,36 @@ constructor(
       var firstInitTime = 0.0
       val nonFirstInitTimes = mutableListOf<Double>()
       var endMs = 0L
-        run {
-        // Create a temporary cache dir to run benchmark in.
-        val timestamp = System.currentTimeMillis()
-        var needCleanUpCacheDir = true
-        val benchmarkCacheDir = File(appContext.cacheDir, "benchmark_$timestamp")
-        var cacheDirPath = benchmarkCacheDir.absolutePath
-        if (!benchmarkCacheDir.mkdirs()) {
-          Log.e(
-            TAG,
-            "Failed to create benchmark cache directory: ${benchmarkCacheDir.absolutePath}",
-          )
-          cacheDirPath = appContext.cacheDir.absolutePath
-          needCleanUpCacheDir = false
-        }
-        Log.d(TAG, "Using benchmark cache dir: $cacheDirPath")
-        val backend: Backend =
-          when (accelerator.lowercase()) {
-            "gpu" -> Backend.GPU()
-            "npu",
-            "tpu" -> Backend.NPU(nativeLibraryDir = appContext.applicationInfo.nativeLibraryDir)
-            else -> Backend.CPU()
-          }
-        val modelPath = model.getPath(context = appContext)
-        for (i in 0 until runCount) {
-          Log.d(TAG, "Start running #$i...")
-          val benchmarkInfo =
-            benchmark(
-              modelPath = modelPath,
-              backend = backend,
+      try {
+        ModelBenchmarkRunner.run(
+          context = appContext,
+          model = model,
+          spec =
+            BenchmarkSpec(
               prefillTokens = prefillTokens,
               decodeTokens = decodeTokens,
-              cacheDir = cacheDirPath,
-            )
-          Log.d(TAG, "Done #$i")
-
-          val initTimeMs = benchmarkInfo.initTimeInSecond * 1000.0
+              accelerator = accelerator,
+            ),
+          runCount = runCount,
+        ) { i, sample ->
+          val initTimeMs = sample.initTimeSeconds * 1000.0
           if (i == 0) {
             firstInitTime = initTimeMs
           } else {
             nonFirstInitTimes.add(initTimeMs)
           }
-          prefillSpeeds.add(benchmarkInfo.lastPrefillTokensPerSecond)
-          decodeSpeeds.add(benchmarkInfo.lastDecodeTokensPerSecond)
-          timesToFirstToken.add(benchmarkInfo.timeToFirstTokenInSecond)
-
-          // Mark finish for this run.
+          prefillSpeeds.add(sample.prefillTokensPerSecond)
+          decodeSpeeds.add(sample.decodeTokensPerSecond)
+          timesToFirstToken.add(sample.timeToFirstTokenSeconds)
           setRunProgress(completedRunCount = i + 1)
         }
         endMs = System.currentTimeMillis()
-        if (needCleanUpCacheDir) {
-          benchmarkCacheDir.deleteRecursively()
-          Log.d(TAG, "Cleaned up benchmark cache dir: ${benchmarkCacheDir.absolutePath}")
-        }
+      } catch (e: Exception) {
+        // The engines throw now, and an uncaught throw here would strand running = true.
+        Log.e(TAG, "Benchmark failed for ${model.name}", e)
+        setBenchmarkError(benchmarkError = e.message ?: "Benchmark failed")
+        setRunning(running = false)
+        return@launch
       }
 
       // Create and add benchmark result.
@@ -231,6 +204,10 @@ constructor(
 
   fun setUnsupportedModelError(unsupportedModelError: Boolean) {
     _uiState.update { _uiState.value.copy(unsupportedModelError = unsupportedModelError) }
+  }
+
+  fun setBenchmarkError(benchmarkError: String?) {
+    _uiState.update { _uiState.value.copy(benchmarkError = benchmarkError) }
   }
 
   fun setRunning(running: Boolean) {

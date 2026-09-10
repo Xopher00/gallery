@@ -57,7 +57,15 @@ class LlamaCppEngine : EmbeddingCapable {
         val tokensPerSecond: Float,
         val durationSeconds: Int,
         val contextLengthUsed: Int,
+        // Raw decoded pieces, counted before stop-sequence truncation, so this can exceed what the
+        // visible text implies. Those tokens were still decoded and still cost context.
+        val pieceCount: Int = 0,
     )
+
+    /** KV-cache position; a before/after difference around a turn is that turn's exact token cost. */
+    fun contextLengthUsed(): Int =
+        if (isModelLoaded.get()) runCatching { instance.getContextLengthUsed() }.getOrDefault(0)
+        else 0
 
     fun loadModel(
         modelPath: String,
@@ -184,6 +192,7 @@ class LlamaCppEngine : EmbeddingCapable {
                     isGenerating = true
                     var fullResponse = ""
                     var lastDisplayed = ""
+                    var pieceCount = 0
 
                     // Stop generation at any of these tokens — covers ChatML (Qwen/Mistral),
                     // Llama-3 instruct, and generic EOS. Without this the model talks to itself.
@@ -199,6 +208,8 @@ class LlamaCppEngine : EmbeddingCapable {
                         instance.getResponseAsFlow(query)
                             .takeWhile { !shouldStop }
                             .collect { piece ->
+                                // One emission per completionLoop call, i.e. one decoded token.
+                                pieceCount++
                                 fullResponse += piece
 
                                 // Detect the earliest stop sequence and truncate
@@ -237,6 +248,7 @@ class LlamaCppEngine : EmbeddingCapable {
                                 tokensPerSecond = instance.getResponseGenerationSpeed(),
                                 durationSeconds = duration.inWholeSeconds.toInt(),
                                 contextLengthUsed = instance.getContextLengthUsed(),
+                                pieceCount = pieceCount,
                             )
                         )
                     }
@@ -283,13 +295,14 @@ class LlamaCppEngine : EmbeddingCapable {
         }
     }
 
-    fun benchModel(pp: Int = 512, tg: Int = 128, pl: Int = 1, nr: Int = 3): String {
-        return if (isModelLoaded.get()) {
-            instance.benchModel(pp, tg, pl, nr)
-        } else {
-            "Model not loaded"
+    // Holds stateLock across a multi-second native call, like every other method here, so it
+    // cannot race a reload replacing `instance`. Wipes the KV cache -- benchmark a private engine.
+    fun benchModel(pp: Int = 512, tg: Int = 128, pl: Int = 1): SmolLM.BenchResult =
+        stateLock.withLock {
+            check(isModelLoaded.get()) { "benchModel: model not loaded" }
+            check(!isGenerating) { "benchModel: generation in flight" }
+            instance.benchModel(pp, tg, pl)
         }
-    }
 
     fun isReady(): Boolean = isModelLoaded.get() && !isGenerating
 

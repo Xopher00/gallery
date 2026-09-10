@@ -9,6 +9,14 @@
 
 class LLMInference {
 public:
+    // One benchmark repetition. Callers repeat and aggregate, so nothing is averaged here.
+    struct BenchResult {
+        double prefill_seconds;
+        double decode_seconds;
+        double prefill_tokens_per_second;
+        double decode_tokens_per_second;
+    };
+
     void loadModel(const char *model_path, float minP, float temperature, float topP, int topK,
                    float repeatPenalty, bool storeChats, long contextSize, const char *chatTemplate,
                    int nThreads, bool useMmap, bool useMlock);
@@ -18,7 +26,7 @@ public:
     void startCompletion(const char *query);
     std::string completionLoop();
     void stopCompletion();
-    std::string benchModel(int pp, int tg, int pl, int nr);
+    BenchResult benchModel(int pp, int tg, int pl);
     std::vector<float> getEmbedding(const char *text);
     ~LLMInference();
 
@@ -42,7 +50,6 @@ private:
     int _responseNumTokens = 0;
     int _nCtxUsed = 0;
 
-    llama_batch g_batch;
     // Set from the GGUF's own pooling-type metadata; getEmbedding() refuses to run otherwise.
     bool _isEmbeddingModel = false;
 

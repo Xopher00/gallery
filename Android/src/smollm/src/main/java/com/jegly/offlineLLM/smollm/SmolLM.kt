@@ -81,6 +81,14 @@ class SmolLM {
         val useMlock: Boolean = false,
     )
 
+    /** One benchmark repetition; the caller repeats and aggregates. */
+    data class BenchResult(
+        val prefillSeconds: Double,
+        val decodeSeconds: Double,
+        val prefillTokensPerSecond: Double,
+        val decodeTokensPerSecond: Double,
+    )
+
     object DefaultParams {
         const val CONTEXT_SIZE: Long = 2048L
         const val CHAT_TEMPLATE: String =
@@ -185,9 +193,11 @@ class SmolLM {
         return response
     }
 
-    fun benchModel(pp: Int, tg: Int, pl: Int, nr: Int): String {
+    // Wipes the KV cache -- never run this against a conversation you need to keep.
+    fun benchModel(pp: Int, tg: Int, pl: Int = 1): BenchResult {
         verifyHandle()
-        return benchModel(nativePtr, pp, tg, pl, nr)
+        val v = benchModel(nativePtr, pp, tg, pl)
+        return BenchResult(v[0], v[1], v[2], v[3])
     }
 
     // Throws if this GGUF has no pooling-type metadata -- see LLMInference::getEmbedding.
@@ -222,6 +232,6 @@ class SmolLM {
     private external fun startCompletion(modelPtr: Long, prompt: String)
     private external fun completionLoop(modelPtr: Long): String
     private external fun stopCompletion(modelPtr: Long)
-    private external fun benchModel(modelPtr: Long, pp: Int, tg: Int, pl: Int, nr: Int): String
+    private external fun benchModel(modelPtr: Long, pp: Int, tg: Int, pl: Int): DoubleArray
     private external fun getEmbedding(modelPtr: Long, text: String): FloatArray
 }

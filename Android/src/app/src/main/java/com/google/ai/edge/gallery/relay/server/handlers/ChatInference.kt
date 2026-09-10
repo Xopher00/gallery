@@ -18,6 +18,9 @@ import com.google.ai.edge.gallery.relay.server.ErrorBody
 import com.google.ai.edge.gallery.relay.server.ErrorEnvelope
 import com.google.ai.edge.gallery.relay.server.LoadResult
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
+import com.google.ai.edge.gallery.relay.server.Usage
+import com.google.ai.edge.gallery.runtime.TurnTokenUsage
+import com.google.ai.edge.gallery.runtime.TurnUsageStore
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -56,8 +59,19 @@ internal fun textTurnProto(side: ChatSideProto, content: String): ChatMessagePro
 internal fun taskIdFor(modelRegistry: ModelRegistry, model: Model): String =
     modelRegistry.tasks.find { t -> t.models.any { it.name == model.name } }?.id ?: BuiltInTaskId.LLM_CHAT
 
+// The engines record token counts; this only reshapes them into the wire DTO.
+internal fun TurnTokenUsage.toUsage(): Usage =
+    Usage(
+        prompt_tokens = prompt.tokens,
+        completion_tokens = completion.tokens,
+        total_tokens = total,
+    )
+
+internal fun TurnTokenUsage.exactnessLabel(): String = if (isFullyExact) "exact" else "estimated"
+
 internal suspend fun runInferenceBlocking(model: Model, prompt: String, images: List<Bitmap> = emptyList()): ChatCompletionResponse {
     val resultText = collectInferenceText(model, prompt, images)
+    val usage = TurnUsageStore.peek(model.name)
     return ChatCompletionResponse(
         id = "chatcmpl-" + UUID.randomUUID().toString(),
         created = System.currentTimeMillis() / 1000,
@@ -68,7 +82,9 @@ internal suspend fun runInferenceBlocking(model: Model, prompt: String, images: 
                 message = ChatMessage(role = "assistant", content = resultText),
                 finish_reason = "stop"
             )
-        )
+        ),
+        usage = usage?.toUsage(),
+        x_box_usage_exactness = usage?.exactnessLabel(),
     )
 }
 
@@ -87,6 +103,8 @@ internal suspend fun collectInferenceStream(
     model: Model,
     prompt: String,
     images: List<Bitmap> = emptyList(),
+    // Endpoints whose chunk shape carries no usage field simply leave this null.
+    encodeUsageChunk: ((usage: TurnTokenUsage) -> String)? = null,
     encodeChunk: (text: String) -> String,
 ) {
     val events = Channel<StreamEvent>(Channel.UNLIMITED)
@@ -123,6 +141,11 @@ internal suspend fun collectInferenceStream(
                     writer.flush()
                 }
                 is StreamEvent.Done -> {
+                    if (encodeUsageChunk != null) {
+                        TurnUsageStore.peek(model.name)?.let { usage ->
+                            writer.writeStringUtf8("data: ${encodeUsageChunk(usage)}\n\n")
+                        }
+                    }
                     writer.writeStringUtf8("data: [DONE]\n\n")
                     writer.flush()
                 }

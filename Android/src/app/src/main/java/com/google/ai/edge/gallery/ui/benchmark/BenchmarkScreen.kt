@@ -76,6 +76,7 @@ import com.google.ai.edge.gallery.data.SegmentedButtonConfig
 import com.google.ai.edge.gallery.data.ValueType
 import com.google.ai.edge.gallery.data.convertValueToTargetType
 import com.google.ai.edge.gallery.data.supportModelBenchmark
+import com.google.ai.edge.gallery.relay.runtime.benchmarkAccelerators
 import com.google.ai.edge.gallery.firebaseAnalytics
 import com.google.ai.edge.gallery.ui.common.ConfigEditorsPanel
 import com.google.ai.edge.gallery.ui.common.SMALL_BUTTON_CONTENT_PADDING
@@ -116,8 +117,9 @@ fun BenchmarkScreen(
         add(
           SegmentedButtonConfig(
             key = ConfigKeys.ACCELERATOR,
-            defaultValue = selectedModel.accelerators.getOrNull(0)?.label ?: Accelerator.CPU.label,
-            options = selectedModel.accelerators.map { it.label },
+            defaultValue =
+              selectedModel.benchmarkAccelerators.getOrNull(0)?.label ?: Accelerator.CPU.label,
+            options = selectedModel.benchmarkAccelerators.map { it.label },
             allowMultiple = false,
           )
         )
@@ -306,6 +308,23 @@ fun BenchmarkScreen(
       confirmButton = {
         Button(
           onClick = { viewModel.setUnsupportedModelError(unsupportedModelError = false) },
+          contentPadding = SMALL_BUTTON_CONTENT_PADDING,
+        ) {
+          Text(stringResource(R.string.ok))
+        }
+      },
+    )
+  }
+
+  // Shown when a run fails partway; without it the screen sits on a stalled progress bar.
+  uiState.benchmarkError?.let { message ->
+    AlertDialog(
+      title = { Text(stringResource(R.string.benchmark_failed_title)) },
+      text = { Text(message) },
+      onDismissRequest = { viewModel.setBenchmarkError(benchmarkError = null) },
+      confirmButton = {
+        Button(
+          onClick = { viewModel.setBenchmarkError(benchmarkError = null) },
           contentPadding = SMALL_BUTTON_CONTENT_PADDING,
         ) {
           Text(stringResource(R.string.ok))

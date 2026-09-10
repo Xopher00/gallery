@@ -64,6 +64,9 @@ data class ChatCompletionResponse(
     val model: String,
     val choices: List<ChatChoice>,
     val usage: Usage? = null,
+    // Box: "exact" or "estimated", kept out of usage so that object stays standard. Some engines
+    // can only estimate the prompt/completion split.
+    val x_box_usage_exactness: String? = null,
     // Box: echoes ChatCompletionRequest.session_id -- the id a new session was created under
     // when the request supplied none.
     val session_id: String? = null,
@@ -121,7 +124,10 @@ data class ChatCompletionChunk(
     val `object`: String = "chat.completion.chunk",
     val created: Long,
     val model: String,
-    val choices: List<ChatChunkChoice>
+    val choices: List<ChatChunkChoice>,
+    // Carried by a trailing choices-empty chunk, matching stream_options.include_usage.
+    val usage: Usage? = null,
+    val x_box_usage_exactness: String? = null,
 )
 
 @Serializable

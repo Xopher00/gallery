@@ -40,8 +40,12 @@ import com.google.ai.edge.gallery.data.markInitialized
 import com.google.ai.edge.gallery.data.resetInitialization
 import com.google.ai.edge.gallery.data.supportModelBenchmark
 import com.google.ai.edge.gallery.runtime.CleanUpListener
+import com.google.ai.edge.gallery.runtime.CountKind
 import com.google.ai.edge.gallery.runtime.LlmModelHelper
 import com.google.ai.edge.gallery.runtime.ResultListener
+import com.google.ai.edge.gallery.runtime.TokenCount
+import com.google.ai.edge.gallery.runtime.TurnTokenUsage
+import com.google.ai.edge.gallery.runtime.TurnUsageStore
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -165,14 +169,16 @@ object LlmChatModelHelper : LlmModelHelper {
             defaultValue = false,
           )
       }
-      val enableBenchmark = false
+      // On: getBenchmarkInfo() is what gives an exact prompt/completion token split per turn.
+      val enableBenchmark = true
       ExperimentalFlags.enableBenchmark = enableBenchmark
       ExperimentalFlags.enableSpeculativeDecoding = speculativeDecoding
       Log.d(TAG, "Speculative decoding enabled: $speculativeDecoding")
       val engine = Engine(engineConfig)
       engine.initialize()
       ExperimentalFlags.enableSpeculativeDecoding = false
-      ExperimentalFlags.enableBenchmark = false
+      // Stays live past init: the conversation below and every later turn read it.
+      ExperimentalFlags.enableBenchmark = enableBenchmark
 
       ExperimentalFlags.enableConversationConstrainedDecoding =
         enableConversationConstrainedDecoding
@@ -302,6 +308,7 @@ object LlmChatModelHelper : LlmModelHelper {
     }
   }
 
+  @OptIn(ExperimentalApi::class) // getBenchmarkInfo, for exact token counts
   override fun runInference(
     model: Model,
     input: String,
@@ -328,6 +335,41 @@ object LlmChatModelHelper : LlmModelHelper {
     // Step 1: Initialize turn telemetry with active Conversation.
     val conversation = instance.conversation
     metricsTracker?.startTurn(conversation.asSession())
+
+    // Token accounting. getTokenCount() is cumulative over the conversation, so the difference
+    // across this turn is exact even though the prompt/completion split below is not.
+    val turnSequence = TurnUsageStore.begin(model.name)
+    val tokensBefore = runCatching { conversation.getTokenCount() }.getOrNull()
+    var chunkCount = 0
+
+    fun recordUsage() {
+      val turnTotal =
+        tokensBefore?.let { before ->
+          runCatching { conversation.getTokenCount() }.getOrNull()?.let { it - before }
+        }
+      // One callback per token is unverified for this engine; upstream's own metrics tracker makes
+      // the same assumption. Cross-check: an exact total well above chunkCount means it is wrong.
+      val benchmark =
+        runCatching { conversation.getBenchmarkInfo() }
+          .getOrNull()
+          ?.takeIf { it.lastPrefillTokenCount > 0 && it.lastDecodeTokenCount > 0 }
+      val usage =
+        if (benchmark != null) {
+          TurnTokenUsage(
+            prompt = TokenCount(benchmark.lastPrefillTokenCount, CountKind.EXACT),
+            completion = TokenCount(benchmark.lastDecodeTokenCount, CountKind.EXACT),
+            exactTotal = turnTotal,
+            turnSequence = turnSequence,
+          )
+        } else {
+          val completion = TokenCount(chunkCount, CountKind.ESTIMATED)
+          val prompt =
+            turnTotal?.let { TokenCount((it - chunkCount).coerceAtLeast(0), CountKind.ESTIMATED) }
+          if (prompt == null) return
+          TurnTokenUsage(prompt, completion, exactTotal = turnTotal, turnSequence = turnSequence)
+        }
+      TurnUsageStore.record(model.name, usage)
+    }
 
     // Step 2: Assemble multimodal prompt attachments (images, audio clips, and text).
     val contents = mutableListOf<Content>()
@@ -356,6 +398,7 @@ object LlmChatModelHelper : LlmModelHelper {
           val thinking = message.channels[THOUGHT_CHANNEL]
           // Record streaming token to lock TTFT on first token and update live metrics.
           metricsTracker?.onNewToken(tokenText = text, thinkingText = thinking)
+          chunkCount++
           resultListener(text, false, thinking)
         }
 
@@ -363,6 +406,8 @@ object LlmChatModelHelper : LlmModelHelper {
           // Finalize turn metrics with SUCCESS status.
           val unused =
             metricsTracker?.endTurn(statusCode = InferenceStatus.Code.SUCCESS, errorMessage = null)
+          // Record before the done callback so a reader sees usage as soon as it is signalled.
+          recordUsage()
           resultListener("", true, null)
         }
 
@@ -371,6 +416,7 @@ object LlmChatModelHelper : LlmModelHelper {
             // User or system cancelled inference: reconcile context tokens and mark CANCELLED.
             Log.i(TAG, "The inference is cancelled.")
             val unused = metricsTracker?.cancelTurn()
+            recordUsage()
             resultListener("", true, null)
           } else {
             // Engine error or crash: record ERROR status with error message.

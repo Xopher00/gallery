@@ -300,81 +300,53 @@ LLMInference::~LLMInference() {
     if (_sampler) llama_sampler_free(_sampler);
 }
 
-std::string
-LLMInference::benchModel(int pp, int tg, int pl, int nr) {
-    g_batch     = llama_batch_init(pp, 0, pl);
-    auto pp_avg = 0.0;
-    auto tg_avg = 0.0;
-    auto pp_std = 0.0;
-    auto tg_std = 0.0;
-
+LLMInference::BenchResult
+LLMInference::benchModel(int pp, int tg, int pl) {
+    // Wipes the KV cache three times below, so this must never run against a live conversation.
+    llama_batch batch = llama_batch_init(pp, 0, pl);
     int i, j;
-    int nri;
-    for (nri = 0; nri < nr; nri++) {
-        common_batch_clear(g_batch);
-        const int n_tokens = pp;
-        for (i = 0; i < n_tokens; i++) {
-            common_batch_add(g_batch, 1, i, { 0 }, false);
-        }
-        g_batch.logits[g_batch.n_tokens - 1] = true;
-        llama_memory_clear(llama_get_memory(this->_ctx), false);
 
-        const auto t_pp_start = ggml_time_us();
-        if (llama_decode(this->_ctx, g_batch) != 0) {
-            LOGe("llama_decode() failed during prompt processing");
-        }
-        const auto t_pp_end = ggml_time_us();
-
-        llama_memory_clear(llama_get_memory(this->_ctx), false);
-        const auto t_tg_start = ggml_time_us();
-        for (i = 0; i < tg; i++) {
-            common_batch_clear(g_batch);
-            for (j = 0; j < pl; j++) {
-                common_batch_add(g_batch, 0, i, { j }, true);
-            }
-            if (llama_decode(this->_ctx, g_batch) != 0) {
-                LOGe("llama_decode() failed during text generation");
-            }
-        }
-        const auto t_tg_end = ggml_time_us();
-
-        llama_memory_clear(llama_get_memory(this->_ctx), false);
-
-        const auto t_pp = double(t_pp_end - t_pp_start) / 1000000.0;
-        const auto t_tg = double(t_tg_end - t_tg_start) / 1000000.0;
-        const auto speed_pp = double(pp) / t_pp;
-        const auto speed_tg = double(pl * tg) / t_tg;
-
-        pp_avg += speed_pp;
-        tg_avg += speed_tg;
-        pp_std += speed_pp * speed_pp;
-        tg_std += speed_tg * speed_tg;
+    common_batch_clear(batch);
+    for (i = 0; i < pp; i++) {
+        common_batch_add(batch, 1, i, { 0 }, false);
     }
+    batch.logits[batch.n_tokens - 1] = true;
+    llama_memory_clear(llama_get_memory(this->_ctx), false);
 
-    llama_batch_free(g_batch);
-
-    pp_avg /= double(nr);
-    tg_avg /= double(nr);
-
-    if (nr > 1) {
-        pp_std = sqrt(pp_std / double(nr - 1) - pp_avg * pp_avg * double(nr) / double(nr - 1));
-        tg_std = sqrt(tg_std / double(nr - 1) - tg_avg * tg_avg * double(nr) / double(nr - 1));
-    } else {
-        pp_std = 0;
-        tg_std = 0;
+    const auto t_pp_start = ggml_time_us();
+    if (llama_decode(this->_ctx, batch) != 0) {
+        llama_batch_free(batch);
+        // Silently continuing here would report a plausible but meaningless speed, most often
+        // when pp exceeds the context size, since n_batch is tied to it.
+        throw std::runtime_error("llama_decode() failed during prompt processing");
     }
+    const auto t_pp_end = ggml_time_us();
 
-    char model_desc[128];
-    llama_model_desc(this->_model, model_desc, sizeof(model_desc));
-    const auto model_size     = double(llama_model_size(this->_model)) / 1024.0 / 1024.0 / 1024.0;
-    const auto model_n_params = double(llama_model_n_params(this->_model)) / 1e9;
+    llama_memory_clear(llama_get_memory(this->_ctx), false);
+    const auto t_tg_start = ggml_time_us();
+    for (i = 0; i < tg; i++) {
+        common_batch_clear(batch);
+        for (j = 0; j < pl; j++) {
+            common_batch_add(batch, 0, i, { j }, true);
+        }
+        if (llama_decode(this->_ctx, batch) != 0) {
+            llama_batch_free(batch);
+            throw std::runtime_error("llama_decode() failed during text generation");
+        }
+    }
+    const auto t_tg_end = ggml_time_us();
 
-    std::stringstream result;
-    result << std::setprecision(3);
-    result << "Model: " << model_desc << " | " << model_size << " GiB | " << model_n_params << "B params\n";
-    result << "PP " << pp << ": " << pp_avg << " +/- " << pp_std << " t/s\n";
-    result << "TG " << tg << ": " << tg_avg << " +/- " << tg_std << " t/s\n";
-    return result.str();
+    llama_memory_clear(llama_get_memory(this->_ctx), false);
+    llama_batch_free(batch);
+
+    const auto t_pp = double(t_pp_end - t_pp_start) / 1000000.0;
+    const auto t_tg = double(t_tg_end - t_tg_start) / 1000000.0;
+    return BenchResult{
+        t_pp,
+        t_tg,
+        double(pp) / t_pp,
+        double(pl * tg) / t_tg,
+    };
 }
 
 std::vector<float>
