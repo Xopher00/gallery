@@ -4,6 +4,7 @@ package com.google.ai.edge.gallery.relay.runtime
 
 import android.content.Context
 import android.graphics.Bitmap
+import com.google.ai.edge.gallery.common.metrics.MetricsTracker
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.runtime.CleanUpListener
 import com.google.ai.edge.gallery.runtime.LlmModelHelper
@@ -64,6 +65,7 @@ object LiteRtLmEmbeddingModelHelper : LlmModelHelper {
     audioClips: List<ByteArray>,
     coroutineScope: CoroutineScope?,
     extraContext: Map<String, String>?,
+    metricsTracker: MetricsTracker?,
   ) {
     onError(NOT_A_CHAT_MODEL)
   }

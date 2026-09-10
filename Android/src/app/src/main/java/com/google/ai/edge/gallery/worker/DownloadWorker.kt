@@ -40,6 +40,7 @@ import com.google.ai.edge.gallery.data.KEY_MODEL_DOWNLOAD_RATE
 import com.google.ai.edge.gallery.data.KEY_MODEL_DOWNLOAD_RECEIVED_BYTES
 import com.google.ai.edge.gallery.data.KEY_MODEL_DOWNLOAD_REMAINING_MS
 import com.google.ai.edge.gallery.data.KEY_MODEL_EXTRA_DATA_DOWNLOAD_FILE_NAMES
+import com.google.ai.edge.gallery.data.KEY_MODEL_EXTRA_DATA_ONLY
 import com.google.ai.edge.gallery.data.KEY_MODEL_EXTRA_DATA_URLS
 import com.google.ai.edge.gallery.data.KEY_MODEL_IS_IMPORTED
 import com.google.ai.edge.gallery.data.KEY_MODEL_IS_ZIP
@@ -59,6 +60,7 @@ import java.net.URL
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import dagger.hilt.android.EntryPointAccessors
 
@@ -107,6 +109,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
       )
     }
 
+    val isExtraDataOnly = inputData.getBoolean(KEY_MODEL_EXTRA_DATA_ONLY, false)
     val fileUrl = inputData.getString(KEY_MODEL_URL)
     val modelName = inputData.getString(KEY_MODEL_NAME) ?: "Model"
     val version = inputData.getString(KEY_MODEL_COMMIT_HASH)!!
@@ -132,7 +135,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
         ?.takeIf { it.isNotEmpty() }
 
     return withContext(Dispatchers.IO) {
-      if (fileUrl == null || fileName == null) {
+      if (!isExtraDataOnly && (fileUrl == null || fileName == null)) {
         Result.failure()
       } else {
         return@withContext try {
@@ -141,7 +144,9 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
 
           // Collect data for all files.
           val allFiles: MutableList<UrlAndFileName> = mutableListOf()
-          allFiles.add(UrlAndFileName(url = fileUrl, fileName = fileName))
+          if (!isExtraDataOnly && fileUrl != null && fileName != null) {
+            allFiles.add(UrlAndFileName(url = fileUrl, fileName = fileName))
+          }
           for (index in extraDataFileUrls.indices) {
             allFiles.add(
               UrlAndFileName(url = extraDataFileUrls[index], fileName = extraDataFileNames[index])
@@ -235,6 +240,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
             var lastSetProgressTs: Long = 0
             var deltaBytes = 0L
             while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+              coroutineContext.ensureActive()
               outputStream.write(buffer, 0, bytesRead)
               downloadedBytes += bytesRead
               deltaBytes += bytesRead
@@ -305,6 +311,25 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
               val destDir =
                 if (file.fileName == fileName && !unzippedDir.isNullOrEmpty()) {
                   File(outputDir, unzippedDir)
+                } else if (file.fileName != fileName) {
+                  val folderName = file.fileName.substringBeforeLast(".")
+                  var hasPrefix = false
+                  try {
+                    ZipInputStream(BufferedInputStream(FileInputStream(originalFile))).use {
+                      checkZipIn ->
+                      var checkEntry = checkZipIn.nextEntry
+                      while (checkEntry != null) {
+                        if (checkEntry.name.startsWith("$folderName/")) {
+                          hasPrefix = true
+                          break
+                        }
+                        checkEntry = checkZipIn.nextEntry
+                      }
+                    }
+                  } catch (e: Exception) {
+                    Log.w(TAG, "Failed to inspect zip entries for prefix: ${e.message}")
+                  }
+                  if (hasPrefix) outputDir else File(outputDir, folderName)
                 } else {
                   outputDir
                 }
@@ -317,6 +342,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
               ZipInputStream(BufferedInputStream(FileInputStream(originalFile))).use { zipIn ->
                 var zipEntry: ZipEntry? = zipIn.nextEntry
                 while (zipEntry != null) {
+                  coroutineContext.ensureActive()
                   val outFile = File(destDir, zipEntry.name)
                   // Guard against Zip Slip.
                   if (
@@ -329,6 +355,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                       FileOutputStream(outFile).use { fos ->
                         var len: Int
                         while (zipIn.read(unzipBuffer).also { len = it } > 0) {
+                          coroutineContext.ensureActive()
                           fos.write(unzipBuffer, 0, len)
                         }
                       }

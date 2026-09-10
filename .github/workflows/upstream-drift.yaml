@@ -229,6 +229,10 @@ jobs:
           set -euo pipefail
           UPSTREAM_REF="${{ github.event.inputs.upstream_ref }}"
           UPSTREAM_REF="${UPSTREAM_REF:-upstream/main}"
+          if ! [[ "$UPSTREAM_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "upstream_ref '$UPSTREAM_REF' has characters outside a plain git ref -- refusing." >&2
+            exit 1
+          fi
 
           if git merge --no-edit "$UPSTREAM_REF"; then
             echo "clean=true" >> "$GITHUB_OUTPUT"
@@ -260,6 +264,10 @@ jobs:
           set -euo pipefail
           UPSTREAM_REF="${{ github.event.inputs.upstream_ref }}"
           UPSTREAM_REF="${UPSTREAM_REF:-upstream/main}"
+          if ! [[ "$UPSTREAM_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "upstream_ref '$UPSTREAM_REF' has characters outside a plain git ref -- refusing." >&2
+            exit 1
+          fi
           MERGE_BASE=$(git merge-base HEAD "$UPSTREAM_REF")
           echo "merge_base=$MERGE_BASE" >> "$GITHUB_OUTPUT"
 
@@ -275,12 +283,13 @@ jobs:
               echo
               echo "**Our change (\`main\` vs merge base):**"
               echo '```diff'
-              git diff "$MERGE_BASE" HEAD -- "$f" | head -n "$DIFF_LINE_CAP"
+              # `|| true`: pipefail otherwise turns head's SIGPIPE on a long diff into a step failure.
+              git diff "$MERGE_BASE" HEAD -- "$f" | head -n "$DIFF_LINE_CAP" || true
               echo '```'
               echo
               echo "**Upstream's change (\`$UPSTREAM_REF\` vs merge base):**"
               echo '```diff'
-              git diff "$MERGE_BASE" "$UPSTREAM_REF" -- "$f" | head -n "$DIFF_LINE_CAP"
+              git diff "$MERGE_BASE" "$UPSTREAM_REF" -- "$f" | head -n "$DIFF_LINE_CAP" || true
               echo '```'
               echo
               echo "</details>"
@@ -425,6 +434,9 @@ jobs:
       - name: Create conflict issue (first occurrence)
         if: steps.merge.outputs.clean == 'false' && steps.conflict_issue.outputs.number == ''
         working-directory: .
+        # The default GITHUB_TOKEN can't trigger build-diagnostics.yaml's issues:opened event.
+        env:
+          GH_TOKEN: ${{ secrets.ISSUE_TRIGGER_PAT }}
         run: |
           set -euo pipefail
           gh issue create \

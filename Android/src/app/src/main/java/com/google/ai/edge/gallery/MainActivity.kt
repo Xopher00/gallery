@@ -270,6 +270,7 @@ class MainActivity : FragmentActivity() {
       FirebaseAnalytics.Event.APP_OPEN,
       bundleOf(
         "app_version" to BuildConfig.VERSION_NAME,
+        "app_platform" to "Android",
         "os_version" to Build.VERSION.SDK_INT.toString(),
         "device_model" to Build.MODEL,
       ),

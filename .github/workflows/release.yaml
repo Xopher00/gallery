@@ -130,7 +130,10 @@ jobs:
             --description "An automated Release APK build failed" --color B60205 --force
 
       # Marker is read by build-diagnostics.yaml's release_failure_diagnosis job.
+      # The default GITHUB_TOKEN can't trigger that workflow's issues:opened event.
       - name: Open the issue
+        env:
+          GH_TOKEN: ${{ secrets.ISSUE_TRIGGER_PAT }}
         run: |
           set -euo pipefail
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)

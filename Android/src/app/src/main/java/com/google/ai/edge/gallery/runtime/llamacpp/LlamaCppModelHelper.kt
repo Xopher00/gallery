@@ -9,6 +9,7 @@ import com.google.ai.edge.gallery.runtime.CleanUpListener
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
+import com.google.ai.edge.gallery.common.metrics.MetricsTracker
 import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.DEFAULT_TEMPERATURE
 import com.google.ai.edge.gallery.data.DEFAULT_TOPK
@@ -148,6 +149,7 @@ object LlamaCppModelHelper : LlmModelHelper {
         audioClips: List<ByteArray>,
         coroutineScope: CoroutineScope?,
         extraContext: Map<String, String>?,
+        metricsTracker: MetricsTracker?,
     ) {
         val engine = engines[model.name]
         if (engine == null || !engine.isModelLoaded.get()) {

@@ -15,12 +15,16 @@ on:
         description: 'Issue number to diagnose a build failure for'
         required: false
 
+permissions:
+  contents: read
+
 env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   conflict_diagnosis:
     name: Speculative merge + compile
+    # Attaching a label at issue creation needs write access; a random issue-opener can't reach this.
     if: (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'upstream-merge-conflict')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.issue_number != '')
     runs-on: ubuntu-latest
     permissions:
@@ -37,8 +41,8 @@ jobs:
           set -euo pipefail
           NUM="${{ github.event.inputs.issue_number }}"
           NUM="${NUM:-${{ github.event.issue.number }}}"
-          if [ -z "$NUM" ]; then
-            echo "No issue number available (not triggered by an issue, and none supplied)." >&2
+          if ! [[ "$NUM" =~ ^[0-9]+$ ]]; then
+            echo "Issue number '$NUM' is not a plain integer -- refusing to proceed." >&2
             exit 1
           fi
           echo "number=$NUM" >> "$GITHUB_OUTPUT"
@@ -174,6 +178,7 @@ jobs:
 
   release_failure_diagnosis:
     name: Explain a real Release APK failure
+    # Attaching a label at issue creation needs write access; a random issue-opener can't reach this.
     if: (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'ci-build-failure')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.failure_issue_number != '')
     runs-on: ubuntu-latest
     permissions:
@@ -187,8 +192,8 @@ jobs:
           set -euo pipefail
           NUM="${{ github.event.inputs.failure_issue_number }}"
           NUM="${NUM:-${{ github.event.issue.number }}}"
-          if [ -z "$NUM" ]; then
-            echo "No issue number available (not triggered by an issue, and none supplied)." >&2
+          if ! [[ "$NUM" =~ ^[0-9]+$ ]]; then
+            echo "Issue number '$NUM' is not a plain integer -- refusing to proceed." >&2
             exit 1
           fi
           echo "number=$NUM" >> "$GITHUB_OUTPUT"
@@ -255,7 +260,8 @@ jobs:
           elif [ -s /tmp/implicated_files.txt ]; then
             while IFS= read -r f; do
               [ -z "$f" ] && continue
-              FILE_DIFF=$(git diff "$BASELINE" "${{ steps.refs.outputs.sha }}" -- "$f" | head -n 200)
+              # `|| true`: pipefail otherwise turns head's SIGPIPE on a long diff into a step failure.
+              FILE_DIFF=$(git diff "$BASELINE" "${{ steps.refs.outputs.sha }}" -- "$f" | head -n 200 || true)
               {
                 echo "<details>"
                 echo "<summary><code>$f</code></summary>"
