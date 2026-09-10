@@ -1,0 +1,392 @@
+# Merge upstream first, build once, release. Issues are filed only for a real
+# conflict or build failure, diagnosis inline; auto-resolved drift files nothing.
+name: Sync and release
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - 'Android/**'
+      - '.github/**'
+  schedule:
+    # Daily, off the hour; upstream averages ~58 commits/month so weekly risks a pile-up.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: 'Upstream ref to merge (as fetched under the upstream remote)'
+        required: false
+        default: 'upstream/main'
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: sync-and-release
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  CONFLICT_LABEL: upstream-merge-conflict
+  FAILURE_LABEL: build-failure
+
+jobs:
+  pipeline:
+    name: Merge upstream, build, release
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./Android/src
+    steps:
+      - name: Checkout main (with submodules)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Configure git identity for the bot
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        working-directory: .
+        run: |
+          git remote add upstream https://github.com/google-ai-edge/gallery.git
+          git fetch upstream
+
+      # work=false only for a scheduled run with no drift and HEAD already released.
+      - name: Compute state
+        id: state
+        working-directory: .
+        run: |
+          set -euo pipefail
+          REF="${{ github.event.inputs.upstream_ref }}"
+          REF="${REF:-upstream/main}"
+          if ! [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "upstream_ref '$REF' has characters outside a plain git ref -- refusing." >&2
+            exit 1
+          fi
+          AHEAD=$(git rev-list --count HEAD.."$REF")
+          VERSION_NAME=$(grep -m1 'versionName =' Android/src/app/build.gradle.kts | sed -E 's/.*"(.*)".*/\1/')
+          VERSION_CODE=$(grep -m1 'versionCode =' Android/src/app/build.gradle.kts | grep -oE '[0-9]+')
+          HEAD_TAG="v${VERSION_NAME}-${VERSION_CODE}-$(git rev-parse --short HEAD)"
+          if gh release view "$HEAD_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            RELEASED=true
+          else
+            RELEASED=false
+          fi
+          WORK=true
+          if [ "$AHEAD" = "0" ] && [ "$RELEASED" = "true" ]; then
+            WORK=false
+          fi
+          {
+            echo "upstream_ref=$REF"
+            echo "ahead=$AHEAD"
+            echo "released=$RELEASED"
+            echo "work=$WORK"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up build environment
+        if: steps.state.outputs.work == 'true'
+        uses: ./.github/actions/android-build-env
+        with:
+          cache-prefix: ccache-release
+
+      - name: Attempt upstream merge
+        id: merge
+        if: steps.state.outputs.work == 'true' && steps.state.outputs.ahead != '0'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          REF="${{ steps.state.outputs.upstream_ref }}"
+          echo "premerge=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if git merge --no-edit "$REF"; then
+            git submodule update --init --recursive
+            echo "clean=true" >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only --diff-filter=U > /tmp/conflict_files.txt || true
+            git merge --abort
+            echo "clean=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The throwaway -X ours compile surfaces breaks in files that merged without
+      # conflict markers, which a text diff cannot show.
+      - name: Diagnose the conflict
+        id: diagnose
+        if: steps.merge.outputs.clean == 'false'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          REF="${{ steps.state.outputs.upstream_ref }}"
+          PRE="${{ steps.merge.outputs.premerge }}"
+          MERGE_BASE=$(git merge-base HEAD "$REF")
+
+          : > /tmp/conflict_trace.md
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            {
+              echo "<details>"
+              echo "<summary><code>$f</code></summary>"
+              echo
+              echo "**Our change (\`main\` vs merge base):**"
+              echo '```diff'
+              # || true: pipefail otherwise turns head's SIGPIPE on a long diff into a step failure.
+              git diff "$MERGE_BASE" HEAD -- "$f" | head -n 200 || true
+              echo '```'
+              echo
+              echo "**Upstream's change (\`$REF\` vs merge base):**"
+              echo '```diff'
+              git diff "$MERGE_BASE" "$REF" -- "$f" | head -n 200 || true
+              echo '```'
+              echo
+              echo "</details>"
+              echo
+            } >> /tmp/conflict_trace.md
+          done < /tmp/conflict_files.txt
+
+          # -X ours auto-resolves interleaved text; a failure here means a rename/delete conflict.
+          CASCADE=unknown
+          if git merge --no-edit -X ours "$REF"; then
+            git submodule update --init --recursive
+            if (cd Android/src && ./gradlew :app:compileReleaseKotlin --no-daemon > /tmp/spec_build.log 2>&1); then
+              CASCADE=none
+            else
+              CASCADE=found
+              grep -E '^e: ' /tmp/spec_build.log \
+                | sed -E 's#file:///home/runner/work/[^/]+/[^/]+/##' > /tmp/cascade_errors.txt || true
+            fi
+            git reset --hard "$PRE"
+            git submodule update --init --recursive
+          else
+            git merge --abort || true
+          fi
+          echo "cascade=$CASCADE" >> "$GITHUB_OUTPUT"
+
+      - name: Write release keystore
+        if: steps.state.outputs.work == 'true' && (steps.merge.outputs.clean == 'true' || steps.state.outputs.released == 'false')
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
+          cat > keystore.properties <<KEYSTORE_EOF
+          storeFile=$(pwd)/keystore.jks
+          storePassword=${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          keyAlias=${{ secrets.KEYSTORE_KEY_ALIAS }}
+          keyPassword=${{ secrets.KEYSTORE_KEY_PASSWORD }}
+          KEYSTORE_EOF
+
+      - name: Build (release, signed)
+        id: build
+        if: steps.state.outputs.work == 'true' && (steps.merge.outputs.clean == 'true' || steps.state.outputs.released == 'false')
+        run: |
+          set -euo pipefail
+          if ./gradlew assembleRelease --no-daemon -PuseCcache > /tmp/build.log 2>&1; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            tail -n 60 /tmp/build.log
+          fi
+          ccache -s
+
+      - name: Push merged main
+        if: steps.merge.outputs.clean == 'true' && steps.build.outputs.passed == 'true'
+        working-directory: .
+        run: git push origin HEAD:main
+
+      # The rebuild keeps the user's own push releasable even when upstream broke the merge.
+      - name: Park failed merge and rebuild our own HEAD
+        id: fallback
+        if: steps.merge.outputs.clean == 'true' && steps.build.outputs.passed == 'false'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          BRANCH="sync/upstream-$(git rev-parse --short HEAD)"
+          git branch "$BRANCH"
+          git push origin "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          git reset --hard "${{ steps.merge.outputs.premerge }}"
+          git submodule update --init --recursive
+          if [ "${{ steps.state.outputs.released }}" = "true" ]; then
+            echo "passed=skip" >> "$GITHUB_OUTPUT"
+          elif (cd Android/src && ./gradlew assembleRelease --no-daemon -PuseCcache > /tmp/fallback_build.log 2>&1); then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            tail -n 60 /tmp/fallback_build.log
+          fi
+
+      - name: Publish GitHub Release
+        if: steps.build.outputs.passed == 'true' || steps.fallback.outputs.passed == 'true'
+        run: |
+          set -euo pipefail
+          VERSION_NAME=$(grep -m1 'versionName =' app/build.gradle.kts | sed -E 's/.*"(.*)".*/\1/')
+          VERSION_CODE=$(grep -m1 'versionCode =' app/build.gradle.kts | grep -oE '[0-9]+')
+          TAG="v${VERSION_NAME}-${VERSION_CODE}-$(git rev-parse --short HEAD)"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists -- skipping."
+          else
+            gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --title "AI Edge Gallery ${VERSION_NAME} (${VERSION_CODE})" \
+              --notes "Automated signed release build from $(git rev-parse HEAD)." \
+              app/build/outputs/apk/release/app-release.apk
+          fi
+
+      - name: Remove keystore material from the runner
+        if: always()
+        run: rm -f keystore.jks keystore.properties
+
+      - name: File or update the conflict issue
+        if: steps.merge.outputs.clean == 'false'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          REF="${{ steps.state.outputs.upstream_ref }}"
+          gh label create "$CONFLICT_LABEL" --repo "${{ github.repository }}" \
+            --description "Automated upstream merge hit a real conflict" --color D93F0B --force
+          {
+            echo "## Upstream merge conflict"
+            echo
+            echo "- Merged ref: \`$REF\` (\`$(git rev-parse "$REF")\`)"
+            echo "- Our \`main\`: \`$(git rev-parse HEAD)\`"
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo "The merge was attempted and **aborted**; the tree was left clean. No branch or PR."
+            echo
+            echo "### Conflicting files"
+            echo '```'
+            cat /tmp/conflict_files.txt 2>/dev/null || echo "(list unavailable)"
+            echo '```'
+            echo
+            if [ "${{ steps.diagnose.outputs.cascade }}" = "found" ]; then
+              echo "### Cascading break found beyond the conflict"
+              echo
+              echo "A throwaway \`-X ours\` resolution (never committed) was compiled, and a file"
+              echo "**without** conflict markers still broke -- it references something the other"
+              echo "side changed independently:"
+              echo '```'
+              cat /tmp/cascade_errors.txt 2>/dev/null || echo "(compiler output unavailable)"
+              echo '```'
+            elif [ "${{ steps.diagnose.outputs.cascade }}" = "none" ]; then
+              echo "### No cascading break beyond the conflict"
+              echo
+              echo "A throwaway \`-X ours\` resolution (never committed) compiled cleanly, so the"
+              echo "conflicting files themselves are the whole problem."
+            else
+              echo "### Cascade check inconclusive"
+              echo
+              echo "Even \`-X ours\` could not complete the merge -- likely a rename or delete"
+              echo "conflict. A human needs to look directly."
+            fi
+            echo
+            echo "### What each side changed (vs merge base, capped at 200 lines per side)"
+            echo
+            cat /tmp/conflict_trace.md 2>/dev/null || echo "_Trace unavailable._"
+          } > /tmp/conflict_issue.md
+          EXISTING=$(gh issue list --repo "${{ github.repository }}" --label "$CONFLICT_LABEL" \
+            --state open --json number --jq '.[0].number // empty')
+          if [ -z "$EXISTING" ]; then
+            gh issue create --repo "${{ github.repository }}" \
+              --title "Upstream merge conflict (google-ai-edge/gallery)" \
+              --label "$CONFLICT_LABEL" --body-file /tmp/conflict_issue.md
+          else
+            gh issue edit "$EXISTING" --repo "${{ github.repository }}" --body-file /tmp/conflict_issue.md
+            gh issue comment "$EXISTING" --repo "${{ github.repository }}" \
+              --body "Merge attempted again $(date -u +"%Y-%m-%dT%H:%M:%SZ"), still conflicting. Body updated."
+          fi
+
+      - name: File or update the build-failure issue
+        if: steps.build.outputs.passed == 'false' || steps.fallback.outputs.passed == 'false'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          gh label create "$FAILURE_LABEL" --repo "${{ github.repository }}" \
+            --description "An automated release build failed" --color B60205 --force
+
+          LAST_TAG=$(gh release list --repo "${{ github.repository }}" --limit 1 \
+            --json tagName --jq '.[0].tagName // empty')
+          LAST_GOOD="${LAST_TAG##*-}"
+          {
+            echo "## Build failure"
+            echo
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            if [ "${{ steps.merge.outputs.clean }}" = "true" ]; then
+              echo "- Cause: **the upstream merge breaks the build.** Our own \`main\` was rebuilt"
+              echo "  alone (result: \`${{ steps.fallback.outputs.passed }}\`)."
+              echo "- Merged tree parked on branch \`${{ steps.fallback.outputs.branch }}\` -- check it"
+              echo "  out to fix the break, then merge it to \`main\`."
+              LOG=/tmp/build.log
+            else
+              echo "- Cause: **our own \`main\` does not build** (\`$(git rev-parse HEAD)\`). No merge involved."
+              LOG=/tmp/build.log
+              [ -f /tmp/fallback_build.log ] && LOG=/tmp/fallback_build.log
+            fi
+            if [ -n "$LAST_GOOD" ]; then
+              echo "- Last released (known-good) commit: \`$LAST_GOOD\`"
+            fi
+            echo
+            echo "### Compiler errors"
+            echo '```'
+            grep -E '^e: ' "$LOG" | sed -E 's#file:///home/runner/work/[^/]+/[^/]+/##' \
+              || echo "(no Kotlin compiler errors -- see the log tail below)"
+            echo '```'
+            echo
+            echo "### Log tail"
+            echo '```'
+            tail -n 100 "$LOG"
+            echo '```'
+            if [ -n "$LAST_GOOD" ] && git cat-file -e "$LAST_GOOD" 2>/dev/null; then
+              echo
+              echo "### Diffstat since the last released commit"
+              echo '```'
+              git diff --stat "$LAST_GOOD" HEAD | tail -n 40
+              echo '```'
+            fi
+          } > /tmp/failure_issue.md
+          EXISTING=$(gh issue list --repo "${{ github.repository }}" --label "$FAILURE_LABEL" \
+            --state open --json number --jq '.[0].number // empty')
+          if [ -z "$EXISTING" ]; then
+            gh issue create --repo "${{ github.repository }}" \
+              --title "Build failure on main" \
+              --label "$FAILURE_LABEL" --body-file /tmp/failure_issue.md
+          else
+            gh issue edit "$EXISTING" --repo "${{ github.repository }}" --body-file /tmp/failure_issue.md
+            gh issue comment "$EXISTING" --repo "${{ github.repository }}" \
+              --body "Still failing as of $(date -u +"%Y-%m-%dT%H:%M:%SZ"). Body updated."
+          fi
+
+      # Closing here keeps the invariant that an open issue always means real work.
+      - name: Close resolved issues and summarize
+        if: always() && steps.state.outcome == 'success'
+        working-directory: .
+        env:
+          BPASS: ${{ steps.build.outputs.passed }}
+          FPASS: ${{ steps.fallback.outputs.passed }}
+          CLEAN: ${{ steps.merge.outputs.clean }}
+        run: |
+          set -euo pipefail
+          REF="${{ steps.state.outputs.upstream_ref }}"
+          AHEAD_NOW=$(git rev-list --count HEAD.."$REF")
+          HEALTHY=true
+          [ "$AHEAD_NOW" != "0" ] && HEALTHY=false
+          [ "${BPASS:-}" = "false" ] && HEALTHY=false
+          [ "${FPASS:-}" = "false" ] && HEALTHY=false
+          if [ "$HEALTHY" = "true" ]; then
+            for LABEL in "$CONFLICT_LABEL" "$FAILURE_LABEL"; do
+              for NUM in $(gh issue list --repo "${{ github.repository }}" --label "$LABEL" \
+                  --state open --json number --jq '.[].number'); do
+                gh issue close "$NUM" --repo "${{ github.repository }}" \
+                  --comment "Resolved: main is level with upstream and builds. Run ${{ github.run_id }}."
+              done
+            done
+          fi
+          {
+            echo "## Sync and release"
+            echo
+            echo "- Upstream ahead at start: ${{ steps.state.outputs.ahead }}; now: $AHEAD_NOW"
+            echo "- Merge: ${CLEAN:-not attempted}; build: ${BPASS:-not run}; fallback: ${FPASS:-not run}"
+            echo "- Healthy: $HEALTHY"
+          } >> "$GITHUB_STEP_SUMMARY"
