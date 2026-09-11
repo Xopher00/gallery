@@ -121,8 +121,7 @@ class ModelFiles(private val context: Context, private val modelsDir: File) {
   }
 
   private fun deleteFilesFromImportDir(modelsDir: File, fileName: String) {
-    val prefixAbsolutePath =
-      "${modelsDir.absolutePath}${File.separator}$IMPORTS_DIR${File.separator}$fileName"
+    val prefixAbsolutePath = importedFile(modelsDir, fileName).absolutePath
     val filesToDelete =
       File(modelsDir, IMPORTS_DIR).listFiles { dirFile, name ->
         File(dirFile, name).absolutePath.startsWith(prefixAbsolutePath)
@@ -181,3 +180,6 @@ class ModelFiles(private val context: Context, private val modelsDir: File) {
     }
   }
 }
+
+// Package-visible: callers without a ModelFiles instance (ImportedModelStore, import UI) need it too.
+fun importedFile(modelsDir: File, fileName: String): File = File(File(modelsDir, IMPORTS_DIR), fileName)

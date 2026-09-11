@@ -130,7 +130,15 @@ data class DeviceHardwareInfo(val vendor: DeviceVendor, val rawSocName: String =
     // Check if file specifies an explicit vendor target
     val targetVendor =
       DeviceVendor.entries.firstOrNull { v ->
-        v != DeviceVendor.GENERIC_ANDROID && tokens.any { token -> v.aliases.contains(token) }
+        v != DeviceVendor.GENERIC_ANDROID &&
+          tokens.any { token ->
+            v.aliases.any { a ->
+              token == a ||
+                (token.startsWith(a) &&
+                  token.length > a.length &&
+                  token.substring(a.length).all { it.isDigit() })
+            }
+          }
       } ?: return true
 
     return targetVendor == vendor

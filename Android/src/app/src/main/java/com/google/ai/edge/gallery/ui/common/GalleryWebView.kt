@@ -39,9 +39,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import com.google.ai.edge.gallery.common.LOCAL_URL_BASE
+import com.google.ai.edge.gallery.relay.security.OfflineMode
 import java.io.File
 
 private const val TAG = "AGGalleryWebView"
+
+internal fun offlineBlockResponse(): WebResourceResponse =
+  WebResourceResponse("text/plain", "UTF-8", 403, "Forbidden", emptyMap(), null)
+
 private val iframeWrapper =
   """
   <html>
@@ -84,6 +89,8 @@ open class BaseGalleryWebViewClient(private val context: Context) : WebViewClien
       }
       return localFileAssetsLoader.shouldInterceptRequest(request.url)
     }
+    // WebView traffic never reaches the java.net call-site checks, so Offline Mode is enforced here.
+    if (!OfflineMode.allowsUrl(request?.url)) return offlineBlockResponse()
     return super.shouldInterceptRequest(view, request)
   }
 }

@@ -44,4 +44,4 @@ val Model.benchmarkAccelerators: List<Accelerator>
         else accelerators
 
 // Absorbed from the deleted InferenceEngineType: the only distinction that ever mattered.
-private fun isLlamaCppFile(path: String): Boolean = path.endsWith(".gguf", ignoreCase = true)
+internal fun isLlamaCppFile(path: String): Boolean = path.endsWith(".gguf", ignoreCase = true)

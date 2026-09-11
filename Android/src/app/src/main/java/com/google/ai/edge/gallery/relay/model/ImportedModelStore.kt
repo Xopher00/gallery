@@ -87,6 +87,68 @@ class ImportedModelStore(
     }
   }
 
+  // Shared with restoreImportedModels via taskCatalog/dataStoreRepository, not a second copy.
+  fun addImportedLlmModel(info: ImportedModel): Model {
+    Log.d(TAG, "adding imported llm model: $info")
+
+    val importsDir = File(modelsDir, IMPORTS_DIR)
+    if (!importsDir.exists()) {
+      importsDir.mkdirs()
+    }
+
+    val model = createModelFromImportedModelInfo(info = info)
+    queueDescriptionFor(info)
+
+    val setOfTasks =
+      mutableSetOf(
+        BuiltInTaskId.LLM_CHAT,
+        BuiltInTaskId.LLM_ASK_IMAGE,
+        BuiltInTaskId.LLM_ASK_AUDIO,
+        BuiltInTaskId.LLM_PROMPT_LAB,
+        BuiltInTaskId.LLM_TINY_GARDEN,
+        BuiltInTaskId.LLM_MOBILE_ACTIONS,
+        BuiltInTaskId.LLM_AGENT_CHAT,
+      )
+    for (task in taskCatalog.getTasksByIds(ids = setOfTasks)) {
+      val modelIndex =
+        task.models.indexOfFirst { info.fileName == it.name && it.downloadInfo.imported }
+      if (modelIndex >= 0) {
+        Log.d(TAG, "duplicated imported model found in task. Removing it first")
+        task.models.removeAt(modelIndex)
+      }
+      if (
+        (task.id == BuiltInTaskId.LLM_ASK_IMAGE && model.llmSupportImage) ||
+          (task.id == BuiltInTaskId.LLM_ASK_AUDIO && model.llmSupportAudio) ||
+          (task.id == BuiltInTaskId.LLM_TINY_GARDEN && model.llmSupportTinyGarden) ||
+          (task.id == BuiltInTaskId.LLM_MOBILE_ACTIONS && model.llmSupportMobileActions) ||
+          (task.id != BuiltInTaskId.LLM_ASK_IMAGE &&
+            task.id != BuiltInTaskId.LLM_ASK_AUDIO &&
+            task.id != BuiltInTaskId.LLM_TINY_GARDEN &&
+            task.id != BuiltInTaskId.LLM_MOBILE_ACTIONS)
+      ) {
+        task.models.add(model)
+        if (task.id == BuiltInTaskId.LLM_TINY_GARDEN) {
+          val newConfigs = model.configs.toMutableList()
+          newConfigs.add(RESET_CONVERSATION_TURN_COUNT_CONFIG)
+          model.configs = newConfigs
+        }
+        model.preProcess()
+      }
+      task.updateTrigger.value = System.currentTimeMillis()
+    }
+
+    val importedModels = dataStoreRepository.readImportedModels().toMutableList()
+    val importedModelIndex = importedModels.indexOfFirst { info.fileName == it.fileName }
+    if (importedModelIndex >= 0) {
+      Log.d(TAG, "duplicated imported model found in data store. Removing it first")
+      importedModels.removeAt(importedModelIndex)
+    }
+    importedModels.add(info)
+    dataStoreRepository.saveImportedModels(importedModels = importedModels)
+
+    return model
+  }
+
   fun createImportedSdModel(fileName: String, fileSize: Long, url: String = ""): Model =
     Model(
         name = fileName,
@@ -181,6 +243,11 @@ class ImportedModelStore(
       } else {
         RuntimeType.LITERT_LM
       }
+    val importedFilePath = importedFile(modelsDir, importedFileNameToCheck).absolutePath
+    val isEmbeddingModel = probeModelFileKind(importedFilePath) == ModelFileKind.EMBEDDING
+    if (isEmbeddingModel) {
+      capabilities.add(ModelCapability.EMBEDDING)
+    }
     val hfModelId = hfModelIdFromUrl(info.url)
     val downloadInfo =
       ModelDownloadInfo(
@@ -208,7 +275,7 @@ class ImportedModelStore(
         capabilityToTaskTypes = capabilityToTaskTypes.toMap(),
         llmMaxToken = llmMaxToken,
         accelerators = accelerators,
-        isLlm = true,
+        isLlm = !isEmbeddingModel,
         runtimeType = importedRuntimeType,
       )
     model.preProcess()

@@ -29,6 +29,7 @@ import com.google.ai.edge.gallery.proto.McpServer
 import com.google.ai.edge.gallery.proto.McpServers
 import com.google.ai.edge.gallery.proto.McpTool
 import com.google.ai.edge.gallery.proto.UserData
+import com.google.ai.edge.gallery.relay.security.OfflineMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.android.Android
@@ -36,6 +37,7 @@ import io.ktor.client.plugins.sse.SSE
 import io.modelcontextprotocol.kotlin.sdk.Implementation
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
+import java.net.URI
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -406,6 +408,11 @@ constructor(
       } else {
         StreamableHttpClientTransport(client = httpClient, url = url)
       }
+    val host = runCatching { URI(url).host }.getOrNull()
+    if (!OfflineMode.isLoopbackHost(host)) {
+      // Throwing here is safe: callers (loadMcpServers/addMcpServer) catch per-server and continue.
+      OfflineMode.assertOnlineOrThrow()
+    }
     client.connect(transport)
     val toolsResponse = client.listTools()
     val mcpTools =

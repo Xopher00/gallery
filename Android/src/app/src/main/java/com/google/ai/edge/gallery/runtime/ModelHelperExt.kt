@@ -23,7 +23,7 @@ import com.google.ai.edge.gallery.relay.runtime.LiteRtLmEmbeddingModelHelper
 import com.google.ai.edge.gallery.relay.runtime.ModelEngine
 import com.google.ai.edge.gallery.relay.runtime.engineFor
 import com.google.ai.edge.gallery.runtime.aicore.AICoreModelHelper
-import com.google.ai.edge.gallery.runtime.llamacpp.LlamaCppModelHelper
+import com.google.ai.edge.gallery.relay.runtime.llamacpp.LlamaCppModelHelper
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
 
 var testingModelHelper: LlmModelHelper? = null

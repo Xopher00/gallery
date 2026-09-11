@@ -24,7 +24,6 @@ import com.google.ai.edge.gallery.relay.server.honestDefaultAcceleratorLabel
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.relay.sessions.openSession
-import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Message
@@ -214,7 +213,7 @@ suspend fun handleChatCompletion(
                     }
                 }
 
-                LlmChatModelHelper.resetConversation(
+                model.runtimeHelper.resetConversation(
                     model = model,
                     supportImage = model.llmSupportImage,
                     supportAudio = false,
@@ -262,6 +261,22 @@ suspend fun handleChatCompletion(
                         model,
                         prompt,
                         lastParsed.images,
+                        encodeFinishChunk = {
+                            Json.encodeToString(
+                                ChatCompletionChunk(
+                                    id = id,
+                                    created = created,
+                                    model = model.name,
+                                    choices = listOf(
+                                        ChatChunkChoice(
+                                            index = 0,
+                                            delta = ChatDelta(),
+                                            finish_reason = "stop",
+                                        )
+                                    ),
+                                )
+                            )
+                        },
                         encodeUsageChunk = { usage ->
                             Json.encodeToString(
                                 ChatCompletionChunk(

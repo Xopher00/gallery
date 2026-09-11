@@ -37,6 +37,7 @@ import com.google.ai.edge.gallery.data.SystemPromptRepository
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.awaitInitialization
 import com.google.ai.edge.gallery.proto.ChatSessionProto
+import com.google.ai.edge.gallery.relay.runtime.isContextOverflow
 import com.google.ai.edge.gallery.tools.ToolAction
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageAudioClip
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageError
@@ -326,6 +327,16 @@ open class LlmChatViewModelBase(
             setInProgress(false)
             setPreparing(false)
             onError(event.errorMessage)
+            if (isContextOverflow(event.errorMessage)) {
+              addMessage(
+                model = model,
+                message =
+                  ChatMessageWarning(
+                    content =
+                      "The model's context window is full. Start a new conversation to continue."
+                  ),
+              )
+            }
           }
           is AgentEvent.LoopCancelled -> {
             setInProgress(false)

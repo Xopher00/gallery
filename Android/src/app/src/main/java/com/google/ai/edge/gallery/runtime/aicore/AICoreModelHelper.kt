@@ -31,6 +31,7 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.runtime.CleanUpListener
 import com.google.ai.edge.gallery.runtime.LlmModelHelper
 import com.google.ai.edge.gallery.runtime.ResultListener
+import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.Role
@@ -300,6 +301,8 @@ object AICoreModelHelper : LlmModelHelper {
     instance.inferenceJob?.cancel()
 
     instance.inferenceJob = scope.launch {
+      TurnUsageStore.begin(model.name)
+      try {
       executeRunInference(
         instance = instance,
         prompt = prompt,
@@ -311,6 +314,10 @@ object AICoreModelHelper : LlmModelHelper {
         resultListener = resultListener,
         onError = onError,
       )
+      } finally {
+        // Covers completion, error and cancellation (this job is also cancelled by the next turn).
+        TurnUsageStore.abort(model.name)
+      }
     }
   }
 

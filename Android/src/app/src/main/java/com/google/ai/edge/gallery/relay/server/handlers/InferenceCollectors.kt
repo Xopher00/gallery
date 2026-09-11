@@ -21,10 +21,14 @@ package com.google.ai.edge.gallery.relay.server.handlers
 
 import android.graphics.Bitmap
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.relay.runtime.isContextOverflow
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+
+// Distinct type so StatusPages can map it to 400 without string-matching the message again.
+internal class ContextLengthExceededException(message: String) : Exception(message)
 
 /**
  * Runs one inference turn and suspends until the runtime reports `done`, returning the
@@ -63,7 +67,7 @@ internal suspend fun collectInferenceText(
             }
         },
         cleanUpListener = {},
-        onError = { completer.completeExceptionally(Exception(it)) },
+        onError = { completer.completeExceptionally(if (isContextOverflow(it)) ContextLengthExceededException(it) else Exception(it)) },
         images = images,
         audioClips = emptyList(),
         coroutineScope = coroutineScope,

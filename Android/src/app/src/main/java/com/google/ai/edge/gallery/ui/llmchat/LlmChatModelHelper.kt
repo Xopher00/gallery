@@ -40,12 +40,12 @@ import com.google.ai.edge.gallery.data.markInitialized
 import com.google.ai.edge.gallery.data.resetInitialization
 import com.google.ai.edge.gallery.data.supportModelBenchmark
 import com.google.ai.edge.gallery.runtime.CleanUpListener
-import com.google.ai.edge.gallery.runtime.CountKind
+import com.google.ai.edge.gallery.relay.runtime.CountKind
 import com.google.ai.edge.gallery.runtime.LlmModelHelper
 import com.google.ai.edge.gallery.runtime.ResultListener
-import com.google.ai.edge.gallery.runtime.TokenCount
-import com.google.ai.edge.gallery.runtime.TurnTokenUsage
-import com.google.ai.edge.gallery.runtime.TurnUsageStore
+import com.google.ai.edge.gallery.relay.runtime.TokenCount
+import com.google.ai.edge.gallery.relay.runtime.TurnTokenUsage
+import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -197,6 +197,7 @@ object LlmChatModelHelper : LlmModelHelper {
               },
             systemInstruction = systemInstruction,
             tools = tools,
+            maxOutputToken = maxTokens,
           )
         )
       ExperimentalFlags.enableConversationConstrainedDecoding = false
@@ -228,6 +229,8 @@ object LlmChatModelHelper : LlmModelHelper {
       instance.conversation.close()
 
       val engine = instance.engine
+      val maxTokens =
+        model.getIntConfigValue(key = ConfigKeys.MAX_TOKENS, defaultValue = DEFAULT_MAX_TOKEN)
       val topK = model.getIntConfigValue(key = ConfigKeys.TOPK, defaultValue = DEFAULT_TOPK)
       val topP = model.getFloatConfigValue(key = ConfigKeys.TOPP, defaultValue = DEFAULT_TOPP)
       val temperature =
@@ -259,6 +262,7 @@ object LlmChatModelHelper : LlmModelHelper {
             systemInstruction = systemInstruction,
             tools = tools,
             initialMessages = initialMessages,
+            maxOutputToken = maxTokens,
           )
         )
       ExperimentalFlags.enableConversationConstrainedDecoding = false
@@ -339,6 +343,7 @@ object LlmChatModelHelper : LlmModelHelper {
     // Token accounting. getTokenCount() is cumulative over the conversation, so the difference
     // across this turn is exact even though the prompt/completion split below is not.
     val turnSequence = TurnUsageStore.begin(model.name)
+    try {
     val tokensBefore = runCatching { conversation.getTokenCount() }.getOrNull()
     var chunkCount = 0
 
@@ -426,12 +431,18 @@ object LlmChatModelHelper : LlmModelHelper {
                 statusCode = InferenceStatus.Code.ERROR,
                 errorMessage = throwable.message ?: "Unknown error",
               )
+            TurnUsageStore.abort(model.name)
             onError("Error: ${throwable.message}")
           }
         }
       },
       finalExtraContext,
     )
+    } catch (e: Exception) {
+      // sendMessageAsync can throw synchronously before any callback fires.
+      TurnUsageStore.abort(model.name)
+      throw e
+    }
   }
 
   private fun Bitmap.toPngByteArray(): ByteArray {

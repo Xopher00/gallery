@@ -17,6 +17,7 @@
 package com.google.ai.edge.gallery.customtasks.agentchat
 
 import android.content.Context
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.DataStoreFactory
@@ -159,7 +160,14 @@ constructor(
       val skillsJob = launch {
         agentTools.skillsProvider.loadSkills(SkillManagerViewModel.getDefaultDisabledSkills(model))
       }
-      val mcpJob = launch { agentTools.mcpManagerViewModel.loadMcpServers() }
+      val mcpJob = launch {
+        // headless model-load path can run before AgentChatScreen composes, leaving this lateinit unset
+        try {
+          agentTools.mcpManagerViewModel.loadMcpServers()
+        } catch (e: UninitializedPropertyAccessException) {
+          Log.w(TAG, "Skipping MCP server load: mcpManagerViewModel not yet initialized", e)
+        }
+      }
       skillsJob.join()
       mcpJob.join()
 

@@ -97,8 +97,6 @@ class SmolLM {
 
     suspend fun load(modelPath: String, params: InferenceParams = InferenceParams()) =
         withContext(Dispatchers.IO) {
-            val ggufReader = GGUFReader()
-            ggufReader.load(modelPath)
             // Clamp the GGUF's declared context to something a phone can actually hold. Modern
             // models advertise enormous training contexts -- Qwen3.5-9B declares 262144 -- and
             // honouring that verbatim allocates a KV cache and compute buffers far past what the
@@ -112,30 +110,33 @@ class SmolLM {
                 fileSizeBytes > 1L * 1024 * 1024 * 1024 -> 8192L // 1-2 GB
                 else -> 8192L
             }
-            val rawContextSize = ggufReader.getContextSize() ?: DefaultParams.CONTEXT_SIZE
-            val modelContextSize = minOf(rawContextSize, maxContextBySize)
-            if (modelContextSize < rawContextSize) {
-                Log.i(
-                    TAG,
-                    "Clamped declared context $rawContextSize -> $modelContextSize " +
-                        "(model file ${fileSizeBytes / (1024 * 1024)} MB)",
+            GGUFReader().use { ggufReader ->
+                ggufReader.load(modelPath)
+                val rawContextSize = ggufReader.getContextSize() ?: DefaultParams.CONTEXT_SIZE
+                val modelContextSize = minOf(rawContextSize, maxContextBySize)
+                if (modelContextSize < rawContextSize) {
+                    Log.i(
+                        TAG,
+                        "Clamped declared context $rawContextSize -> $modelContextSize " +
+                            "(model file ${fileSizeBytes / (1024 * 1024)} MB)",
+                    )
+                }
+                val modelChatTemplate = ggufReader.getChatTemplate() ?: DefaultParams.CHAT_TEMPLATE
+                nativePtr = loadModel(
+                    modelPath,
+                    params.minP,
+                    params.temperature,
+                    params.topP,
+                    params.topK,
+                    params.repeatPenalty,
+                    params.storeChats,
+                    params.contextSize ?: modelContextSize,
+                    params.chatTemplate ?: modelChatTemplate,
+                    params.numThreads,
+                    params.useMmap,
+                    params.useMlock,
                 )
             }
-            val modelChatTemplate = ggufReader.getChatTemplate() ?: DefaultParams.CHAT_TEMPLATE
-            nativePtr = loadModel(
-                modelPath,
-                params.minP,
-                params.temperature,
-                params.topP,
-                params.topK,
-                params.repeatPenalty,
-                params.storeChats,
-                params.contextSize ?: modelContextSize,
-                params.chatTemplate ?: modelChatTemplate,
-                params.numThreads,
-                params.useMmap,
-                params.useMlock,
-            )
         }
 
     /**

@@ -28,8 +28,8 @@ import com.google.ai.edge.gallery.proto.LlmBenchmarkBasicInfo
 import com.google.ai.edge.gallery.proto.LlmBenchmarkResult
 import com.google.ai.edge.gallery.proto.LlmBenchmarkStats
 import com.google.ai.edge.gallery.proto.ValueSeries
-import com.google.ai.edge.gallery.runtime.BenchmarkSpec
-import com.google.ai.edge.gallery.runtime.ModelBenchmarkRunner
+import com.google.ai.edge.gallery.relay.runtime.BenchmarkSpec
+import com.google.ai.edge.gallery.relay.runtime.ModelBenchmarkRunner
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext

@@ -51,6 +51,8 @@ import com.google.ai.edge.gallery.relay.server.ErrorEnvelope
 import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
 import com.google.ai.edge.gallery.relay.server.ServerRuntime
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
+import com.google.ai.edge.gallery.relay.runtime.ModelEngine
+import com.google.ai.edge.gallery.relay.runtime.engineFor
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
 import com.google.ai.edge.litertlm.ToolManager
@@ -232,6 +234,19 @@ suspend fun handleAgentRun(
                     type = "not_implemented_error",
                 )
             ),
+        )
+        return
+    }
+
+    // llmSupportMobileActions doesn't imply LiteRT-LM; the tool-calling loop is engine-specific.
+    val engine = model.engineFor(taskIdFor(modelRegistry, model))
+    if (engine != ModelEngine.LiteRtLm) {
+        call.respond(
+            HttpStatusCode.BadRequest,
+            ErrorEnvelope(ErrorBody(
+                message = "Model '${model.name}' uses a ${engine.wireName} engine; tool calling " +
+                    "is only available on LiteRT-LM models."
+            ))
         )
         return
     }

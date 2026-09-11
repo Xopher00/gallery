@@ -67,6 +67,7 @@ import com.google.ai.edge.gallery.huggingface.HuggingFaceApiClient
 import com.google.ai.edge.gallery.data.SD_IMPORTS_DIR
 import com.google.ai.edge.gallery.relay.device.DeviceProfile
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
+import com.google.ai.edge.gallery.relay.security.OfflineMode
 import com.google.ai.edge.gallery.proto.AccessTokenData
 import com.google.ai.edge.gallery.proto.HfModelItemProto
 import com.google.ai.edge.gallery.proto.ImportedModel
@@ -905,6 +906,7 @@ constructor(
 
       val responseCode: Int
       try {
+        OfflineMode.assertOnlineOrThrow()
         val url = URL(model.downloadInfo.url)
         val connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = "HEAD"
@@ -930,58 +932,11 @@ constructor(
       }
     }
 
+  // Registration lives in ModelRegistry/ImportedModelStore; only ViewModel-owned uiState and the
+  // download kickoff stay here.
   fun addImportedLlmModel(info: ImportedModel) {
-    Log.d(TAG, "adding imported llm model: $info")
+    val model = modelRegistry.addImportedLlmModel(info = info)
 
-    val importsDir = File(modelsDir, IMPORTS_DIR)
-    if (!importsDir.exists()) {
-      importsDir.mkdirs()
-    }
-
-    // Create model.
-    val model = createModelFromImportedModelInfo(info = info)
-
-    val setOfTasks =
-      mutableSetOf(
-        BuiltInTaskId.LLM_CHAT,
-        BuiltInTaskId.LLM_ASK_IMAGE,
-        BuiltInTaskId.LLM_ASK_AUDIO,
-        BuiltInTaskId.LLM_PROMPT_LAB,
-        BuiltInTaskId.LLM_TINY_GARDEN,
-        BuiltInTaskId.LLM_MOBILE_ACTIONS,
-        BuiltInTaskId.LLM_AGENT_CHAT,
-      )
-    for (task in getTasksByIds(ids = setOfTasks)) {
-      // Remove duplicated imported model if existed.
-      val modelIndex =
-        task.models.indexOfFirst { info.fileName == it.name && it.downloadInfo.imported }
-      if (modelIndex >= 0) {
-        Log.d(TAG, "duplicated imported model found in task. Removing it first")
-        task.models.removeAt(modelIndex)
-      }
-      if (
-        (task.id == BuiltInTaskId.LLM_ASK_IMAGE && model.llmSupportImage) ||
-          (task.id == BuiltInTaskId.LLM_ASK_AUDIO && model.llmSupportAudio) ||
-          (task.id == BuiltInTaskId.LLM_TINY_GARDEN && model.llmSupportTinyGarden) ||
-          (task.id == BuiltInTaskId.LLM_MOBILE_ACTIONS && model.llmSupportMobileActions) ||
-          (task.id != BuiltInTaskId.LLM_ASK_IMAGE &&
-            task.id != BuiltInTaskId.LLM_ASK_AUDIO &&
-            task.id != BuiltInTaskId.LLM_TINY_GARDEN &&
-            task.id != BuiltInTaskId.LLM_MOBILE_ACTIONS)
-      ) {
-        task.models.add(model)
-        if (task.id == BuiltInTaskId.LLM_TINY_GARDEN) {
-          val newConfigs = model.configs.toMutableList()
-          newConfigs.add(RESET_CONVERSATION_TURN_COUNT_CONFIG)
-          model.configs = newConfigs
-        }
-        // Box: every imported model is pre-processed, not only TinyGarden ones.
-        model.preProcess()
-      }
-      task.updateTrigger.value = System.currentTimeMillis()
-    }
-
-    // Add initial status and states.
     val modelDownloadStatus = uiState.value.modelDownloadStatus.toMutableMap()
     if (model.downloadInfo.url.isNotEmpty()) {
       modelDownloadStatus[model.name] = getModelDownloadStatus(model = model)
@@ -994,7 +949,6 @@ constructor(
         )
     }
 
-    // Update ui state.
     _uiState.update {
       it.copy(
         tasks = it.tasks.toList(),
@@ -1003,22 +957,12 @@ constructor(
       )
     }
 
-    val importedModels = dataStoreRepository.readImportedModels().toMutableList()
-    val importedModelIndex = importedModels.indexOfFirst { info.fileName == it.fileName }
-    if (importedModelIndex >= 0) {
-      Log.d(TAG, "duplicated imported model found in data store. Removing it first")
-      importedModels.removeAt(importedModelIndex)
-    }
-    importedModels.add(info)
-    dataStoreRepository.saveImportedModels(importedModels = importedModels)
-
     // A local file import has no URL and is already SUCCEEDED above; only a real
     // remote import needs the download kicked off automatically. Main dispatcher is required:
     // downloadModel observes WorkManager LiveData, and this runs on IO for a web import.
     if (model.downloadInfo.url.isNotEmpty()) {
       viewModelScope.launch(Dispatchers.Main) { downloadModel(task = null, model = model) }
     }
-
   }
 
   // Box: imported Stable-Diffusion GGUF models. The Model factory itself lives in
@@ -1279,16 +1223,18 @@ constructor(
   }
 
   fun clearLoadModelAllowlistError() {
-    val curTasks = getActiveCustomTasks().map { it.task }
-    processTasks()
-    _uiState.update {
-      createUiState()
-        .copy(
-          loadingModelAllowlist = false,
-          tasks = curTasks,
-          loadingModelAllowlistError = "",
-          tasksByCategory = groupTasksByCategory(),
-        )
+    viewModelScope.launch(Dispatchers.IO) {
+      val curTasks = getActiveCustomTasks().map { it.task }
+      processTasks()
+      _uiState.update {
+        createUiState()
+          .copy(
+            loadingModelAllowlist = false,
+            tasks = curTasks,
+            loadingModelAllowlistError = "",
+            tasksByCategory = groupTasksByCategory(),
+          )
+      }
     }
   }
 
@@ -1361,7 +1307,7 @@ constructor(
     for (customTask in getActiveCustomTasks()) {
       val task = customTask.task
       tasks.put(key = task.id, value = task)
-      for (model in task.models) {
+      for (model in task.models.toList()) {
         if (checkedModelNames.contains(model.name)) {
           continue
         }

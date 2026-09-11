@@ -54,6 +54,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.data.ModelCapability
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import com.google.ai.edge.gallery.relay.model.ModelRegistryEntryPoint
 import com.google.ai.edge.gallery.relay.server.handlers.collectInferenceText
@@ -62,7 +63,9 @@ import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val TAG = "ProcessTextActivity"
 
@@ -231,7 +234,7 @@ private fun ProcessTextDialog(
         },
       )
       allowlistDone.await()
-      modelRegistry.restoreImportedModels()
+      withContext(Dispatchers.IO) { modelRegistry.restoreImportedModels() }
       currentModels = modelRegistry.getAllModels()
       allModels = currentModels
     }
@@ -250,7 +253,9 @@ private fun ProcessTextDialog(
     // gets the fastest-initializing candidate rather than an arbitrary first match.
     val target =
       currentModels
-        .filter { it.isLlm && modelRegistry.isModelDownloaded(it) }
+        .filter {
+          it.isLlm && ModelCapability.EMBEDDING !in it.capabilities && modelRegistry.isModelDownloaded(it)
+        }
         .sortedWith(compareBy({ it.downloadInfo.sizeInBytes }, { it.name }))
         .firstOrNull()
     if (target == null) {

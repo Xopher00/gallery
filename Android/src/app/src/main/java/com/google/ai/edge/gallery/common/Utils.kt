@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.core.net.toUri
 import androidx.exifinterface.media.ExifInterface
 import com.google.ai.edge.gallery.data.SAMPLE_RATE
+import com.google.ai.edge.gallery.relay.security.OfflineMode
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -71,6 +72,7 @@ fun processLlmResponse(response: String): String {
 
 inline fun <reified T> getJsonResponse(url: String): JsonObjAndTextContent<T>? {
   try {
+    OfflineMode.assertOnlineOrThrow()
     val connection = URL(url).openConnection() as HttpURLConnection
     connection.requestMethod = "GET"
     connection.connect()

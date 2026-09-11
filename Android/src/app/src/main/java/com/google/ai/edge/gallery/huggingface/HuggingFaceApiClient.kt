@@ -26,6 +26,7 @@ import com.google.ai.edge.gallery.proto.HfSortOptionProto
 import com.google.ai.edge.gallery.proto.hfModelItemProto
 import com.google.ai.edge.gallery.proto.hfSiblingProto
 import com.google.ai.edge.gallery.huggingface.heuristics.hasGgufFiles
+import com.google.ai.edge.gallery.relay.security.OfflineMode
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.net.HttpURLConnection
@@ -227,27 +228,6 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
     }
 
   /**
-   * Fetches a repo's model card (README.md) with YAML frontmatter stripped. Gated repos return
-   * HTTP 401 without [accessToken].
-   */
-  open suspend fun fetchModelCard(modelId: String, accessToken: String? = null): String? =
-    withContext(ioDispatcher) {
-      val urlString = "https://huggingface.co/$modelId/raw/main/README.md"
-      val responseText =
-        executeGetRequest(urlString = urlString, accessToken = accessToken)
-          ?: return@withContext null
-      stripFrontmatter(responseText)
-    }
-
-  private fun stripFrontmatter(markdown: String): String {
-    if (!markdown.startsWith("---")) return markdown
-    val end = markdown.indexOf("\n---", startIndex = 3)
-    if (end == -1) return markdown
-    val afterDelimiter = markdown.indexOf('\n', startIndex = end + 1)
-    return if (afterDelimiter == -1) "" else markdown.substring(afterDelimiter + 1).trimStart('\n')
-  }
-
-  /**
    * Opens and configures an [HttpURLConnection] with default headers and optional authorization.
    */
   protected open fun openHttpConnection(
@@ -255,6 +235,7 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
     method: String = "GET",
     accessToken: String? = null,
   ): HttpURLConnection {
+    OfflineMode.assertOnlineOrThrow()
     val url = URL(urlString)
     val connection = url.openConnection() as HttpURLConnection
     connection.requestMethod = method
@@ -262,6 +243,8 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
     if (!accessToken.isNullOrEmpty()) {
       connection.setRequestProperty("Authorization", "Bearer $accessToken")
     }
+    connection.connectTimeout = 15_000
+    connection.readTimeout = 30_000
     return connection
   }
 

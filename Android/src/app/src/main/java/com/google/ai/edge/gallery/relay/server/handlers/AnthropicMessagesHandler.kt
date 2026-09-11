@@ -21,10 +21,9 @@ import com.google.ai.edge.gallery.relay.server.ErrorBody
 import com.google.ai.edge.gallery.relay.server.ErrorEnvelope
 import com.google.ai.edge.gallery.relay.server.LoadResult
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
-import com.google.ai.edge.gallery.runtime.TurnUsageStore
+import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.relay.sessions.openSession
-import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Message
@@ -170,7 +169,7 @@ suspend fun handleAnthropicMessages(
                     }
                 }
 
-                LlmChatModelHelper.resetConversation(
+                model.runtimeHelper.resetConversation(
                     model = model,
                     supportImage = model.llmSupportImage,
                     supportAudio = false,

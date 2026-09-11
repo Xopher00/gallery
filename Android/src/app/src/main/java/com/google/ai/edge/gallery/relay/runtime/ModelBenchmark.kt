@@ -3,14 +3,13 @@
  * here; front ends only aggregate and render, so no interface owns the capability.
  */
 
-package com.google.ai.edge.gallery.runtime
+package com.google.ai.edge.gallery.relay.runtime
 
 import android.content.Context
 import android.util.Log
 import com.google.ai.edge.gallery.data.Model
-import com.google.ai.edge.gallery.relay.runtime.ModelEngine
-import com.google.ai.edge.gallery.relay.runtime.engineFor
-import com.google.ai.edge.gallery.runtime.llamacpp.LlamaCppEngine
+import com.google.ai.edge.gallery.relay.runtime.llamacpp.LlamaCppEngine
+import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.benchmark
@@ -68,6 +67,9 @@ object ModelBenchmarkRunner {
     val ownScratch = scratchDir.mkdirs()
     val cacheDirPath = if (ownScratch) scratchDir.absolutePath else context.cacheDir.absolutePath
     try {
+      check(!TurnUsageStore.isInFlight(model.name)) {
+        "Cannot benchmark ${model.name} while it is generating. Wait for the reply to finish."
+      }
       evictLoadedCopy(model)
       val samples = mutableListOf<BenchmarkSample>()
       for (i in 0 until runCount) {
@@ -113,12 +115,14 @@ object ModelBenchmarkRunner {
           storeChats = false,
         )
       val loadStart = System.nanoTime()
+      // If cancelled while the native load was in flight, the finally block below already
+      // unwound -- unload here or the engine leaks.
       suspendCancellableCoroutine { cont ->
         engine.loadModel(
           modelPath = model.getPath(context = context),
           params = params,
-          onSuccess = { cont.resume(Unit) },
-          onError = { cont.resumeWithException(it) },
+          onSuccess = { if (cont.isActive) cont.resume(Unit) else engine.unloadModel() },
+          onError = { e -> if (cont.isActive) cont.resumeWithException(e) else engine.unloadModel() },
         )
       }
       val initSeconds = (System.nanoTime() - loadStart) / 1e9

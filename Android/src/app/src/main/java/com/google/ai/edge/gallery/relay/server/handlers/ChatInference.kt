@@ -18,9 +18,10 @@ import com.google.ai.edge.gallery.relay.server.ErrorBody
 import com.google.ai.edge.gallery.relay.server.ErrorEnvelope
 import com.google.ai.edge.gallery.relay.server.LoadResult
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
+import com.google.ai.edge.gallery.relay.runtime.isContextOverflow
 import com.google.ai.edge.gallery.relay.server.Usage
-import com.google.ai.edge.gallery.runtime.TurnTokenUsage
-import com.google.ai.edge.gallery.runtime.TurnUsageStore
+import com.google.ai.edge.gallery.relay.runtime.TurnTokenUsage
+import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -31,6 +32,8 @@ import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 private const val TAG = "AGChatHandler"
 
@@ -105,6 +108,8 @@ internal suspend fun collectInferenceStream(
     images: List<Bitmap> = emptyList(),
     // Endpoints whose chunk shape carries no usage field simply leave this null.
     encodeUsageChunk: ((usage: TurnTokenUsage) -> String)? = null,
+    // Sent regardless of encodeUsageChunk -- finish_reason must not depend on include_usage.
+    encodeFinishChunk: (() -> String)? = null,
     encodeChunk: (text: String) -> String,
 ) {
     val events = Channel<StreamEvent>(Channel.UNLIMITED)
@@ -141,16 +146,26 @@ internal suspend fun collectInferenceStream(
                     writer.flush()
                 }
                 is StreamEvent.Done -> {
-                    if (encodeUsageChunk != null) {
-                        TurnUsageStore.peek(model.name)?.let { usage ->
-                            writer.writeStringUtf8("data: ${encodeUsageChunk(usage)}\n\n")
-                        }
+                    val usage = TurnUsageStore.peek(model.name)
+                    if (encodeFinishChunk != null) {
+                        writer.writeStringUtf8("data: ${encodeFinishChunk()}\n\n")
+                    }
+                    if (encodeUsageChunk != null && usage != null) {
+                        writer.writeStringUtf8("data: ${encodeUsageChunk(usage)}\n\n")
                     }
                     writer.writeStringUtf8("data: [DONE]\n\n")
                     writer.flush()
                 }
                 is StreamEvent.Error -> {
-                    writer.writeStringUtf8("data: {\"error\": \"${event.message}\"}\n\n")
+                    val payload = Json.encodeToString(
+                        ErrorEnvelope(
+                            ErrorBody(
+                                message = event.message,
+                                code = if (isContextOverflow(event.message)) "context_length_exceeded" else null,
+                            )
+                        )
+                    )
+                    writer.writeStringUtf8("data: $payload\n\n")
                     writer.writeStringUtf8("data: [DONE]\n\n")
                     writer.flush()
                     throw Exception(event.message)

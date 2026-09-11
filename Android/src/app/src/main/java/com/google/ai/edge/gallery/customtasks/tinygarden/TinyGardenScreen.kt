@@ -97,10 +97,12 @@ import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.ValueType
 import com.google.ai.edge.gallery.data.convertValueToTargetType
+import com.google.ai.edge.gallery.relay.security.OfflineMode
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageText
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageWarning
 import com.google.ai.edge.gallery.ui.common.chat.ChatSide
 import com.google.ai.edge.gallery.ui.common.getTaskBgGradientColors
+import com.google.ai.edge.gallery.ui.common.offlineBlockResponse
 import com.google.ai.edge.gallery.ui.common.textandvoiceinput.HoldToDictateViewModel
 import com.google.ai.edge.gallery.ui.common.textandvoiceinput.TextAndVoiceInput
 import com.google.ai.edge.gallery.ui.common.textandvoiceinput.VoiceRecognizerOverlay
@@ -516,7 +518,9 @@ fun MainUi(
                       request: WebResourceRequest,
                     ): WebResourceResponse? {
                       // Check if the URL should be handled by the asset loader
-                      return assetLoader.shouldInterceptRequest(request.url)
+                      assetLoader.shouldInterceptRequest(request.url)?.let { return it }
+                      if (!OfflineMode.allowsUrl(request.url)) return offlineBlockResponse()
+                      return null
                     }
 
                     override fun onPageFinished(view: WebView?, url: String?) {

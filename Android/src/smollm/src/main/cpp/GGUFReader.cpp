@@ -27,6 +27,27 @@ Java_com_jegly_offlineLLM_smollm_GGUFReader_getContextSize(JNIEnv* env, jobject 
     return contextLength;
 }
 
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_jegly_offlineLLM_smollm_GGUFReader_getPoolingType(JNIEnv* env, jobject thiz, jlong nativeHandle) {
+    gguf_context* ggufContext       = reinterpret_cast<gguf_context*>(nativeHandle);
+    int64_t       architectureKeyId = gguf_find_key(ggufContext, "general.architecture");
+    if (architectureKeyId == -1)
+        return -1;
+    std::string architecture     = gguf_get_val_str(ggufContext, architectureKeyId);
+    std::string poolingTypeKey   = architecture + ".pooling_type";
+    int64_t     poolingTypeKeyId = gguf_find_key(ggufContext, poolingTypeKey.c_str());
+    if (poolingTypeKeyId == -1)
+        return -1;
+    return gguf_get_val_u32(ggufContext, poolingTypeKeyId);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_jegly_offlineLLM_smollm_GGUFReader_releaseGGUFContext(JNIEnv* env, jobject thiz, jlong nativeHandle) {
+    if (nativeHandle == 0)
+        return;
+    gguf_free(reinterpret_cast<gguf_context*>(nativeHandle));
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_jegly_offlineLLM_smollm_GGUFReader_getChatTemplate(JNIEnv* env, jobject thiz, jlong nativeHandle) {
     gguf_context* ggufContext       = reinterpret_cast<gguf_context*>(nativeHandle);

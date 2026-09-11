@@ -3,6 +3,7 @@
 package com.google.ai.edge.gallery.relay.model
 
 import android.util.Log
+import com.google.ai.edge.gallery.relay.security.OfflineMode
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.net.HttpURLConnection
@@ -60,6 +61,7 @@ suspend fun fetchHfCardFacts(modelId: String, accessToken: String? = null): HfCa
   withContext(Dispatchers.IO) {
     val urlString = "$HF_API_BASE_URL/$modelId"
     try {
+      OfflineMode.assertOnlineOrThrow()
       val connection = URL(urlString).openConnection() as HttpURLConnection
       connection.requestMethod = "GET"
       connection.connectTimeout = CONNECT_TIMEOUT_MS

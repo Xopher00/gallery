@@ -16,6 +16,7 @@ import android.content.Context
 import android.util.Log
 import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
+import com.google.ai.edge.gallery.relay.server.handlers.ContextLengthExceededException
 import dagger.hilt.android.EntryPointAccessors
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
@@ -182,7 +183,7 @@ class OpenAiServer(
                 }
             }
 
-            // Scoped to these three types only (never Throwable) so it can't swallow
+            // Scoped to these specific types only (never Throwable) so it can't swallow
             // the auth 401 or busy-guard 429s.
             install(StatusPages) {
                 exception<BadRequestException> { call, cause ->
@@ -201,6 +202,12 @@ class OpenAiServer(
                     call.respond(
                         HttpStatusCode.UnsupportedMediaType,
                         ErrorEnvelope(ErrorBody(message = "Unsupported content type; expected application/json"))
+                    )
+                }
+                exception<ContextLengthExceededException> { call, cause ->
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ErrorEnvelope(ErrorBody(message = cause.message ?: "", code = "context_length_exceeded"))
                     )
                 }
             }

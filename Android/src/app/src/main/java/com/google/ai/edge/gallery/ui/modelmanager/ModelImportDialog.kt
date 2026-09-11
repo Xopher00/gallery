@@ -80,11 +80,17 @@ import com.google.ai.edge.gallery.data.NumberSliderConfig
 import com.google.ai.edge.gallery.data.SegmentedButtonConfig
 import com.google.ai.edge.gallery.data.ValueType
 import com.google.ai.edge.gallery.data.convertValueToTargetType
+import com.google.ai.edge.gallery.huggingface.DeviceHardwareInfo
+import com.google.ai.edge.gallery.huggingface.DeviceVendor
 import com.google.ai.edge.gallery.huggingface.HuggingFaceApiClient
 import com.google.ai.edge.gallery.huggingface.extractHfUrlInfo
+import com.google.ai.edge.gallery.huggingface.isLiteRtLmFileName
 import com.google.ai.edge.gallery.proto.ImportedModel
 import com.google.ai.edge.gallery.proto.importedModel
 import com.google.ai.edge.gallery.proto.llmConfig
+import com.google.ai.edge.gallery.relay.model.importedFile
+import com.google.ai.edge.gallery.relay.runtime.isLlamaCppFile
+import com.google.ai.edge.gallery.relay.security.OfflineMode
 import com.google.ai.edge.gallery.ui.common.ConfigEditorsPanel
 import com.google.ai.edge.gallery.ui.common.ensureValidFileName
 import com.google.ai.edge.gallery.ui.common.humanReadableSize
@@ -109,6 +115,16 @@ private val SUPPORTED_ACCELERATORS: List<Accelerator> =
     accelerators.toList()
   } else {
     listOf(Accelerator.CPU, Accelerator.GPU, Accelerator.NPU)
+  }
+
+// An NPU-vendor-tagged or llama.cpp (CPU-only) file must not be offered incompatible accelerators.
+private fun acceleratorOptionsFor(fileName: String): List<Accelerator> =
+  when {
+    isLlamaCppFile(fileName) -> listOf(Accelerator.CPU)
+    isLiteRtLmFileName(fileName) &&
+      !DeviceHardwareInfo(DeviceVendor.GENERIC_ANDROID).isCompatibleWithFile(fileName) ->
+      listOf(Accelerator.NPU)
+    else -> SUPPORTED_ACCELERATORS
   }
 
 private val IMPORT_CONFIGS_LLM: List<Config> =
@@ -156,6 +172,22 @@ private val IMPORT_CONFIGS_LLM: List<Config> =
     ),
   )
 
+// Swaps only the accelerator config; SegmentedButtonConfig isn't a data class, so fields are passed through by hand.
+private fun importConfigsLlmFor(acceleratorOptions: List<Accelerator>): List<Config> =
+  IMPORT_CONFIGS_LLM.map { config ->
+    if (config.key == ConfigKeys.COMPATIBLE_ACCELERATORS) {
+      val original = config as SegmentedButtonConfig
+      SegmentedButtonConfig(
+        key = original.key,
+        defaultValue = acceleratorOptions[0].label,
+        options = acceleratorOptions.map { it.label },
+        allowMultiple = original.allowMultiple,
+      )
+    } else {
+      config
+    }
+  }
+
 @Composable
 fun ModelImportDialog(
   uri: Uri,
@@ -197,9 +229,12 @@ fun ModelImportDialog(
     }
   }
 
+  val acceleratorOptions = remember(fileName) { acceleratorOptionsFor(fileName) }
+  val importConfigsLlm = remember(acceleratorOptions) { importConfigsLlmFor(acceleratorOptions) }
+
   val initialValues: Map<String, Any> = remember {
     mutableMapOf<String, Any>().apply {
-      for (config in IMPORT_CONFIGS_LLM) {
+      for (config in importConfigsLlm) {
         put(config.key.label, config.defaultValue)
       }
       put(ConfigKeys.NAME.label, fileName)
@@ -244,7 +279,7 @@ fun ModelImportDialog(
           verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
           // Default configs for users to set.
-          ConfigEditorsPanel(configs = IMPORT_CONFIGS_LLM, values = values)
+          ConfigEditorsPanel(configs = importConfigsLlm, values = values)
         }
 
         // Button row.
@@ -260,6 +295,7 @@ fun ModelImportDialog(
             // Disable the import button while fetching file size for URI.
             enabled = !isFetchingSize,
             onClick = {
+              // Guards against a stale value.get() surviving a fileName-driven options change.
               val supportedAccelerators =
                 (convertValueToTargetType(
                     value = values.get(ConfigKeys.COMPATIBLE_ACCELERATORS.label)!!,
@@ -267,6 +303,7 @@ fun ModelImportDialog(
                   )
                     as String)
                   .split(",")
+                  .filter { label -> acceleratorOptions.any { it.label == label } }
               val defaultMaxTokens =
                 convertValueToTargetType(
                   value = values.get(ConfigKeys.DEFAULT_MAX_TOKENS.label)!!,
@@ -491,7 +528,7 @@ private fun importModel(
     }
 
     // Import by copying the file over.
-    val outputFile = File(modelsDir, "$IMPORTS_DIR/$fileName")
+    val outputFile = importedFile(modelsDir, fileName)
     val outputStream = FileOutputStream(outputFile)
     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
     var bytesRead: Int
@@ -619,6 +656,7 @@ private suspend fun fetchHuggingFaceFileSize(
 /** Fetches the file size from a generic, non-Hugging-Face HTTP URL via Range GET. */
 private suspend fun fetchHttpFileSize(urlStr: String): Long {
   val url = runCatching { URL(urlStr) }.getOrNull() ?: return 0L
+  if (OfflineMode.isEnabled.value) return 0L
   val connection =
     runCatching { url.openConnection() as HttpURLConnection }.getOrNull() ?: return 0L
   connection.requestMethod = "GET"

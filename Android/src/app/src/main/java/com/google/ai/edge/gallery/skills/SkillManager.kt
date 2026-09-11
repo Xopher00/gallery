@@ -27,6 +27,7 @@ import com.google.ai.edge.gallery.data.AllowedSkill
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.data.SkillAllowlist
 import com.google.ai.edge.gallery.proto.Skill
+import com.google.ai.edge.gallery.relay.security.OfflineMode
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileNotFoundException
@@ -214,6 +215,7 @@ constructor(
       // 2. Read url/SKILL.md.
       val mdContent =
         try {
+          OfflineMode.assertOnlineOrThrow()
           val connection = URL(skillMdUrl).openConnection()
           InputStreamReader(connection.getInputStream()).use { reader -> reader.readText() }
         } catch (e: Exception) {

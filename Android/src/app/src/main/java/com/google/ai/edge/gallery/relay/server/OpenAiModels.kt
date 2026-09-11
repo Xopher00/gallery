@@ -279,7 +279,7 @@ data class CompletionChunkChoice(
 data class ErrorEnvelope(val error: ErrorBody)
 
 @Serializable
-data class ErrorBody(val message: String, val type: String = "invalid_request_error")
+data class ErrorBody(val message: String, val type: String = "invalid_request_error", val code: String? = null)
 
 // --- Audio transcriptions API (POST /v1/audio/transcriptions) ---
 // Request is multipart/form-data (file, model, language, prompt, response_format, temperature),

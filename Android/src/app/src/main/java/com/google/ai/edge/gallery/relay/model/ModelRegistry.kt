@@ -107,6 +107,9 @@ constructor(
       importedModelStore.queueDescriptionFor(info)
     }
 
+  fun addImportedLlmModel(info: ImportedModel): Model =
+    importedModelStore.addImportedLlmModel(info = info)
+
   fun loadModelAllowlist(onDone: () -> Unit = {}, onError: (String) -> Unit = {}) =
     modelAllowlistLoader.loadModelAllowlist(onDone, onError)
 

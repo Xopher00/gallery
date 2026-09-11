@@ -70,6 +70,13 @@ internal fun OpenAiServer.usesNpuSlot(accelerator: Accelerator) =
 internal fun OpenAiServer.parseAccelerator(raw: String): Accelerator? =
     Accelerator.values().find { it.label.equals(raw, ignoreCase = true) || it.name.equals(raw, ignoreCase = true) }
 
+// Every loaded outcome must take the API hold, or a cleanup can tear the engine down mid-request.
+private fun OpenAiServer.markLoaded(name: String, model: Model): LoadResult {
+    modelRegistry.acquireHold(name, HOLDER_API)
+    pinLastModel(name, currentAcceleratorLabel(model))
+    return LoadResult.Loaded(name, currentAcceleratorLabel(model))
+}
+
 // Reinitializes only when the accelerator actually changes, enforcing the NPU single-slot rule.
 // Compares the engine's ACTUAL accelerator, not the possibly-stale stored preference; call under modelMutexes[model.name].withLock.
 internal suspend fun OpenAiServer.ensureAccelerator(model: Model, requestedRaw: Accelerator?): AcceleratorResult {
@@ -130,7 +137,7 @@ private suspend fun OpenAiServer.reinitializeModel(model: Model, accelerator: Ac
         context = context,
         model = model,
         taskId = API_TASK_ID,
-        supportImage = false,
+        supportImage = model.llmSupportImage,
         supportAudio = false,
         onDone = { errorMsg -> initError.complete(errorMsg) },
     )
@@ -168,9 +175,7 @@ suspend fun OpenAiServer.loadModel(
 
     if (model.instance != null) {
         // Already loaded -- hold it and report success rather than re-triggering initialization.
-        modelRegistry.acquireHold(name, HOLDER_API)
-        pinLastModel(name, currentAcceleratorLabel(model))
-        return LoadResult.Loaded(name, currentAcceleratorLabel(model))
+        return markLoaded(name, model)
     }
 
     val downloaded = modelRegistry.getModelDownloadStatus(model).status ==
@@ -209,6 +214,16 @@ suspend fun OpenAiServer.loadModel(
         )
     }
 
+    // Import-time accelerator narrowing (NPU-only, or CPU-only llama.cpp) must be enforced server-side too.
+    if (requestedAccel != null && engine.family == EngineFamily.LLM &&
+        model.accelerators.isNotEmpty() && requestedAccel !in model.accelerators
+    ) {
+        return LoadResult.Error(
+            "Model '$name' does not support accelerator '${requestedAccel.label.lowercase()}'. " +
+                "Allowed: " + model.accelerators.joinToString(", ") { it.label.lowercase() }
+        )
+    }
+
     // Same per-model busy-guard (atomic tryLock, no TOCTOU) every other route uses -- a racing
     // request gets BusyResult.Busy immediately instead of queueing.
     val guardResult = withBusyGuard(
@@ -217,7 +232,7 @@ suspend fun OpenAiServer.loadModel(
         timeoutMs = timeoutMs,
     ) {
         if (model.instance != null) {
-            LoadResult.Loaded(name, currentAcceleratorLabel(model)) as LoadResult
+            markLoaded(name, model)
         } else if (requestedAccel == null && engine.family != EngineFamily.LLM) {
             // No explicit accelerator + CPU-only kind: initialise the way the app's UI does
             // (initializeModelFn) instead of forcing the recorded (often stale) default accelerator.
@@ -235,9 +250,7 @@ suspend fun OpenAiServer.loadModel(
                     "Failed to initialize model '$name': ${error ?: "unknown error"}"
                 ) as LoadResult
             } else {
-                modelRegistry.acquireHold(name, HOLDER_API)
-                pinLastModel(name, currentAcceleratorLabel(model))
-                LoadResult.Loaded(name, currentAcceleratorLabel(model)) as LoadResult
+                markLoaded(name, model)
             }
         } else {
             when (val result = ensureAccelerator(model, requestedAccel)) {
@@ -245,11 +258,7 @@ suspend fun OpenAiServer.loadModel(
                     "NPU is currently held by model '${result.heldBy}'; only one model " +
                         "may use the NPU at a time on this device."
                 ) as LoadResult
-                is AcceleratorResult.Ok -> {
-                    modelRegistry.acquireHold(name, HOLDER_API)
-                    pinLastModel(name, currentAcceleratorLabel(model))
-                    LoadResult.Loaded(name, currentAcceleratorLabel(model)) as LoadResult
-                }
+                is AcceleratorResult.Ok -> markLoaded(name, model)
             }
         }
     }

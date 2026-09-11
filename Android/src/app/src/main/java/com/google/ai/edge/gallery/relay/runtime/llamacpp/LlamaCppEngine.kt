@@ -1,6 +1,6 @@
 // Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
 
-package com.google.ai.edge.gallery.runtime.llamacpp
+package com.google.ai.edge.gallery.relay.runtime.llamacpp
 
 import com.google.ai.edge.gallery.relay.runtime.EmbeddingCapable
 import com.jegly.offlineLLM.smollm.SmolLM

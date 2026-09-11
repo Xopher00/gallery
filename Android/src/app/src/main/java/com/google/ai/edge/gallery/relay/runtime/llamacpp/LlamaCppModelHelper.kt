@@ -1,14 +1,14 @@
 // Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
 
-package com.google.ai.edge.gallery.runtime.llamacpp
+package com.google.ai.edge.gallery.relay.runtime.llamacpp
 
-import com.google.ai.edge.gallery.runtime.CountKind
+import com.google.ai.edge.gallery.relay.runtime.CountKind
 import com.google.ai.edge.gallery.runtime.LlmModelHelper
 import com.google.ai.edge.gallery.runtime.ResultListener
 import com.google.ai.edge.gallery.runtime.CleanUpListener
-import com.google.ai.edge.gallery.runtime.TokenCount
-import com.google.ai.edge.gallery.runtime.TurnTokenUsage
-import com.google.ai.edge.gallery.runtime.TurnUsageStore
+import com.google.ai.edge.gallery.relay.runtime.TokenCount
+import com.google.ai.edge.gallery.relay.runtime.TurnTokenUsage
+import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -37,6 +37,10 @@ object LlamaCppModelHelper : LlmModelHelper {
 
     // Indexed by model name
     private val engines: MutableMap<String, LlamaCppEngine> = mutableMapOf()
+
+    private fun textOf(contents: Contents?): String =
+        contents?.contents?.filterIsInstance<Content.Text>()?.joinToString(separator = "") { it.text }
+            ?: ""
 
     override fun initialize(
         context: Context,
@@ -72,6 +76,7 @@ object LlamaCppModelHelper : LlmModelHelper {
         engine.loadModel(
             modelPath = modelPath,
             params = params,
+            systemPrompt = textOf(systemInstruction),
             onSuccess = {
                 // Store a marker so the ViewModel knows the model is ready
                 model.instance = engine
@@ -108,16 +113,13 @@ object LlamaCppModelHelper : LlmModelHelper {
                 Role.MODEL -> "assistant"
                 else -> return@mapNotNull null
             }
-            val text = message.contents.contents
-                .filterIsInstance<Content.Text>()
-                .joinToString(separator = "") { it.text }
-            role to text
+            role to textOf(message.contents)
         }
 
         engine.resetConversation(
             modelPath = modelPath,
             params = engine.lastLoadParams ?: SmolLM.InferenceParams(),
-            systemPrompt = engine.lastSystemPrompt,
+            systemPrompt = textOf(systemInstruction),
             conversationHistory = conversationHistory,
             onSuccess = {
                 // Update model instance reference
@@ -169,41 +171,48 @@ object LlamaCppModelHelper : LlmModelHelper {
         // Both counts are exact here: the KV-cache difference covers the whole turn, and every
         // flow emission is one decoded token, so the prompt side is what remains.
         val turnSequence = TurnUsageStore.begin(model.name)
-        val contextBefore = engine.contextLengthUsed()
+        try {
+            val contextBefore = engine.contextLengthUsed()
 
-        fun recordUsage(result: LlamaCppEngine.GenerationResult?) {
-            val completion = result?.pieceCount ?: 0
-            val contextAfter = result?.contextLengthUsed ?: engine.contextLengthUsed()
-            val turnTotal = (contextAfter - contextBefore).coerceAtLeast(completion)
-            TurnUsageStore.record(
-                model.name,
-                TurnTokenUsage(
-                    prompt = TokenCount((turnTotal - completion).coerceAtLeast(0), CountKind.EXACT),
-                    completion = TokenCount(completion, CountKind.EXACT),
-                    exactTotal = turnTotal,
-                    turnSequence = turnSequence,
-                ),
-            )
-        }
-
-        engine.generateResponse(
-            query = input,
-            onToken = { partialResponse ->
-                resultListener(partialResponse, false, null)
-            },
-            onComplete = { result ->
-                recordUsage(result)
-                // Send the final delta (empty string) with done=true
-                resultListener("", true, null)
-            },
-            onCancelled = {
-                recordUsage(null)
-                resultListener("", true, null)
-            },
-            onError = { e ->
-                Log.e(TAG, "Inference error", e)
-                onError(e.message ?: "Inference error")
+            fun recordUsage(result: LlamaCppEngine.GenerationResult?) {
+                val completion = result?.pieceCount ?: 0
+                val contextAfter = result?.contextLengthUsed ?: engine.contextLengthUsed()
+                val turnTotal = (contextAfter - contextBefore).coerceAtLeast(completion)
+                TurnUsageStore.record(
+                    model.name,
+                    TurnTokenUsage(
+                        prompt = TokenCount((turnTotal - completion).coerceAtLeast(0), CountKind.EXACT),
+                        completion = TokenCount(completion, CountKind.EXACT),
+                        exactTotal = turnTotal,
+                        turnSequence = turnSequence,
+                    ),
+                )
             }
-        )
+
+            engine.generateResponse(
+                query = input,
+                onToken = { partialResponse ->
+                    resultListener(partialResponse, false, null)
+                },
+                onComplete = { result ->
+                    recordUsage(result)
+                    // Send the final delta (empty string) with done=true
+                    resultListener("", true, null)
+                },
+                onCancelled = {
+                    recordUsage(null)
+                    resultListener("", true, null)
+                },
+                onError = { e ->
+                    Log.e(TAG, "Inference error", e)
+                    TurnUsageStore.abort(model.name)
+                    onError(e.message ?: "Inference error")
+                }
+            )
+        } catch (e: Exception) {
+            // generateResponse can throw synchronously before any callback fires.
+            TurnUsageStore.abort(model.name)
+            throw e
+        }
     }
 }

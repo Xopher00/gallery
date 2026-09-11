@@ -30,6 +30,11 @@
 
 -keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }
 
+# LiteRT-LM reads ToolSet classes by Kotlin reflection, which needs their @Metadata; R8 sees no caller.
+-keep class * implements com.google.ai.edge.litertlm.ToolSet { *; }
+-keepclassmembers class * { @com.google.ai.edge.litertlm.Tool <methods>; }
+-keep class kotlin.Metadata { *; }
+
 -keep class com.google.ai.edge.gallery.worker.DownloadWorker {
   public <init>(android.content.Context, androidx.work.WorkerParameters);
 }
