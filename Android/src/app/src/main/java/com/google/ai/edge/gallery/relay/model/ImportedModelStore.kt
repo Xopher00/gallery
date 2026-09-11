@@ -13,6 +13,7 @@ import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.data.IMPORTS_DIR
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelCapability
+import com.google.ai.edge.gallery.data.ModelDownloadInfo
 import com.google.ai.edge.gallery.data.NumberSliderConfig
 import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.SD_IMPORTS_DIR
@@ -90,9 +91,13 @@ class ImportedModelStore(
     Model(
         name = fileName,
         info = "Imported SD GGUF model",
-        url = url,
-        sizeInBytes = fileSize,
-        downloadFileName = "$SD_IMPORTS_DIR${File.separator}$fileName",
+        downloadInfo =
+          ModelDownloadInfo(
+            url = url,
+            sizeInBytes = fileSize,
+            downloadFileName = "$SD_IMPORTS_DIR${File.separator}$fileName",
+            imported = true,
+          ),
         configs =
           mutableListOf(
             NumberSliderConfig(
@@ -113,7 +118,6 @@ class ImportedModelStore(
             ),
           ),
         showRunAgainButton = false,
-        imported = true,
       )
       .also { it.preProcess() }
 
@@ -178,6 +182,13 @@ class ImportedModelStore(
         RuntimeType.LITERT_LM
       }
     val hfModelId = hfModelIdFromUrl(info.url)
+    val downloadInfo =
+      ModelDownloadInfo(
+        url = info.url,
+        sizeInBytes = info.fileSize,
+        downloadFileName = info.fileName,
+        imported = true,
+      )
     val model =
       Model(
         // name stays the file name: it is the identity key for downloads, mutexes and the API.
@@ -186,12 +197,9 @@ class ImportedModelStore(
         // Lookup only. The fetch is triggered by queueDescriptionFor, on import not on restore.
         info =
           if (hfModelId.isEmpty()) "" else cardDescriptionStore.get(hfModelId)?.description.orEmpty(),
-        url = info.url,
         configs = configs,
-        sizeInBytes = info.fileSize,
-        downloadFileName = info.fileName,
+        downloadInfo = downloadInfo,
         showRunAgainButton = false,
-        imported = true,
         llmSupportImage = llmSupportImage,
         llmSupportAudio = llmSupportAudio,
         llmSupportTinyGarden = llmSupportTinyGarden,

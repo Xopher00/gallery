@@ -45,8 +45,10 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelAccessibility
 import com.google.ai.edge.gallery.data.ModelAllowlist
 import com.google.ai.edge.gallery.data.ModelCapability
+import com.google.ai.edge.gallery.data.ModelDownloadInfo
 import com.google.ai.edge.gallery.data.ModelDownloadStatus
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
+import com.google.ai.edge.gallery.data.ModelFile
 import com.google.ai.edge.gallery.data.NumberSliderConfig
 import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.SOC
@@ -352,8 +354,8 @@ constructor(
     // warn, or every auto-started import (unresolved size at start) would prompt spuriously.
     if (
       !bypassStorageCheck &&
-        model.totalBytes > 0L &&
-        model.totalBytes > deviceProfile.freeStorageBytes()
+        model.downloadInfo.totalBytes > 0L &&
+        model.downloadInfo.totalBytes > deviceProfile.freeStorageBytes()
     ) {
       _uiState.update { it.copy(modelNeedingStorageConfirmation = model.name) }
       return
@@ -387,8 +389,8 @@ constructor(
             status =
               ModelDownloadStatus(
                 status = ModelDownloadStatusType.SUCCEEDED,
-                receivedBytes = model.sizeInBytes,
-                totalBytes = model.sizeInBytes,
+                receivedBytes = model.downloadInfo.sizeInBytes,
+                totalBytes = model.downloadInfo.sizeInBytes,
               ),
           )
         },
@@ -447,7 +449,7 @@ constructor(
   }
 
   private fun isExtraDataPresentOnDisk(model: Model, taskId: String? = null): Boolean {
-    val extraFiles = model.extraDataFiles(taskId)
+    val extraFiles = model.downloadInfo.extraDataFiles(taskId)
     if (extraFiles.isEmpty()) return false
     val modelDir =
       File(model.getPath(context = context, fileName = PLACEHOLDER_FILENAME)).parentFile
@@ -491,7 +493,7 @@ constructor(
             ?: File(targetVariant.getPath(context = context, fileName = PLACEHOLDER_FILENAME))
         if (srcModelDir.absolutePath != destModelDir.absolutePath) {
           if (!destModelDir.exists()) destModelDir.mkdirs()
-          for (extraFile in sourceModel.extraDataFiles) {
+          for (extraFile in sourceModel.downloadInfo.extraDataFiles) {
             val folderName = extraFile.downloadFileName.substringBeforeLast(".")
             val candidates =
               listOf(
@@ -538,7 +540,7 @@ constructor(
       uiState.value.modelDownloadStatus[it.name]?.status == ModelDownloadStatusType.SUCCEEDED
     }
     val targetModel = downloadedModels.firstOrNull() ?: model
-    val extraFiles = targetModel.extraDataFiles(task?.id)
+    val extraFiles = targetModel.downloadInfo.extraDataFiles(task?.id)
     if (extraFiles.isEmpty()) return
     val totalBytes = extraFiles.sumOf { it.sizeInBytes }
     val initialStatus =
@@ -572,7 +574,7 @@ constructor(
         File(m.getPath(context = context, fileName = PLACEHOLDER_FILENAME)).parentFile
           ?: File(m.getPath(context = context, fileName = PLACEHOLDER_FILENAME))
       if (modelDir.exists()) {
-        for (extraFile in m.extraDataFiles) {
+        for (extraFile in m.downloadInfo.extraDataFiles) {
           val tmpFile = File(modelDir, "${extraFile.downloadFileName}.$TMP_FILE_EXT")
           if (tmpFile.exists()) tmpFile.delete()
         }
@@ -616,7 +618,7 @@ constructor(
         File(m.getPath(context = context, fileName = PLACEHOLDER_FILENAME)).parentFile
           ?: File(m.getPath(context = context, fileName = PLACEHOLDER_FILENAME))
       if (modelDir.exists()) {
-        val extraFiles = m.extraDataFiles(task?.id)
+        val extraFiles = m.downloadInfo.extraDataFiles(task?.id)
         for (extraFile in extraFiles) {
           val directFile = File(modelDir, extraFile.downloadFileName)
           if (directFile.exists()) directFile.deleteRecursively()
@@ -655,16 +657,6 @@ constructor(
         ?.let { cleanupModel(context = context, task = it, model = model) }
     }
 
-    // If the currently downloaded model is an updatable version, reset the model to its latest
-    // version and mark it as not updatable upon deletion.
-    if (model.updatable) {
-      model.updatable = false
-      model.latestModelFile?.let {
-        model.version = it.commitHash
-        model.downloadFileName = it.fileName
-      }
-    }
-
     for (curTask in uiState.value.tasks) {
       if (curTask.models.any { it.name == model.name }) {
         val customTask = getCustomTaskByTaskId(id = curTask.id)
@@ -678,7 +670,7 @@ constructor(
         uiState.value.modelDownloadStatus[it.name]?.status == ModelDownloadStatusType.SUCCEEDED
     }
 
-    if (remainingDownloadedVariants.isNotEmpty() && !model.imported) {
+    if (remainingDownloadedVariants.isNotEmpty() && !model.downloadInfo.imported) {
       val targetVariant = remainingDownloadedVariants.first()
       val srcModelDir =
         File(model.getPath(context = context, fileName = PLACEHOLDER_FILENAME)).parentFile
@@ -688,7 +680,7 @@ constructor(
           ?: File(targetVariant.getPath(context = context, fileName = PLACEHOLDER_FILENAME))
       if (srcModelDir.exists() && srcModelDir.absolutePath != destModelDir.absolutePath) {
         if (!destModelDir.exists()) destModelDir.mkdirs()
-        for (extraFile in model.extraDataFiles) {
+        for (extraFile in model.downloadInfo.extraDataFiles) {
           val folderName = extraFile.downloadFileName.substringBeforeLast(".")
           val candidates =
             listOf(
@@ -712,8 +704,8 @@ constructor(
       }
     }
 
-    if (model.imported) {
-      deleteFilesFromImportDir(model.downloadFileName)
+    if (model.downloadInfo.imported) {
+      deleteFilesFromImportDir(model.downloadInfo.downloadFileName)
     } else {
       deleteDirFromModelsDir(model.normalizedName)
     }
@@ -723,7 +715,7 @@ constructor(
     // Delete model from the list if model is imported as a local model and
     // removeImportedFromModelList is
     // true.
-    if (model.imported && removeImportedFromModelList) {
+    if (model.downloadInfo.imported && removeImportedFromModelList) {
       for (curTask in uiState.value.tasks) {
         val index = curTask.models.indexOf(model)
         if (index >= 0) {
@@ -742,7 +734,7 @@ constructor(
     }
     _uiState.update { currentState ->
       val curModelDownloadStatus = currentState.modelDownloadStatus.toMutableMap()
-      if (model.imported && removeImportedFromModelList) {
+      if (model.downloadInfo.imported && removeImportedFromModelList) {
         curModelDownloadStatus.remove(model.name)
       } else {
         curModelDownloadStatus[model.name] =
@@ -816,7 +808,7 @@ constructor(
       status.status == ModelDownloadStatusType.FAILED ||
         status.status == ModelDownloadStatusType.NOT_DOWNLOADED
     ) {
-      deleteFileFromModelsDir(curModel.downloadFileName)
+      deleteFileFromModelsDir(curModel.downloadInfo.downloadFileName)
     }
 
     if (status.status == ModelDownloadStatusType.SUCCEEDED) {
@@ -824,7 +816,8 @@ constructor(
       val family = getModelFamily(curModel)
       if (
         (isDownloadOptionalComponentsEnabled(curModel.name) &&
-          curModel.extraDataFiles.isNotEmpty()) || family.any { isExtraDataPresentOnDisk(it) }
+          curModel.downloadInfo.extraDataFiles.isNotEmpty()) ||
+          family.any { isExtraDataPresentOnDisk(it) }
       ) {
         val succeededStatus = ModelDownloadStatus(status = ModelDownloadStatusType.SUCCEEDED)
         for (m in family) {
@@ -923,20 +916,20 @@ constructor(
     accessToken: String? = null,
   ): ModelAccessibility =
     withContext(Dispatchers.IO) {
-      if (model.url.isEmpty()) {
+      if (model.downloadInfo.url.isEmpty()) {
         return@withContext ModelAccessibility.ACCESSIBLE
       }
       // If it's a Hugging Face URL, delegate to HuggingFaceApiClient.
-      if (HuggingFaceApiClient.isHuggingFaceUrl(model.url)) {
+      if (HuggingFaceApiClient.isHuggingFaceUrl(model.downloadInfo.url)) {
         return@withContext huggingFaceApiClient.checkModelAccessibility(
-          modelUrl = model.url,
+          modelUrl = model.downloadInfo.url,
           accessToken = accessToken,
         )
       }
 
       val responseCode: Int
       try {
-        val url = URL(model.url)
+        val url = URL(model.downloadInfo.url)
         val connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = "HEAD"
         connection.connect()
@@ -984,7 +977,8 @@ constructor(
       )
     for (task in getTasksByIds(ids = setOfTasks)) {
       // Remove duplicated imported model if existed.
-      val modelIndex = task.models.indexOfFirst { info.fileName == it.name && it.imported }
+      val modelIndex =
+        task.models.indexOfFirst { info.fileName == it.name && it.downloadInfo.imported }
       if (modelIndex >= 0) {
         Log.d(TAG, "duplicated imported model found in task. Removing it first")
         task.models.removeAt(modelIndex)
@@ -1013,7 +1007,7 @@ constructor(
 
     // Add initial status and states.
     val modelDownloadStatus = uiState.value.modelDownloadStatus.toMutableMap()
-    if (model.url.isNotEmpty()) {
+    if (model.downloadInfo.url.isNotEmpty()) {
       modelDownloadStatus[model.name] = getModelDownloadStatus(model = model)
     } else {
       modelDownloadStatus[model.name] =
@@ -1045,7 +1039,7 @@ constructor(
     // A local file import has no URL and is already SUCCEEDED above; only a real
     // remote import needs the download kicked off automatically. Main dispatcher is required:
     // downloadModel observes WorkManager LiveData, and this runs on IO for a web import.
-    if (model.url.isNotEmpty()) {
+    if (model.downloadInfo.url.isNotEmpty()) {
       viewModelScope.launch(Dispatchers.Main) { downloadModel(task = null, model = model) }
     }
 
@@ -1062,7 +1056,7 @@ constructor(
       modelRegistry.createImportedSdModel(fileName = fileName, fileSize = fileSize, url = url)
 
     val task = getTasksByIds(ids = setOf(BuiltInTaskId.IMAGE_GEN)).firstOrNull() ?: return
-    val existingIndex = task.models.indexOfFirst { it.name == model.name && it.imported }
+    val existingIndex = task.models.indexOfFirst { it.name == model.name && it.downloadInfo.imported }
     if (existingIndex >= 0) task.models.removeAt(existingIndex)
     task.models.add(model)
     model.preProcess()
@@ -1070,7 +1064,7 @@ constructor(
 
     val modelDownloadStatus = uiState.value.modelDownloadStatus.toMutableMap()
     modelDownloadStatus[model.name] =
-      if (model.url.isNotEmpty()) {
+      if (model.downloadInfo.url.isNotEmpty()) {
         getModelDownloadStatus(model = model)
       } else {
         ModelDownloadStatus(
@@ -1088,7 +1082,7 @@ constructor(
       )
     }
 
-    if (model.url.isNotEmpty()) {
+    if (model.downloadInfo.url.isNotEmpty()) {
       viewModelScope.launch(Dispatchers.Main) { downloadModel(task = null, model = model) }
     }
   }
@@ -1259,7 +1253,7 @@ constructor(
                 tokenStatusAndData.status == TokenStatus.NOT_EXPIRED &&
                   tokenStatusAndData.data != null
               ) {
-                model.accessToken = tokenStatusAndData.data.accessToken
+                model.downloadInfo.accessToken = tokenStatusAndData.data.accessToken
               }
               Log.d(TAG, "Sending a new download request for '${model.name}'")
               downloadRepository.downloadModel(
@@ -1361,13 +1355,16 @@ constructor(
   }
 
   private fun isModelPartiallyDownloaded(model: Model): Boolean {
-    if (model.localModelFilePathOverride.isNotEmpty()) {
+    if (model.downloadInfo.localModelFilePathOverride.isNotEmpty()) {
       return false
     }
 
     // A model is partially downloaded when the tmp file exists.
     val tmpFilePath =
-      model.getPath(context = context, fileName = "${model.downloadFileName}.$TMP_FILE_EXT")
+      model.getPath(
+        context = context,
+        fileName = "${model.downloadInfo.downloadFileName}.$TMP_FILE_EXT",
+      )
     return File(tmpFilePath).exists()
   }
 
@@ -1427,7 +1424,7 @@ constructor(
 
     for (importedModel in dataStoreRepository.readImportedModels()) {
       val model = modelRegistry.getModelByName(importedModel.fileName) ?: continue
-      if (model.url.isNotEmpty()) {
+      if (model.downloadInfo.url.isNotEmpty()) {
         modelDownloadStatus[model.name] = getModelDownloadStatus(model = model)
       } else {
         modelDownloadStatus[model.name] =
@@ -1494,33 +1491,6 @@ constructor(
   private fun deleteDirFromModelsDir(dir: String) = modelRegistry.deleteDirFromModelsDir(dir)
 
   fun isModelDownloaded(model: Model): Boolean = modelRegistry.isModelDownloaded(model)
-
-  private fun checkIfModelDownloaded(
-    model: Model,
-    version: String,
-    fileName: String = model.downloadFileName,
-  ): Boolean {
-    val modelRelativePath =
-      if (model.imported) {
-        listOf(IMPORTS_DIR, fileName).joinToString(File.separator)
-      } else {
-        listOf(model.normalizedName, version, fileName).joinToString(File.separator)
-      }
-    val downloadedFileExists =
-      fileName.isNotEmpty() &&
-        ((model.localModelFilePathOverride.isEmpty() && isFileInModelsDir(modelRelativePath)) ||
-          (model.localModelFilePathOverride.isNotEmpty() &&
-            File(model.localModelFilePathOverride).exists()))
-
-    val unzippedDirectoryExists =
-      model.isZip &&
-        model.unzipDir.isNotEmpty() &&
-        isFileInModelsDir(
-          listOf(model.normalizedName, version, model.unzipDir).joinToString(File.separator)
-        )
-
-    return downloadedFileExists || unzippedDirectoryExists
-  }
 }
 
 private fun getAllowlistUrl(version: String): String {

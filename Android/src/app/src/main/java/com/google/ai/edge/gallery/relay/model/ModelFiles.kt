@@ -8,6 +8,7 @@ import com.google.ai.edge.gallery.data.IMPORTS_DIR
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatus
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
+import com.google.ai.edge.gallery.data.ModelFile
 import com.google.ai.edge.gallery.data.TMP_FILE_EXT
 import java.io.File
 
@@ -34,12 +35,12 @@ class ModelFiles(private val context: Context, private val modelsDir: File) {
   fun isModelDownloaded(model: Model): Boolean = isModelDownloaded(modelsDir, model)
 
   private fun isModelPartiallyDownloaded(context: Context, model: Model): Boolean {
-    if (model.localModelFilePathOverride.isNotEmpty()) {
+    if (model.downloadInfo.localModelFilePathOverride.isNotEmpty()) {
       return false
     }
 
     val tmpFilePath =
-      model.getPath(context = context, fileName = "${model.downloadFileName}.$TMP_FILE_EXT")
+      model.getPath(context = context, fileName = "${model.downloadInfo.downloadFileName}.$TMP_FILE_EXT")
     return File(tmpFilePath).exists()
   }
 
@@ -50,8 +51,8 @@ class ModelFiles(private val context: Context, private val modelsDir: File) {
   ): ModelDownloadStatus {
     Log.d(TAG, "Checking model ${model.name} download status...")
 
-    if (model.localFileRelativeDirPathOverride.isNotEmpty()) {
-      Log.d(TAG, "Model has localFileRelativeDirPathOverride set. Set status to SUCCEEDED")
+    if (model.downloadInfo.localRelativeDirPathOverride.isNotEmpty()) {
+      Log.d(TAG, "Model has localRelativeDirPathOverride set. Set status to SUCCEEDED")
       return ModelDownloadStatus(
         status = ModelDownloadStatusType.SUCCEEDED,
         receivedBytes = 0,
@@ -62,26 +63,48 @@ class ModelFiles(private val context: Context, private val modelsDir: File) {
     var status = ModelDownloadStatusType.NOT_DOWNLOADED
     var receivedBytes = 0L
     var totalBytes = 0L
+    var isUpdatable = false
+    var installedModelFile: ModelFile? = null
 
     if (isModelPartiallyDownloaded(context = context, model = model)) {
       status = ModelDownloadStatusType.PARTIALLY_DOWNLOADED
       val tmpFilePath =
-        model.getPath(context = context, fileName = "${model.downloadFileName}.$TMP_FILE_EXT")
+        model.getPath(context = context, fileName = "${model.downloadInfo.downloadFileName}.$TMP_FILE_EXT")
       val tmpFile = File(tmpFilePath)
       receivedBytes = tmpFile.length()
-      totalBytes = model.totalBytes
+      totalBytes = model.downloadInfo.totalBytes
       Log.d(TAG, "${model.name} is partially downloaded. $receivedBytes/$totalBytes")
-    } else if (isModelDownloaded(modelsDir = modelsDir, model = model)) {
+    } else if (checkIfModelDownloaded(modelsDir, model, model.downloadInfo.version)) {
       status = ModelDownloadStatusType.SUCCEEDED
+      installedModelFile =
+        ModelFile(
+          fileName = model.downloadInfo.downloadFileName,
+          commitHash = model.downloadInfo.version,
+        )
       Log.d(TAG, "${model.name} has been downloaded.")
     } else {
-      Log.d(TAG, "${model.name} has not been downloaded.")
+      // Not on the latest version -- an older, updatable one may still be on disk.
+      val updatableMatch =
+        model.downloadInfo.updatableModelFiles.firstOrNull { updatableFile ->
+          updatableFile.commitHash.isNotEmpty() &&
+            checkIfModelDownloaded(modelsDir, model, updatableFile.commitHash, updatableFile.fileName)
+        }
+      if (updatableMatch != null) {
+        status = ModelDownloadStatusType.SUCCEEDED
+        isUpdatable = true
+        installedModelFile = updatableMatch
+        Log.d(TAG, "${model.name} has been downloaded (updatable from ${updatableMatch.commitHash}).")
+      } else {
+        Log.d(TAG, "${model.name} has not been downloaded.")
+      }
     }
 
     return ModelDownloadStatus(
       status = status,
       receivedBytes = receivedBytes,
       totalBytes = totalBytes,
+      isUpdatable = isUpdatable,
+      installedModelFile = installedModelFile,
     )
   }
 
@@ -121,48 +144,40 @@ class ModelFiles(private val context: Context, private val modelsDir: File) {
     modelsDir: File,
     model: Model,
     version: String,
-    fileName: String = model.downloadFileName,
+    fileName: String = model.downloadInfo.downloadFileName,
   ): Boolean {
     val modelRelativePath =
-      if (model.imported) {
+      if (model.downloadInfo.imported) {
         listOf(IMPORTS_DIR, fileName).joinToString(File.separator)
       } else {
         listOf(model.normalizedName, version, fileName).joinToString(File.separator)
       }
     val downloadedFileExists =
       fileName.isNotEmpty() &&
-        ((model.localModelFilePathOverride.isEmpty() &&
+        ((model.downloadInfo.localModelFilePathOverride.isEmpty() &&
           isFileInModelsDir(modelsDir, modelRelativePath)) ||
-          (model.localModelFilePathOverride.isNotEmpty() &&
-            File(model.localModelFilePathOverride).exists()))
+          (model.downloadInfo.localModelFilePathOverride.isNotEmpty() &&
+            File(model.downloadInfo.localModelFilePathOverride).exists()))
 
     val unzippedDirectoryExists =
-      model.isZip &&
-        model.unzipDir.isNotEmpty() &&
+      model.downloadInfo.isZip &&
+        model.downloadInfo.unzipDir.isNotEmpty() &&
         isFileInModelsDir(
           modelsDir,
-          listOf(model.normalizedName, version, model.unzipDir).joinToString(File.separator),
+          listOf(model.normalizedName, version, model.downloadInfo.unzipDir).joinToString(File.separator),
         )
 
     return downloadedFileExists || unzippedDirectoryExists
   }
 
+  // Model is immutable, so this can no longer signal "which version matched" via mutation --
+  // that finer detail is getModelDownloadStatus's job.
   private fun isModelDownloaded(modelsDir: File, model: Model): Boolean {
-    model.updatable = false
-    if (checkIfModelDownloaded(modelsDir, model, model.version)) return true
+    if (checkIfModelDownloaded(modelsDir, model, model.downloadInfo.version)) return true
 
-    for (updatableFile in model.updatableModelFiles) {
-      if (updatableFile.commitHash.isEmpty()) continue
-      if (
+    return model.downloadInfo.updatableModelFiles.any { updatableFile ->
+      updatableFile.commitHash.isNotEmpty() &&
         checkIfModelDownloaded(modelsDir, model, updatableFile.commitHash, updatableFile.fileName)
-      ) {
-        model.version = updatableFile.commitHash
-        model.downloadFileName = updatableFile.fileName
-        model.updatable = true
-        return true
-      }
     }
-
-    return false
   }
 }

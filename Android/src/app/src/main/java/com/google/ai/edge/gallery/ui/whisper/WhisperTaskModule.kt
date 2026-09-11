@@ -11,6 +11,7 @@ import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Category
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.data.ModelDownloadInfo
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.whisper.WhisperEngine
 import com.google.ai.edge.litertlm.Contents
@@ -33,10 +34,13 @@ private fun whisperModel(
 ): Model = Model(
     name = name,
     info = description,
-    url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$modelFile?download=true",
-    sizeInBytes = sizeInBytes,
-    downloadFileName = modelFile,
-    version = "main",
+    downloadInfo =
+        ModelDownloadInfo(
+            url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$modelFile?download=true",
+            sizeInBytes = sizeInBytes,
+            downloadFileName = modelFile,
+            version = "main",
+        ),
     showRunAgainButton = false,
 )
 

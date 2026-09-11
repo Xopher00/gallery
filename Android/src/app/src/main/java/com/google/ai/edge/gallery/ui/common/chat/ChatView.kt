@@ -263,7 +263,7 @@ fun ChatView(
                 if (session != null) {
                   Log.d(
                     TAG,
-                    "Analytics: chat_history, action=load_past_chat, capability_name=${task.id}, model_id=${selectedModel.name}, model_version=${selectedModel.version}",
+                    "Analytics: chat_history, action=load_past_chat, capability_name=${task.id}, model_id=${selectedModel.name}, model_version=${selectedModel.downloadInfo.version}",
                   )
                   firebaseAnalytics?.logEvent(
                     GalleryEvent.CHAT_HISTORY.id,
@@ -271,7 +271,7 @@ fun ChatView(
                       putString("action", "load_past_chat")
                       putString("capability_name", task.id)
                       putString("model_id", selectedModel.name)
-                      putString("model_version", selectedModel.version)
+                      putString("model_version", selectedModel.downloadInfo.version)
                     },
                   )
 
@@ -294,7 +294,7 @@ fun ChatView(
               onNewChatClicked = {
                 Log.d(
                   TAG,
-                  "Analytics: chat_history, action=click_new_chat, capability_name=${task.id}, model_id=${selectedModel.name}, model_version=${selectedModel.version}",
+                  "Analytics: chat_history, action=click_new_chat, capability_name=${task.id}, model_id=${selectedModel.name}, model_version=${selectedModel.downloadInfo.version}",
                 )
                 firebaseAnalytics?.logEvent(
                   GalleryEvent.CHAT_HISTORY.id,
@@ -302,7 +302,7 @@ fun ChatView(
                     putString("action", "click_new_chat")
                     putString("capability_name", task.id)
                     putString("model_id", selectedModel.name)
-                    putString("model_version", selectedModel.version)
+                    putString("model_version", selectedModel.downloadInfo.version)
                   },
                 )
 
@@ -361,7 +361,7 @@ fun ChatView(
               onHistoryClicked = {
                 Log.d(
                   TAG,
-                  "Analytics: chat_history, action=click_history_tab, capability_name=${task.id}, model_id=${selectedModel.name}, model_version=${selectedModel.version}",
+                  "Analytics: chat_history, action=click_history_tab, capability_name=${task.id}, model_id=${selectedModel.name}, model_version=${selectedModel.downloadInfo.version}",
                 )
                 firebaseAnalytics?.logEvent(
                   GalleryEvent.CHAT_HISTORY.id,
@@ -369,7 +369,7 @@ fun ChatView(
                     putString("action", "click_history_tab")
                     putString("capability_name", task.id)
                     putString("model_id", selectedModel.name)
-                    putString("model_version", selectedModel.version)
+                    putString("model_version", selectedModel.downloadInfo.version)
                   },
                 )
                 scope.launch { drawerState.open() }

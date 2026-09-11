@@ -13,6 +13,7 @@ import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Category
 import com.google.ai.edge.gallery.data.ConfigKey
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.data.ModelDownloadInfo
 import com.google.ai.edge.gallery.data.NumberSliderConfig
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.ValueType
@@ -55,10 +56,13 @@ private fun sdModel(
 ): Model = Model(
     name = name,
     info = description,
-    url = "https://huggingface.co/$modelId/resolve/$commitHash/$modelFile?download=true",
-    sizeInBytes = sizeInBytes,
-    downloadFileName = modelFile,
-    version = commitHash,
+    downloadInfo =
+        ModelDownloadInfo(
+            url = "https://huggingface.co/$modelId/resolve/$commitHash/$modelFile?download=true",
+            sizeInBytes = sizeInBytes,
+            downloadFileName = modelFile,
+            version = commitHash,
+        ),
     configs = mutableListOf(SD_STEPS_CONFIG, SD_CFG_CONFIG),
     learnMoreUrl = "https://huggingface.co/$modelId",
     showRunAgainButton = false,

@@ -29,10 +29,10 @@ fun Model.engineFor(taskId: String?): ModelEngine {
     if (this.runtimeType == RuntimeType.AICORE) {
         return ModelEngine.AiCore
     }
-    val fileNameToCheck = if (imported && downloadFileName.startsWith("$IMPORTS_DIR/")) {
-        downloadFileName.substringAfter("$IMPORTS_DIR/")
+    val fileNameToCheck = if (downloadInfo.imported && downloadInfo.downloadFileName.startsWith("$IMPORTS_DIR/")) {
+        downloadInfo.downloadFileName.substringAfter("$IMPORTS_DIR/")
     } else {
-        downloadFileName
+        downloadInfo.downloadFileName
     }
     return if (isLlamaCppFile(fileNameToCheck)) ModelEngine.LlamaCpp else ModelEngine.LiteRtLm
 }

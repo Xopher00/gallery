@@ -246,9 +246,9 @@ fun GlobalModelManager(
             }
         )
     builtInModels.clear()
-    builtInModels.addAll(sortedModels.filter { !it.imported })
+    builtInModels.addAll(sortedModels.filter { !it.downloadInfo.imported })
     importedModels.clear()
-    importedModels.addAll(sortedModels.filter { it.imported })
+    importedModels.addAll(sortedModels.filter { it.downloadInfo.imported })
   }
 
   // Calculate model variants by grouping models with a parentModelName.
@@ -590,7 +590,7 @@ fun GlobalModelManager(
     uiState.modelNeedingStorageConfirmation?.let { viewModel.getModelByName(it) }
   if (storageConfirmationModel != null) {
     StorageWarningDialog(
-      requiredBytes = storageConfirmationModel.totalBytes,
+      requiredBytes = storageConfirmationModel.downloadInfo.totalBytes,
       freeBytes = deviceProfile.freeStorageBytes(),
       onProceedAnyway = {
         viewModel.proceedWithDownloadDespiteStorageWarning(model = storageConfirmationModel)

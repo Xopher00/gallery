@@ -128,13 +128,13 @@ fun ModelItem(
       boxModifier
         .semantics {
           role = Role.Button
-          if (!model.imported) {
+          if (!model.downloadInfo.imported) {
             stateDescription = expandedStateDesc
           }
         }
         .clickable(
           onClick = {
-            if (!model.imported) {
+            if (!model.downloadInfo.imported) {
               isExpanded = !isExpanded
               onExpanded(isExpanded)
             } else if (!isBenchmarkSupported) {
@@ -164,7 +164,7 @@ fun ModelItem(
         )
         // Model action menu (benchmark, delete), and button to expand/collapse button at the right.
         Row(verticalAlignment = Alignment.Top, modifier = Modifier.align(Alignment.TopEnd)) {
-          val isWebImport = model.imported && model.url.isNotEmpty()
+          val isWebImport = model.downloadInfo.imported && model.downloadInfo.url.isNotEmpty()
           if (
             modelVariants.isEmpty() &&
               (downloadStatus?.status == ModelDownloadStatusType.SUCCEEDED || isWebImport)
@@ -177,12 +177,14 @@ fun ModelItem(
                   !showBenchmarkActionButton &&
                   downloadStatus?.status == ModelDownloadStatusType.SUCCEEDED,
               showDeleteButton =
-                showDeleteButton && model.localFileRelativeDirPathOverride.isEmpty() && model.isManagedDownload,
+                showDeleteButton &&
+                  model.downloadInfo.localRelativeDirPathOverride.isEmpty() &&
+                  model.isManagedDownload,
               onBenchmarkClicked = { onBenchmarkClicked(model) },
               modifier = Modifier.offset(y = (-12).dp),
             )
           }
-          if (!model.imported) {
+          if (!model.downloadInfo.imported) {
             Icon(
               if (isExpanded) Icons.Rounded.UnfoldLess else Icons.Rounded.UnfoldMore,
               contentDescription = null,
@@ -229,6 +231,7 @@ fun ModelItem(
               onBenchmarkClicked = { onBenchmarkClicked(model) },
               showBenchmarkActionButton = showBenchmarkActionButton,
               tosViewModel = tosViewModel,
+              isUpdatable = downloadStatus?.isUpdatable == true,
             )
           }
         }
@@ -314,6 +317,7 @@ fun ModelItem(
                     onBenchmarkClicked = { onBenchmarkClicked(variantModel) },
                     showBenchmarkActionButton = showBenchmarkActionButton,
                     downloadButtonBackgroundColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    isUpdatable = targetVariantDownloadStatus?.isUpdatable == true,
                   )
                 }
 
@@ -367,8 +371,8 @@ fun ModelItem(
       }
       if (
         isExpanded &&
-          (model.hasOptionalComponents(task?.id) ||
-            modelVariants.any { it.hasOptionalComponents(task?.id) })
+          (model.downloadInfo.hasOptionalComponents(task?.id) ||
+            modelVariants.any { it.downloadInfo.hasOptionalComponents(task?.id) })
       ) {
         OptionalComponentsPanel(
           model = model,
@@ -426,7 +430,8 @@ fun ModelVariantHeader(
       )
     }
     // Model action menu (benchmark, delete)
-    val isWebImport = variantModel.imported && variantModel.url.isNotEmpty()
+    val isWebImport =
+      variantModel.downloadInfo.imported && variantModel.downloadInfo.url.isNotEmpty()
     if (downloadStatus?.status == ModelDownloadStatusType.SUCCEEDED || isWebImport) {
       ModelItemActionMenu(
         model = variantModel,
@@ -437,7 +442,7 @@ fun ModelVariantHeader(
             downloadStatus?.status == ModelDownloadStatusType.SUCCEEDED,
         showDeleteButton =
           showDeleteButton &&
-            variantModel.localFileRelativeDirPathOverride.isEmpty() &&
+            variantModel.downloadInfo.localRelativeDirPathOverride.isEmpty() &&
             variantModel.isManagedDownload,
         onBenchmarkClicked = { onBenchmarkClicked(variantModel) },
         modifier = menuModifier.offset(y = (-12).dp),

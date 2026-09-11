@@ -251,7 +251,7 @@ private fun ProcessTextDialog(
     val target =
       currentModels
         .filter { it.isLlm && modelRegistry.isModelDownloaded(it) }
-        .sortedWith(compareBy({ it.sizeInBytes }, { it.name }))
+        .sortedWith(compareBy({ it.downloadInfo.sizeInBytes }, { it.name }))
         .firstOrNull()
     if (target == null) {
       // No usable candidate -- do not spin on Phase.LOADING forever waiting for a load that was
