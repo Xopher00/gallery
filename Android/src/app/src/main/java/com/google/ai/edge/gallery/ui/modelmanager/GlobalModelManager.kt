@@ -25,12 +25,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -163,12 +157,6 @@ fun GlobalModelManager(
   }
   val snackbarHostState = remember { SnackbarHostState() }
   val modelItemExpandedStates = remember { mutableStateMapOf<String, Boolean>() }
-
-  val promoId = "gm4_banner"
-  var showPromo by remember { mutableStateOf(false) }
-  LaunchedEffect(Unit) {
-    showPromo = !viewModel.dataStoreRepository.hasViewedPromo(promoId = promoId)
-  }
 
   // Local (non-URL) imports are user-chosen and skip the publisher check entirely; returns null
   // for those and for a known-publisher HF URL, else the (possibly blank) owner namespace.
@@ -355,23 +343,6 @@ fun GlobalModelManager(
         contentPadding =
           PaddingValues(top = 16.dp, bottom = innerPadding.calculateBottomPadding() + 80.dp),
       ) {
-        item(key = "promo") {
-          AnimatedVisibility(
-            visible = showPromo,
-            enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }) + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
-          ) {
-            if (Flags.SHOW_GEMMA4_PROMO_BANNER) {
-              PromoBannerGm4(
-                onDismiss = {
-                  showPromo = false
-                  viewModel.dataStoreRepository.addViewedPromoId(promoId = promoId)
-                }
-              )
-            }
-          }
-        }
-
         items(builtInModels) { model ->
           val expanded = modelItemExpandedStates.getOrDefault(model.name, true)
           ModelItem(
