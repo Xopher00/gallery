@@ -69,6 +69,8 @@ message LlmConfig {
 }
 
 message Settings {
+  reserved 10, 11;
+
   Theme theme = 1;
   AccessTokenData access_token_data = 2;  // deprecated
   repeated string text_input_history = 3;
@@ -80,8 +82,6 @@ message Settings {
   // Has the Gemma terms of use been accepted.
   bool is_gemma_terms_accepted = 8;
 
-  repeated string viewed_promo_id = 10;
-  bool disable_firebase_analytics = 11;
   bool start_server_on_boot = 12;
 }
 

@@ -22,7 +22,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
-import android.os.Bundle
 import android.util.Log
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
@@ -38,9 +37,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.core.net.toUri
 import androidx.exifinterface.media.ExifInterface
-import com.google.ai.edge.gallery.GalleryEvent
 import com.google.ai.edge.gallery.data.SAMPLE_RATE
-import com.google.ai.edge.gallery.firebaseAnalytics
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -418,17 +415,6 @@ fun isAICoreSupported(allowedDeviceModels: Set<String>?): Boolean {
     )
   }
   return supported
-}
-
-fun logErrorToFirebase(event: GalleryEvent, errorType: String, errorMessage: String?) {
-  firebaseAnalytics?.logEvent(
-    event.id,
-    Bundle().apply {
-      putBoolean("success", false)
-      putString("error_type", errorType)
-      putString("error_message", errorMessage ?: "Unknown error")
-    },
-  )
 }
 
 fun convertStringToJsonObject(jsonString: String): JsonObject {

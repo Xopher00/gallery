@@ -285,7 +285,7 @@ internal constructor(
       this.battery = batteryMetrics
     }
 
-    // Step 5: Dispatch logs to ADB and Firebase Analytics.
+    // Step 5: Dispatch logs to ADB.
     metricsLogger.logMetrics(finalMetrics)
     return finalMetrics
   }

@@ -22,8 +22,6 @@ import androidx.datastore.core.DataStore
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.ai.edge.gallery.BuildConfig
-import com.google.ai.edge.gallery.GalleryEvent
-import com.google.ai.edge.gallery.firebaseAnalytics
 import com.google.ai.edge.gallery.mcp.McpServerState
 import com.google.ai.edge.gallery.mcp.McpServersProvider
 import com.google.ai.edge.gallery.proto.McpAuth
@@ -215,13 +213,6 @@ constructor(
           currentState.copy(mcpServers = filteredStates + newState, loadingMcpServer = false)
         }
         Log.d(TAG, "Analytics: mcp_management, action=add_server, status=success")
-        firebaseAnalytics?.logEvent(
-          GalleryEvent.MCP_MANAGEMENT.id,
-          Bundle().apply {
-            putString("action", "add_server")
-            putString("status", "success")
-          },
-        )
       } catch (e: Exception) {
         Log.e(TAG, "Error adding MCP server: $url", e)
         // Fallback: Update the UI state with the error message without preserving the server.
@@ -231,14 +222,6 @@ constructor(
         Log.d(
           TAG,
           "Analytics: mcp_management, action=add_server, status=failed, error_type=${e.javaClass.simpleName}",
-        )
-        firebaseAnalytics?.logEvent(
-          GalleryEvent.MCP_MANAGEMENT.id,
-          Bundle().apply {
-            putString("action", "add_server")
-            putString("status", "failed")
-            putString("error_type", e.javaClass.simpleName)
-          },
         )
       }
     }

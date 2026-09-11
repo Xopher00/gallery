@@ -62,7 +62,6 @@ import com.google.ai.edge.gallery.data.markInitializationFailed
 import com.google.ai.edge.gallery.data.markInitializationStarted
 import com.google.ai.edge.gallery.data.markInitialized
 import com.google.ai.edge.gallery.data.resetInitialization
-import com.google.ai.edge.gallery.firebaseAnalytics
 import com.google.ai.edge.gallery.huggingface.HuggingFaceApiClient
 // relay: this fork's own code. See relay/modelmanager/ModelRegistry.kt.
 import com.google.ai.edge.gallery.data.SD_IMPORTS_DIR
@@ -879,29 +878,6 @@ constructor(
 
   fun saveThemeOverride(theme: Theme) {
     dataStoreRepository.saveTheme(theme = theme)
-  }
-
-  /**
-   * Retrieves whether Firebase Analytics collection is currently enabled.
-   *
-   * @return `true` if enabled or not explicitly disabled in settings; `false` if disabled.
-   */
-  fun readFirebaseAnalytics(): Boolean {
-    return dataStoreRepository.readFirebaseAnalytics()
-  }
-
-  /**
-   * Updates the user preference for Firebase Analytics data collection right away.
-   *
-   * Persists the setting to on-disk DataStore
-   * (`dataStoreRepository.saveFirebaseAnalytics(enabled)`) and dynamically updates the live
-   * Firebase SDK state via `firebaseAnalytics?.setAnalyticsCollectionEnabled(enabled)`.
-   *
-   * @param enabled `true` to enable diagnostic/analytics gathering; `false` to disable.
-   */
-  fun saveFirebaseAnalytics(enabled: Boolean) {
-    dataStoreRepository.saveFirebaseAnalytics(enabled = enabled)
-    firebaseAnalytics?.setAnalyticsCollectionEnabled(enabled)
   }
 
   /**

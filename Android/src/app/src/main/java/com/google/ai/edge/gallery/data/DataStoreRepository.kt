@@ -40,27 +40,6 @@ interface DataStoreRepository {
 
   fun readTheme(): Theme
 
-  /**
-   * Saves the user's preference for whether Firebase Analytics data collection is enabled (`true`)
-   * or disabled (`false`).
-   *
-   * Note that this preference is stored internally on the Settings proto as
-   * `disable_firebase_analytics = !enabled`. This ensures that when the proto field is unset (its
-   * default value being `false`), data collection remains enabled by default across new installs
-   * and upgrades until explicitly toggled off by the user.
-   *
-   * @param enabled `true` to enable Firebase Analytics data collection; `false` to disable it.
-   */
-  fun saveFirebaseAnalytics(enabled: Boolean)
-
-  /**
-   * Reads that current setting for whether Firebase Analytics data collection is enabled.
-   *
-   * @return `true` if analytics is enabled or has not been explicitly disabled by the user; `false`
-   *   otherwise.
-   */
-  fun readFirebaseAnalytics(): Boolean
-
   fun saveSecret(key: String, value: String)
 
   fun readSecret(key: String): String?
@@ -121,15 +100,6 @@ interface DataStoreRepository {
 
   suspend fun deleteSkills(names: Set<String>)
 
-  /** Records that a promo with the specified ID has been viewed. */
-  fun addViewedPromoId(promoId: String)
-
-  /** Removes a viewed promo record. */
-  fun removeViewedPromoId(promoId: String)
-
-  /** Returns whether a promo with the specified ID has been viewed. */
-  fun hasViewedPromo(promoId: String): Boolean
-
   fun saveServerBindMode(bindMode: String)
 
   fun readServerBindMode(): String?
@@ -186,29 +156,6 @@ class DefaultDataStoreRepository(
       val curTheme = settings.theme
       // Use "auto" as the default theme.
       if (curTheme == Theme.THEME_UNSPECIFIED) Theme.THEME_AUTO else curTheme
-    }
-  }
-
-  /**
-   * Persists the inverted value (`!enabled`) into `settings.disableFirebaseAnalytics` within proto
-   * DataStore.
-   */
-  override fun saveFirebaseAnalytics(enabled: Boolean) {
-    runBlocking {
-      dataStore.updateData { settings ->
-        settings.toBuilder().setDisableFirebaseAnalytics(!enabled).build()
-      }
-    }
-  }
-
-  /**
-   * Reads `settings.disableFirebaseAnalytics` from proto DataStore and returns the inverted value
-   * so that `false` (default uninitialized value) evaluates to `true` (enabled).
-   */
-  override fun readFirebaseAnalytics(): Boolean {
-    return runBlocking {
-      val settings = dataStore.data.first()
-      !settings.disableFirebaseAnalytics
     }
   }
 
@@ -461,34 +408,6 @@ class DefaultDataStoreRepository(
     skillsDataStore.updateData { skills ->
       val newSkills = skills.skillList.filter { it.name !in names }
       skills.toBuilder().clearSkill().addAllSkill(newSkills).build()
-    }
-  }
-
-  override fun addViewedPromoId(promoId: String) {
-    runBlocking {
-      dataStore.updateData { settings ->
-        if (settings.viewedPromoIdList.contains(promoId)) {
-          settings
-        } else {
-          settings.toBuilder().addViewedPromoId(promoId).build()
-        }
-      }
-    }
-  }
-
-  override fun removeViewedPromoId(promoId: String) {
-    runBlocking {
-      dataStore.updateData { settings ->
-        val newList = settings.viewedPromoIdList.filter { it != promoId }
-        settings.toBuilder().clearViewedPromoId().addAllViewedPromoId(newList).build()
-      }
-    }
-  }
-
-  override fun hasViewedPromo(promoId: String): Boolean {
-    return runBlocking {
-      val settings = dataStore.data.first()
-      settings.viewedPromoIdList.contains(promoId)
     }
   }
 

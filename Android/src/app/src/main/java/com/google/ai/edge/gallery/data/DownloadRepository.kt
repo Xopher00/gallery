@@ -41,9 +41,7 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.google.ai.edge.gallery.AppLifecycleProvider
-import com.google.ai.edge.gallery.GalleryEvent
 import com.google.ai.edge.gallery.R
-import com.google.ai.edge.gallery.firebaseAnalytics
 import com.google.ai.edge.gallery.worker.DownloadWorker
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -196,11 +194,8 @@ class DefaultDownloadRepository(
           KEY_MODEL_EXTRA_DATA_DOWNLOAD_FILE_NAMES,
           extraFiles.joinToString(",") { it.downloadFileName },
         )
-        .apply {
-          if (model.downloadInfo.accessToken != null) {
-            putString(KEY_MODEL_DOWNLOAD_ACCESS_TOKEN, model.downloadInfo.accessToken)
-          }
-        }
+        // Access token is not put in inputData: WorkManager persists it unencrypted. The worker
+        // fetches it at run time from the Tink-encrypted DataStoreRepository instead.
         .build()
 
     val downloadWorkRequest =
@@ -278,10 +273,6 @@ class DefaultDownloadRepository(
                 downloadStartTimeSharedPreferences.edit {
                   putLong(model.name, System.currentTimeMillis())
                 }
-                firebaseAnalytics?.logEvent(
-                  GalleryEvent.MODEL_DOWNLOAD.id,
-                  bundleOf("event_type" to "start", "model_id" to model.name),
-                )
               }
 
               WorkInfo.State.RUNNING -> {
@@ -351,14 +342,6 @@ class DefaultDownloadRepository(
 
                 val startTime = downloadStartTimeSharedPreferences.getLong(model.name, 0L)
                 val duration = System.currentTimeMillis() - startTime
-                firebaseAnalytics?.logEvent(
-                  GalleryEvent.MODEL_DOWNLOAD.id,
-                  bundleOf(
-                    "event_type" to "success",
-                    "model_id" to model.name,
-                    "duration_ms" to duration,
-                  ),
-                )
                 downloadStartTimeSharedPreferences.edit { remove(model.name) }
               }
 
@@ -404,14 +387,6 @@ class DefaultDownloadRepository(
 
                 val startTime = downloadStartTimeSharedPreferences.getLong(model.name, 0L)
                 val duration = System.currentTimeMillis() - startTime
-                firebaseAnalytics?.logEvent(
-                  GalleryEvent.MODEL_DOWNLOAD.id,
-                  bundleOf(
-                    "event_type" to "failure",
-                    "model_id" to model.name,
-                    "duration_ms" to duration,
-                  ),
-                )
                 downloadStartTimeSharedPreferences.edit { remove(model.name) }
               }
 

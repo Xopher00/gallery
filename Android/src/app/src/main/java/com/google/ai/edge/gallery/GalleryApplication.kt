@@ -44,7 +44,6 @@ class GalleryApplication : Application() {
     ThemeSettings.themeOverride.value = dataStoreRepository.readTheme()
 
     FirebaseApp.initializeApp(this)
-    firebaseAnalytics?.setAnalyticsCollectionEnabled(dataStoreRepository.readFirebaseAnalytics())
 
     // Box: restore the saved offline-mode preference. Without this the toggle silently resets to
     // off on every process start. Box called it from its own GalleryApplication, which the merge

@@ -48,7 +48,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
 import com.google.ai.edge.gallery.BuildConfig
-import com.google.ai.edge.gallery.GalleryEvent
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.customtasks.agentchat.agentSkillTopK
 import com.google.ai.edge.gallery.customtasks.agentchat.agentSkillTopKAdjusted
@@ -60,7 +59,6 @@ import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.convertValueToTargetType
-import com.google.ai.edge.gallery.firebaseAnalytics
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 
 import com.google.ai.edge.litertlm.Capabilities
@@ -250,15 +248,6 @@ fun ModelPageAppBar(
         val systemPromptChanged = newSystemPrompt != oldSystemPrompt
 
         if (!same || systemPromptChanged) {
-          firebaseAnalytics?.logEvent(
-            GalleryEvent.MODEL_CONFIG_CHANGE.id,
-            Bundle().apply {
-              putString("model_id", model.name)
-              putString("capability_name", task.id)
-              putString("model_version", model.downloadInfo.version)
-              putString("app_version", BuildConfig.VERSION_NAME)
-            },
-          )
         }
 
         if (same) {
