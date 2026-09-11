@@ -127,6 +127,8 @@ android {
   // not Netty-specific (other Kotlin/JVM dependencies can emit them too) and
   // are left in place.
   packaging {
+    // Compresses .so in the APK (~2.6:1); Android extracts them into nativeLibraryDir at install.
+    jniLibs.useLegacyPackaging = true
     resources {
       pickFirsts += "META-INF/INDEX.LIST"
       pickFirsts += "META-INF/*.kotlin_module"
