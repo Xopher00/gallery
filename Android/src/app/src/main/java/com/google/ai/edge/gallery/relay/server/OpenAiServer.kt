@@ -34,6 +34,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
@@ -199,15 +200,29 @@ class OpenAiServer(
                     )
                 }
                 exception<UnsupportedMediaTypeException> { call, _ ->
+                    val expectedType = if (call.request.path() == "/v1/audio/transcriptions") {
+                        "multipart/form-data"
+                    } else {
+                        "application/json"
+                    }
                     call.respond(
                         HttpStatusCode.UnsupportedMediaType,
-                        ErrorEnvelope(ErrorBody(message = "Unsupported content type; expected application/json"))
+                        ErrorEnvelope(ErrorBody(message = "Unsupported content type; expected $expectedType"))
                     )
                 }
                 exception<ContextLengthExceededException> { call, cause ->
                     call.respond(
                         HttpStatusCode.BadRequest,
                         ErrorEnvelope(ErrorBody(message = cause.message ?: "", code = "context_length_exceeded"))
+                    )
+                }
+                exception<Throwable> { call, cause ->
+                    if (cause is CancellationException) {
+                        throw cause
+                    }
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        ErrorEnvelope(ErrorBody(message = "Internal server error", type = "server_error"))
                     )
                 }
             }
