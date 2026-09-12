@@ -16,16 +16,12 @@ import android.content.Context
 import android.util.Log
 import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
-import com.google.ai.edge.gallery.relay.server.handlers.ContextLengthExceededException
 import dagger.hilt.android.EntryPointAccessors
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.cio.*
-import io.ktor.server.plugins.BadRequestException
-import io.ktor.server.plugins.CannotTransformContentToTypeException
-import io.ktor.server.plugins.UnsupportedMediaTypeException
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.plugins.statuspages.*
@@ -34,20 +30,12 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
 private const val TAG = "AGOpenAiServer"
-
-// SECURITY: strips the request body from kotlinx.serialization's exception message before it reaches the wire.
-private fun sanitizeBadRequestMessage(cause: BadRequestException): String {
-    val raw = cause.cause?.message ?: cause.message ?: return "Malformed request body"
-    val reason = raw.substringBefore("\nJSON input:").trim()
-    return reason.ifBlank { "Malformed request body" }
-}
 
 // SECURITY: normalises repeated slashes and ./.. before the public-allowlist check.
 private fun normalizePath(rawPath: String): String {
@@ -184,47 +172,9 @@ class OpenAiServer(
                 }
             }
 
-            // Scoped to these specific types only (never Throwable) so it can't swallow
-            // the auth 401 or busy-guard 429s.
+            // Catch-all is safe: auth and busy guards above respond directly, never throw.
             install(StatusPages) {
-                exception<BadRequestException> { call, cause ->
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ErrorEnvelope(ErrorBody(message = sanitizeBadRequestMessage(cause)))
-                    )
-                }
-                exception<CannotTransformContentToTypeException> { call, _ ->
-                    call.respond(
-                        HttpStatusCode.UnsupportedMediaType,
-                        ErrorEnvelope(ErrorBody(message = "Request body is missing or could not be parsed as JSON"))
-                    )
-                }
-                exception<UnsupportedMediaTypeException> { call, _ ->
-                    val expectedType = if (call.request.path() == "/v1/audio/transcriptions") {
-                        "multipart/form-data"
-                    } else {
-                        "application/json"
-                    }
-                    call.respond(
-                        HttpStatusCode.UnsupportedMediaType,
-                        ErrorEnvelope(ErrorBody(message = "Unsupported content type; expected $expectedType"))
-                    )
-                }
-                exception<ContextLengthExceededException> { call, cause ->
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ErrorEnvelope(ErrorBody(message = cause.message ?: "", code = "context_length_exceeded"))
-                    )
-                }
-                exception<Throwable> { call, cause ->
-                    if (cause is CancellationException) {
-                        throw cause
-                    }
-                    call.respond(
-                        HttpStatusCode.InternalServerError,
-                        ErrorEnvelope(ErrorBody(message = "Internal server error", type = "server_error"))
-                    )
-                }
+                installOpenAiErrorHandlers()
             }
 
             routing {
