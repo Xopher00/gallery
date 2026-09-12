@@ -39,6 +39,14 @@ import kotlinx.serialization.json.Json
 
 private const val TAG = "AGChatHandler"
 
+// An out-of-range value here closes the runtime's conversation permanently, not just this request.
+internal fun samplerRangeError(temperature: Float?, topP: Float?, topK: Int?): String? {
+    if (topK != null && topK < 1) return "top_k must be at least 1"
+    if (topP != null && (topP < 0 || topP > 1)) return "top_p must be between 0 and 1"
+    if (temperature != null && temperature < 0) return "temperature must be at least 0"
+    return null
+}
+
 // inline (not suspend lambda) -- handler bodies contain non-local returns like
 // `return@withBusyGuard`, which only thread through an inlined block.
 internal inline fun <T> withSamplerOverrides(

@@ -121,6 +121,10 @@ suspend fun handleAnthropicMessages(
             )
             return@withBusyGuard
         }
+        samplerRangeError(request.temperature, request.top_p, request.top_k)?.let {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+            return@withBusyGuard
+        }
         withSamplerOverrides(model, originalConfigValues, request.temperature, request.top_p, request.top_k) {
             // Anthropic's `system` is top-level, not a message role.
             val systemInstruction = request.system?.let { Contents.of(Content.Text(it)) }

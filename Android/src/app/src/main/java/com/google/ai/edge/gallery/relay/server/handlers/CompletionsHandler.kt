@@ -114,6 +114,10 @@ suspend fun handleCompletion(
             )
             return@withBusyGuard
         }
+        samplerRangeError(request.temperature, request.top_p, request.top_k)?.let {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+            return@withBusyGuard
+        }
         withSamplerOverrides(model, originalConfigValues, request.temperature, request.top_p, request.top_k) {
             if (request.stream) {
                 call.response.cacheControl(CacheControl.NoCache(null))

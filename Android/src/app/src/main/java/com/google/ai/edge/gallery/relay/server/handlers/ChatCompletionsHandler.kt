@@ -127,6 +127,10 @@ suspend fun handleChatCompletion(
             )
             return@withBusyGuard
         }
+        samplerRangeError(request.temperature, request.top_p, request.top_k)?.let {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+            return@withBusyGuard
+        }
         withSamplerOverrides(model, originalConfigValues, request.temperature, request.top_p, request.top_k) {
             // F3: tool calling isn't supported -- LiteRT-LM's ToolSet only accepts compile-time-
             // declared tools and never surfaces a model's intended call back to the caller.
