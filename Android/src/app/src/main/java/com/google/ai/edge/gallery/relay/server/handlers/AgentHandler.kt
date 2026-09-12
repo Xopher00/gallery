@@ -380,7 +380,7 @@ suspend fun handleAgentRun(
         }
     }
     when (guardResult) {
-        is BusyResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Model is busy"))
+        is BusyResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, ErrorEnvelope(ErrorBody(message = "Model is busy")))
         is BusyResult.TimedOut -> call.respond(
             HttpStatusCode.GatewayTimeout,
             ErrorEnvelope(ErrorBody(message = "Agent run timed out after ${AGENT_RUN_TIMEOUT_MS / 1000}s")),

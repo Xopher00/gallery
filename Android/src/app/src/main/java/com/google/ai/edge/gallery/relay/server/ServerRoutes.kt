@@ -69,7 +69,7 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
             .find { it.name == modelId && server.modelRegistry.getModelDownloadStatus(it).status == ModelDownloadStatusType.SUCCEEDED }
 
         if (model == null) {
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to "Model not found or not downloaded"))
+            call.respond(HttpStatusCode.NotFound, ErrorEnvelope(ErrorBody(message = "Model not found or not downloaded")))
         } else {
             call.respond(model.toModelData(server))
         }
