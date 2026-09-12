@@ -30,6 +30,15 @@
 
 -keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }
 
+# The Android Main dispatcher is registered through META-INF/services, so R8 sees no caller and
+# strips it; the app then dies on first Dispatchers.Main use with "Module with the Main dispatcher
+# is missing".
+-keep class kotlinx.coroutines.android.AndroidDispatcherFactory { *; }
+-keep class kotlinx.coroutines.android.AndroidExceptionPreHandler { *; }
+-keep class * implements kotlinx.coroutines.internal.MainDispatcherFactory { *; }
+-keep class * implements kotlinx.coroutines.CoroutineExceptionHandler { *; }
+-keepclassmembers class kotlinx.coroutines.** { volatile <fields>; }
+
 # LiteRT-LM reads ToolSet classes by Kotlin reflection, which needs their @Metadata; R8 sees no caller.
 -keep class * implements com.google.ai.edge.litertlm.ToolSet { *; }
 -keepclassmembers class * { @com.google.ai.edge.litertlm.Tool <methods>; }
