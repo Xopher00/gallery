@@ -186,7 +186,14 @@ jobs:
         run: |
           set -euo pipefail
           if ./gradlew assembleRelease --no-daemon -PuseCcache > /tmp/build.log 2>&1; then
-            echo "passed=true" >> "$GITHUB_OUTPUT"
+            APK=$(ls app/build/outputs/apk/release/*.apk)
+            if unzip -l "$APK" | grep -q 'META-INF/services/kotlinx.coroutines.internal.MainDispatcherFactory'; then
+              echo "passed=true" >> "$GITHUB_OUTPUT"
+              echo "lib/arm64-v8a entries: $(unzip -l "$APK" | grep -c 'lib/arm64-v8a/')"
+            else
+              echo "passed=false" >> "$GITHUB_OUTPUT"
+              echo "APK has no MainDispatcherFactory service file (R8 stripped it); the app crashes at launch"
+            fi
           else
             echo "passed=false" >> "$GITHUB_OUTPUT"
             tail -n 60 /tmp/build.log
