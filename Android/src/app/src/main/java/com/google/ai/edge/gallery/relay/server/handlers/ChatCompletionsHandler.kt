@@ -119,12 +119,8 @@ suspend fun handleChatCompletion(
                 "temperature/top_p/top_k are ignored by the runtime on this backend.")
         }
 
-        try {
-            request.temperature?.let { model.configValues = model.configValues + (ConfigKeys.TEMPERATURE.label to it) }
-            request.top_p?.let { model.configValues = model.configValues + (ConfigKeys.TOPP.label to it) }
-            request.top_k?.let { model.configValues = model.configValues + (ConfigKeys.TOPK.label to it) }
-            request.max_tokens?.let { model.configValues = model.configValues + (ConfigKeys.MAX_TOKENS.label to it) }
-
+        val replyCap = request.max_completion_tokens ?: request.max_tokens
+        withSamplerOverrides(model, originalConfigValues, request.temperature, request.top_p, request.top_k) {
             // F3: tool calling isn't supported -- LiteRT-LM's ToolSet only accepts compile-time-
             // declared tools and never surfaces a model's intended call back to the caller.
             if (!request.tools.isNullOrEmpty()) {
@@ -261,7 +257,7 @@ suspend fun handleChatCompletion(
                         model,
                         prompt,
                         lastParsed.images,
-                        encodeFinishChunk = {
+                        encodeFinishChunk = { truncated ->
                             Json.encodeToString(
                                 ChatCompletionChunk(
                                     id = id,
@@ -271,7 +267,7 @@ suspend fun handleChatCompletion(
                                         ChatChunkChoice(
                                             index = 0,
                                             delta = ChatDelta(),
-                                            finish_reason = "stop",
+                                            finish_reason = if (truncated) "length" else "stop",
                                         )
                                     ),
                                 )
@@ -289,6 +285,7 @@ suspend fun handleChatCompletion(
                                 )
                             )
                         },
+                        maxOutputTokens = replyCap,
                     ) { text ->
                         assistantText.append(text)
                         Json.encodeToString(
@@ -308,14 +305,12 @@ suspend fun handleChatCompletion(
                     persistTurn(assistantText.toString())
                 }
             } else {
-                val response = runInferenceBlocking(model, prompt, lastParsed.images)
+                val response = runInferenceBlocking(model, prompt, lastParsed.images, replyCap)
                 persistTurn(response.choices.first().message.content)
                 call.respond(
                     if (effectiveSessionId != null) response.copy(session_id = effectiveSessionId) else response
                 )
             }
-        } finally {
-            model.configValues = originalConfigValues
         }
     }
     when (guardResult) {

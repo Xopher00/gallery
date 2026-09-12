@@ -51,17 +51,23 @@ internal suspend fun collectInferenceText(
     images: List<Bitmap> = emptyList(),
     coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Default),
     onPartial: ((String) -> Unit)? = null,
+    maxOutputTokens: Int? = null,
+    // Invoked before completion iff the maxOutputTokens cap (not a natural stop) was hit.
+    onTruncated: (() -> Unit)? = null,
 ): String {
     val completer = CompletableDeferred<String>()
     val fullResponse = StringBuilder()
+    var chunkCount = 0
 
     model.runtimeHelper.runInference(
         model = model,
         input = prompt,
         resultListener = { text, done, _ ->
             if (done) {
+                if (maxOutputTokens != null && chunkCount >= maxOutputTokens) onTruncated?.invoke()
                 completer.complete(fullResponse.toString())
             } else {
+                chunkCount++
                 fullResponse.append(text)
                 onPartial?.invoke(fullResponse.toString())
             }
@@ -72,6 +78,7 @@ internal suspend fun collectInferenceText(
         audioClips = emptyList(),
         coroutineScope = coroutineScope,
         extraContext = null,
+        maxOutputTokens = maxOutputTokens,
     )
 
     return completer.await()

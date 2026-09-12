@@ -107,18 +107,13 @@ suspend fun handleCompletion(
                 "temperature/top_p/top_k are ignored by the runtime on this backend.")
         }
 
-        try {
-            request.temperature?.let { model.configValues = model.configValues + (ConfigKeys.TEMPERATURE.label to it) }
-            request.top_p?.let { model.configValues = model.configValues + (ConfigKeys.TOPP.label to it) }
-            request.top_k?.let { model.configValues = model.configValues + (ConfigKeys.TOPK.label to it) }
-            request.max_tokens?.let { model.configValues = model.configValues + (ConfigKeys.MAX_TOKENS.label to it) }
-
+        withSamplerOverrides(model, originalConfigValues, request.temperature, request.top_p, request.top_k) {
             if (request.stream) {
                 call.response.cacheControl(CacheControl.NoCache(null))
                 call.respondBytesWriter(contentType = ContentType.Text.EventStream) {
                     val id = "cmpl-" + UUID.randomUUID().toString()
                     val created = System.currentTimeMillis() / 1000
-                    collectInferenceStream(this, model, request.prompt) { text ->
+                    collectInferenceStream(this, model, request.prompt, maxOutputTokens = request.max_tokens) { text ->
                         Json.encodeToString(
                             CompletionChunk(
                                 id = id,
@@ -135,7 +130,12 @@ suspend fun handleCompletion(
                     }
                 }
             } else {
-                val responseText = collectInferenceText(model, request.prompt)
+                var truncated = false
+                val responseText = collectInferenceText(
+                    model, request.prompt,
+                    maxOutputTokens = request.max_tokens,
+                    onTruncated = { truncated = true },
+                )
                 call.respond(CompletionResponse(
                     id = "cmpl-" + UUID.randomUUID().toString(),
                     created = System.currentTimeMillis() / 1000,
@@ -144,13 +144,11 @@ suspend fun handleCompletion(
                         CompletionChoice(
                             index = 0,
                             text = responseText,
-                            finish_reason = "stop"
+                            finish_reason = if (truncated) "length" else "stop"
                         )
                     )
                 ))
             }
-        } finally {
-            model.configValues = originalConfigValues
         }
     }
     when (guardResult) {

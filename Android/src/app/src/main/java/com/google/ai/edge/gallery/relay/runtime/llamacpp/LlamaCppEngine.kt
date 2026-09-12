@@ -23,6 +23,7 @@ import kotlin.time.measureTime
  */
 class LlamaCppEngine : EmbeddingCapable {
 
+    @Volatile
     private var instance = SmolLM()
     private val stateLock = ReentrantLock()
 
@@ -45,6 +46,8 @@ class LlamaCppEngine : EmbeddingCapable {
 
     @Volatile
     private var loadJob: Job? = null
+
+    private var resetJob: Job? = null
 
     val isModelLoaded = AtomicBoolean(false)
 
@@ -141,7 +144,7 @@ class LlamaCppEngine : EmbeddingCapable {
             generationJob?.cancel()
             isGenerating = false
 
-            CoroutineScope(Dispatchers.Default).launch {
+            resetJob = CoroutineScope(Dispatchers.Default).launch {
                 try {
                     // Close and reopen — this clears the KV cache and message history
                     // but the OS keeps model pages in memory so reload is fast
@@ -188,6 +191,8 @@ class LlamaCppEngine : EmbeddingCapable {
             generationJob?.cancel()
 
             generationJob = CoroutineScope(Dispatchers.Default).launch {
+                resetJob?.join()
+
                 try {
                     isGenerating = true
                     var fullResponse = ""

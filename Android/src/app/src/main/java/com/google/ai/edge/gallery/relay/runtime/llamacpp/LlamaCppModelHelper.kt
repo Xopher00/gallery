@@ -156,6 +156,7 @@ object LlamaCppModelHelper : LlmModelHelper {
         coroutineScope: CoroutineScope?,
         extraContext: Map<String, String>?,
         metricsTracker: MetricsTracker?,
+        maxOutputTokens: Int?,
     ) {
         val engine = engines[model.name]
         if (engine == null || !engine.isModelLoaded.get()) {

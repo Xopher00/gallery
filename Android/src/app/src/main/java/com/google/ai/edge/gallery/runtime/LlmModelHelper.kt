@@ -118,6 +118,7 @@ interface LlmModelHelper {
     coroutineScope: CoroutineScope? = null,
     extraContext: Map<String, String>? = null,
     metricsTracker: MetricsTracker? = null,
+    maxOutputTokens: Int? = null,
   )
 
   /**

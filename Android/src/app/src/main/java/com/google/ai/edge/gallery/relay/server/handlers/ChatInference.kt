@@ -8,6 +8,7 @@ package com.google.ai.edge.gallery.relay.server.handlers
 
 import android.graphics.Bitmap
 import com.google.ai.edge.gallery.data.BuiltInTaskId
+import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.proto.ChatMessageProto
 import com.google.ai.edge.gallery.proto.ChatSideProto
@@ -36,6 +37,22 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 private const val TAG = "AGChatHandler"
+
+// inline (not suspend lambda) -- handler bodies contain non-local returns like
+// `return@withBusyGuard`, which only thread through an inlined block.
+internal inline fun <T> withSamplerOverrides(
+    model: Model,
+    original: Map<String, Any>,
+    temperature: Float?,
+    topP: Float?,
+    topK: Int?,
+    block: () -> T,
+): T {
+    temperature?.let { model.configValues = model.configValues + (ConfigKeys.TEMPERATURE.label to it) }
+    topP?.let { model.configValues = model.configValues + (ConfigKeys.TOPP.label to it) }
+    topK?.let { model.configValues = model.configValues + (ConfigKeys.TOPK.label to it) }
+    return try { block() } finally { model.configValues = original }
+}
 
 // Maps a non-success LoadResult to the same status codes POST /v1/models/{id}/load returns.
 // Callers only invoke this for non-Loaded branches; Loaded means "proceed", not "respond".
@@ -72,8 +89,13 @@ internal fun TurnTokenUsage.toUsage(): Usage =
 
 internal fun TurnTokenUsage.exactnessLabel(): String = if (isFullyExact) "exact" else "estimated"
 
-internal suspend fun runInferenceBlocking(model: Model, prompt: String, images: List<Bitmap> = emptyList()): ChatCompletionResponse {
-    val resultText = collectInferenceText(model, prompt, images)
+internal suspend fun runInferenceBlocking(model: Model, prompt: String, images: List<Bitmap> = emptyList(), maxOutputTokens: Int? = null): ChatCompletionResponse {
+    var truncated = false
+    val resultText = collectInferenceText(
+        model, prompt, images,
+        maxOutputTokens = maxOutputTokens,
+        onTruncated = { truncated = true },
+    )
     val usage = TurnUsageStore.peek(model.name)
     return ChatCompletionResponse(
         id = "chatcmpl-" + UUID.randomUUID().toString(),
@@ -83,7 +105,7 @@ internal suspend fun runInferenceBlocking(model: Model, prompt: String, images: 
             ChatChoice(
                 index = 0,
                 message = ChatMessage(role = "assistant", content = resultText),
-                finish_reason = "stop"
+                finish_reason = if (truncated) "length" else "stop"
             )
         ),
         usage = usage?.toUsage(),
@@ -95,7 +117,7 @@ internal suspend fun runInferenceBlocking(model: Model, prompt: String, images: 
 // to the drain loop; trySend on an UNLIMITED channel never blocks that thread on client I/O.
 private sealed class StreamEvent {
     data class Chunk(val text: String) : StreamEvent()
-    object Done : StreamEvent()
+    data class Done(val truncated: Boolean) : StreamEvent()
     data class Error(val message: String) : StreamEvent()
 }
 
@@ -109,19 +131,23 @@ internal suspend fun collectInferenceStream(
     // Endpoints whose chunk shape carries no usage field simply leave this null.
     encodeUsageChunk: ((usage: TurnTokenUsage) -> String)? = null,
     // Sent regardless of encodeUsageChunk -- finish_reason must not depend on include_usage.
-    encodeFinishChunk: (() -> String)? = null,
+    // Param: true iff generation was cut off by maxOutputTokens rather than stopping on its own.
+    encodeFinishChunk: ((truncated: Boolean) -> String)? = null,
+    maxOutputTokens: Int? = null,
     encodeChunk: (text: String) -> String,
 ) {
     val events = Channel<StreamEvent>(Channel.UNLIMITED)
+    var chunkCount = 0
 
     model.runtimeHelper.runInference(
         model = model,
         input = prompt,
         resultListener = { text, done, _ ->
             if (done) {
-                events.trySend(StreamEvent.Done)
+                events.trySend(StreamEvent.Done(truncated = maxOutputTokens != null && chunkCount >= maxOutputTokens))
                 events.close()
             } else {
+                chunkCount++
                 events.trySend(StreamEvent.Chunk(text))
             }
         },
@@ -134,6 +160,7 @@ internal suspend fun collectInferenceStream(
         audioClips = emptyList(),
         coroutineScope = CoroutineScope(Dispatchers.Default),
         extraContext = null,
+        maxOutputTokens = maxOutputTokens,
     )
 
     // A client disconnect throws CancellationException out of events.receive(); finally still
@@ -148,7 +175,7 @@ internal suspend fun collectInferenceStream(
                 is StreamEvent.Done -> {
                     val usage = TurnUsageStore.peek(model.name)
                     if (encodeFinishChunk != null) {
-                        writer.writeStringUtf8("data: ${encodeFinishChunk()}\n\n")
+                        writer.writeStringUtf8("data: ${encodeFinishChunk(event.truncated)}\n\n")
                     }
                     if (encodeUsageChunk != null && usage != null) {
                         writer.writeStringUtf8("data: ${encodeUsageChunk(usage)}\n\n")

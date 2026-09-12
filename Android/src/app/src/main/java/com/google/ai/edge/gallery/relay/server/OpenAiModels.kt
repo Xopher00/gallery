@@ -20,6 +20,7 @@ data class ChatCompletionRequest(
     val top_p: Float? = null,
     val top_k: Int? = null,
     val max_tokens: Int? = null,
+    val max_completion_tokens: Int? = null,
     val stream: Boolean = false,
     val tools: List<OpenAiTool>? = null,
     val tool_choice: JsonElement? = null,

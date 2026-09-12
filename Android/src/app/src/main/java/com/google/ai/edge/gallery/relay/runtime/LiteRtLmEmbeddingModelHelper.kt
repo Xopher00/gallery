@@ -66,6 +66,7 @@ object LiteRtLmEmbeddingModelHelper : LlmModelHelper {
     coroutineScope: CoroutineScope?,
     extraContext: Map<String, String>?,
     metricsTracker: MetricsTracker?,
+    maxOutputTokens: Int?,
   ) {
     onError(NOT_A_CHAT_MODEL)
   }

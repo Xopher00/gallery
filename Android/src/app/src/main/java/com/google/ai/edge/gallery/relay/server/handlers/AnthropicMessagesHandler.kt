@@ -9,7 +9,6 @@ package com.google.ai.edge.gallery.relay.server.handlers
 import android.util.Log
 import com.google.ai.edge.gallery.agent.sessions.LlmSessionManager
 import com.google.ai.edge.gallery.data.Accelerator
-import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.proto.ChatMessageProto
 import com.google.ai.edge.gallery.proto.ChatSideProto
@@ -114,12 +113,8 @@ suspend fun handleAnthropicMessages(
         }
 
         val originalConfigValues = model.configValues
-        try {
-            model.configValues = model.configValues + (ConfigKeys.MAX_TOKENS.label to request.max_tokens)
-            request.temperature?.let { model.configValues = model.configValues + (ConfigKeys.TEMPERATURE.label to it) }
-            request.top_p?.let { model.configValues = model.configValues + (ConfigKeys.TOPP.label to it) }
-            request.top_k?.let { model.configValues = model.configValues + (ConfigKeys.TOPK.label to it) }
-
+        val replyCap = request.max_tokens
+        withSamplerOverrides(model, originalConfigValues, request.temperature, request.top_p, request.top_k) {
             // Anthropic's `system` is top-level, not a message role.
             val systemInstruction = request.system?.let { Contents.of(Content.Text(it)) }
 
@@ -191,7 +186,13 @@ suspend fun handleAnthropicMessages(
                 ).messages
             }
 
-            val resultText = collectInferenceText(model, lastParsed.text, lastParsed.images)
+            var truncated = false
+            val resultText =
+                collectInferenceText(
+                    model, lastParsed.text, lastParsed.images,
+                    maxOutputTokens = replyCap,
+                    onTruncated = { truncated = true },
+                )
 
             if (effectiveSessionId != null) {
                 llmSessionManager.saveSessionHistory(
@@ -209,7 +210,7 @@ suspend fun handleAnthropicMessages(
                     id = "msg_" + UUID.randomUUID().toString(),
                     model = model.name,
                     content = listOf(AnthropicContentBlock(text = resultText)),
-                    stop_reason = "end_turn",
+                    stop_reason = if (truncated) "max_tokens" else "end_turn",
                     // 0/0 when the engine recorded nothing for this turn: unknown, not faked.
                     usage =
                         TurnUsageStore.peek(model.name).let { usage ->
@@ -221,8 +222,6 @@ suspend fun handleAnthropicMessages(
                     session_id = effectiveSessionId,
                 )
             )
-        } finally {
-            model.configValues = originalConfigValues
         }
     }
     when (guardResult) {

@@ -272,6 +272,7 @@ object AICoreModelHelper : LlmModelHelper {
     coroutineScope: CoroutineScope?,
     extraContext: Map<String, String>?,
     metricsTracker: MetricsTracker?,
+    maxOutputTokens: Int?,
   ) {
     val instance = model.instance as? AICoreModelInstance
     if (instance == null) {
@@ -292,11 +293,12 @@ object AICoreModelHelper : LlmModelHelper {
         .getFloatConfigValue(key = ConfigKeys.TEMPERATURE, defaultValue = DEFAULT_TEMPERATURE)
         .coerceIn(0.0f, 1.0f)
     val topK = model.getIntConfigValue(key = ConfigKeys.TOPK, defaultValue = DEFAULT_TOPK)
-    val maxOutputTokens =
+    val configuredMaxOutputTokens =
       model.getIntConfigValue(
         key = ConfigKeys.MAX_OUTPUT_TOKENS,
         defaultValue = DEFAULT_MAX_OUTPUT_TOKEN,
       )
+    val effectiveMaxOutputTokens = maxOutputTokens ?: configuredMaxOutputTokens
 
     instance.inferenceJob?.cancel()
 
@@ -308,7 +310,7 @@ object AICoreModelHelper : LlmModelHelper {
         prompt = prompt,
         temperature = temperature,
         topK = topK,
-        maxOutputTokens = maxOutputTokens,
+        maxOutputTokens = effectiveMaxOutputTokens,
         images = images,
         input = input,
         resultListener = resultListener,

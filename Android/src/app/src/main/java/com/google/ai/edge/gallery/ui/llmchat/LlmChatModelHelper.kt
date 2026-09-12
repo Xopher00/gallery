@@ -324,6 +324,7 @@ object LlmChatModelHelper : LlmModelHelper {
     coroutineScope: CoroutineScope?,
     extraContext: Map<String, String>?,
     metricsTracker: MetricsTracker?,
+    maxOutputTokens: Int?,
   ) {
     val instance = model.instance as? LlmModelInstance
     if (instance == null) {
@@ -396,47 +397,52 @@ object LlmChatModelHelper : LlmModelHelper {
 
     // Step 4: Dispatch asynchronous streaming inference to the native LiteRT-LM engine.
     conversation.sendMessageAsync(
-      Contents.of(contents),
-      object : MessageCallback {
-        override fun onMessage(message: Message) {
-          val text = message.toString()
-          val thinking = message.channels[THOUGHT_CHANNEL]
-          // Record streaming token to lock TTFT on first token and update live metrics.
-          metricsTracker?.onNewToken(tokenText = text, thinkingText = thinking)
-          chunkCount++
-          resultListener(text, false, thinking)
-        }
+      contents = Contents.of(contents),
+      callback =
+        object : MessageCallback {
+          override fun onMessage(message: Message) {
+            val text = message.toString()
+            val thinking = message.channels[THOUGHT_CHANNEL]
+            // Record streaming token to lock TTFT on first token and update live metrics.
+            metricsTracker?.onNewToken(tokenText = text, thinkingText = thinking)
+            chunkCount++
+            resultListener(text, false, thinking)
+          }
 
-        override fun onDone() {
-          // Finalize turn metrics with SUCCESS status.
-          val unused =
-            metricsTracker?.endTurn(statusCode = InferenceStatus.Code.SUCCESS, errorMessage = null)
-          // Record before the done callback so a reader sees usage as soon as it is signalled.
-          recordUsage()
-          resultListener("", true, null)
-        }
-
-        override fun onError(throwable: Throwable) {
-          if (throwable is CancellationException) {
-            // User or system cancelled inference: reconcile context tokens and mark CANCELLED.
-            Log.i(TAG, "The inference is cancelled.")
-            val unused = metricsTracker?.cancelTurn()
-            recordUsage()
-            resultListener("", true, null)
-          } else {
-            // Engine error or crash: record ERROR status with error message.
-            Log.e(TAG, "onError", throwable)
+          override fun onDone() {
+            // Finalize turn metrics with SUCCESS status.
             val unused =
               metricsTracker?.endTurn(
-                statusCode = InferenceStatus.Code.ERROR,
-                errorMessage = throwable.message ?: "Unknown error",
+                statusCode = InferenceStatus.Code.SUCCESS,
+                errorMessage = null,
               )
-            TurnUsageStore.abort(model.name)
-            onError("Error: ${throwable.message}")
+            // Record before the done callback so a reader sees usage as soon as it is signalled.
+            recordUsage()
+            resultListener("", true, null)
           }
-        }
-      },
-      finalExtraContext,
+
+          override fun onError(throwable: Throwable) {
+            if (throwable is CancellationException) {
+              // User or system cancelled inference: reconcile context tokens and mark CANCELLED.
+              Log.i(TAG, "The inference is cancelled.")
+              val unused = metricsTracker?.cancelTurn()
+              recordUsage()
+              resultListener("", true, null)
+            } else {
+              // Engine error or crash: record ERROR status with error message.
+              Log.e(TAG, "onError", throwable)
+              val unused =
+                metricsTracker?.endTurn(
+                  statusCode = InferenceStatus.Code.ERROR,
+                  errorMessage = throwable.message ?: "Unknown error",
+                )
+              TurnUsageStore.abort(model.name)
+              onError("Error: ${throwable.message}")
+            }
+          }
+        },
+      extraContext = finalExtraContext,
+      maxOutputToken = maxOutputTokens,
     )
     } catch (e: Exception) {
       // sendMessageAsync can throw synchronously before any callback fires.

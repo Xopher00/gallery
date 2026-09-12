@@ -38,7 +38,9 @@ private fun probeLiteRtLmFileKind(path: String): ModelFileKind {
         val modelTypes = collectLiteRtLmModelTypes(ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN))
         return when {
             modelTypes.isEmpty() -> ModelFileKind.CHAT
-            TF_LITE_PREFILL_DECODE in modelTypes -> ModelFileKind.CHAT
+            // Section names are upper case in NPU-compiled bundles, lower case elsewhere.
+            modelTypes.any { it.equals(TF_LITE_PREFILL_DECODE, ignoreCase = true) } ->
+                ModelFileKind.CHAT
             else -> ModelFileKind.EMBEDDING
         }
     }
