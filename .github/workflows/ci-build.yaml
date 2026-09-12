@@ -2,6 +2,9 @@
 # signed and released by sync-and-release.yaml instead.
 name: Build Android APK
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
   pull_request:
@@ -33,6 +36,16 @@ jobs:
       # abiFilters in the module build files already restrict this to arm64-v8a.
       - name: Build
         run: ./gradlew assembleRelease --no-daemon -PuseCcache
+
+      - name: Check APK contents
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/release/*.apk)
+          if ! unzip -l "$APK" | grep -q 'META-INF/services/kotlinx.coroutines.internal.MainDispatcherFactory'; then
+            echo "APK has no MainDispatcherFactory service file (R8 stripped it); the app crashes at launch"
+            exit 1
+          fi
+          echo "lib/arm64-v8a entries: $(unzip -l "$APK" | grep -c 'lib/arm64-v8a/')"
 
       - name: Show ccache stats
         run: ccache -s

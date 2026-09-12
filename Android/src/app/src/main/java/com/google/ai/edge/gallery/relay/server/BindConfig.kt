@@ -15,13 +15,18 @@ object BindConfig {
 
     // INTERFACE mode throws rather than widening the bind scope when the selected interface is
     // absent or has no IPv4 -- never falls back to 0.0.0.0.
-    fun bindHost(mode: BindMode, ifaceName: String?): String = when (mode) {
+    fun bindHost(
+        mode: BindMode,
+        ifaceName: String?,
+        resolver: (String) -> String? = ::resolveInterfaceAddress,
+    ): String = when (mode) {
         BindMode.LOOPBACK -> "127.0.0.1"
         BindMode.LAN -> "0.0.0.0"
         BindMode.INTERFACE -> {
-            val error = validateBindReady(mode, ifaceName)
+            val error = validateBindReady(mode, ifaceName, resolver)
             if (error != null) throw IllegalStateException(error)
-            resolveInterfaceAddress(ifaceName!!)!!
+            val name = ifaceName!!
+            resolver(name) ?: throw IllegalStateException(interfaceNotAvailableMessage(name))
         }
     }
 
@@ -53,20 +58,23 @@ object BindConfig {
         null
     }
 
-    fun validateBindReady(mode: BindMode, ifaceName: String?): String? {
+    fun validateBindReady(
+        mode: BindMode,
+        ifaceName: String?,
+        resolver: (String) -> String? = ::resolveInterfaceAddress,
+    ): String? {
         if (mode != BindMode.INTERFACE) return null
         if (ifaceName.isNullOrBlank()) {
             return "No network interface selected. Pick one before starting the server."
         }
-        val addr = resolveInterfaceAddress(ifaceName)
-        return if (addr == null) {
-            "Interface '$ifaceName' is not available or has no IPv4 address right now " +
-                "(disconnected, or its address changed). The server will NOT bind to 0.0.0.0 " +
-                "automatically -- reconnect '$ifaceName' or choose a different interface."
-        } else {
-            null
-        }
+        val addr = resolver(ifaceName)
+        return if (addr == null) interfaceNotAvailableMessage(ifaceName) else null
     }
+
+    private fun interfaceNotAvailableMessage(ifaceName: String): String =
+        "Interface '$ifaceName' is not available or has no IPv4 address right now " +
+            "(disconnected, or its address changed). The server will NOT bind to 0.0.0.0 " +
+            "automatically -- reconnect '$ifaceName' or choose a different interface."
 
     /** Null if INTERFACE mode is still bound to [boundAddress]; an error message if not. */
     fun checkInterfaceDrift(mode: BindMode, ifaceName: String?, boundAddress: String?): String? {

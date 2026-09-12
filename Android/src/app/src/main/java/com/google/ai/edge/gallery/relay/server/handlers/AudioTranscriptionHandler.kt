@@ -106,7 +106,7 @@ suspend fun handleAudioTranscriptions(
 
         val whisperModels = modelRegistry.tasks
             .flatMap { it.models }
-            .filter { modelRegistry.engineOf(it) == ModelEngine.Whisper }
+            .filter { modelRegistry.engineOf(it) == ModelEngine.Whisper && it.instance is WhisperEngine }
             .distinctBy { it.name }
 
         var model = whisperModels.find { it.name == requestedModel }
@@ -151,7 +151,17 @@ suspend fun handleAudioTranscriptions(
             )
             return
         }
-        val engine = model.instance as WhisperEngine
+        val engine = model.instance as? WhisperEngine
+        if (engine == null) {
+            call.respond(
+                HttpStatusCode.ServiceUnavailable,
+                ErrorEnvelope(ErrorBody(
+                    message = "Model '$requestedModel' is not loaded for transcription. Available: " +
+                        whisperModels.joinToString(", ") { it.name }.ifEmpty { "(none loaded)" }
+                ))
+            )
+            return
+        }
 
         tempFile = File.createTempFile("upload", ".audio", context.cacheDir)
         tempFile.writeBytes(fileBytes!!)

@@ -206,13 +206,15 @@ suspend fun handleAgentRun(
     if (model == null || model.instance == null) {
         call.respond(
             HttpStatusCode.NotFound,
-            mapOf(
-                "error" to
-                    if (request.model != null) {
-                        "Model '${request.model}' not found or not initialized"
-                    } else {
-                        "No model specified and no mobile-actions-capable model is currently loaded"
-                    }
+            ErrorEnvelope(
+                ErrorBody(
+                    message =
+                        if (request.model != null) {
+                            "Model '${request.model}' not found or not initialized"
+                        } else {
+                            "No model specified and no mobile-actions-capable model is currently loaded"
+                        }
+                )
             ),
         )
         return
@@ -380,7 +382,7 @@ suspend fun handleAgentRun(
         }
     }
     when (guardResult) {
-        is BusyResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Model is busy"))
+        is BusyResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, ErrorEnvelope(ErrorBody(message = "Model is busy")))
         is BusyResult.TimedOut -> call.respond(
             HttpStatusCode.GatewayTimeout,
             ErrorEnvelope(ErrorBody(message = "Agent run timed out after ${AGENT_RUN_TIMEOUT_MS / 1000}s")),

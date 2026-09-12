@@ -21,6 +21,7 @@ import com.google.ai.edge.gallery.data.SD_IMPORTS_DIR
 import com.google.ai.edge.gallery.data.ValueType
 import com.google.ai.edge.gallery.data.createLlmChatConfigs
 import com.google.ai.edge.gallery.proto.ImportedModel
+import com.jegly.offlineLLM.smollm.GGUFReader
 import java.io.File
 
 internal val RESET_CONVERSATION_TURN_COUNT_CONFIG =
@@ -204,9 +205,31 @@ class ImportedModelStore(
     val llmSupportMobileActions = info.llmConfig.supportMobileActions
     val llmSupportThinking = info.llmConfig.supportThinking
     val llmSupportSpeculativeDecoding = info.llmConfig.supportSpeculativeDecoding
+    val importedFileNameToCheck =
+      if (info.fileName.startsWith("$IMPORTS_DIR/")) {
+        info.fileName.substringAfter("$IMPORTS_DIR/")
+      } else {
+        info.fileName
+      }
+    val importedFilePath = importedFile(modelsDir, importedFileNameToCheck).absolutePath
+    val importedMaxContextLength =
+      if (importedFileNameToCheck.endsWith(".gguf", ignoreCase = true)) {
+        try {
+          val declaredContextSize = GGUFReader().use { it.open(importedFilePath); it.getContextSize() }
+          val engineContextLimit =
+            if (File(importedFilePath).length() > 2_147_483_648L) 4096 else 8192
+          declaredContextSize?.let { minOf(it, engineContextLimit.toLong()).toInt() }
+            ?: engineContextLimit
+        } catch (e: Exception) {
+          4096
+        }
+      } else {
+        4096
+      }
     val configs: MutableList<Config> =
       createLlmChatConfigs(
           defaultMaxToken = llmMaxToken,
+          defaultMaxContextLength = importedMaxContextLength,
           defaultTopK = info.llmConfig.defaultTopk,
           defaultTopP = info.llmConfig.defaultTopp,
           defaultTemperature = info.llmConfig.defaultTemperature,
@@ -232,19 +255,12 @@ class ImportedModelStore(
           BuiltInTaskId.LLM_PROMPT_LAB,
         )
     }
-    val importedFileNameToCheck =
-      if (info.fileName.startsWith("$IMPORTS_DIR/")) {
-        info.fileName.substringAfter("$IMPORTS_DIR/")
-      } else {
-        info.fileName
-      }
     val importedRuntimeType =
       if (importedFileNameToCheck.endsWith(".gguf", ignoreCase = true)) {
         RuntimeType.UNKNOWN
       } else {
         RuntimeType.LITERT_LM
       }
-    val importedFilePath = importedFile(modelsDir, importedFileNameToCheck).absolutePath
     val isEmbeddingModel = probeModelFileKind(importedFilePath) == ModelFileKind.EMBEDDING
     if (isEmbeddingModel) {
       capabilities.add(ModelCapability.EMBEDDING)

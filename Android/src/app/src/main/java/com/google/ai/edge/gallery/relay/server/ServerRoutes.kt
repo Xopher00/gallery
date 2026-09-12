@@ -26,6 +26,7 @@ import com.google.ai.edge.gallery.relay.server.handlers.handleImageGenerations
 import com.google.ai.edge.gallery.relay.server.handlers.handleOcr
 import com.google.ai.edge.gallery.relay.server.handlers.handleVisionDetect
 import com.google.ai.edge.gallery.relay.server.handlers.handleVisionSegment
+import com.google.ai.edge.gallery.relay.server.handlers.respondLoadError
 import io.ktor.http.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
@@ -69,7 +70,7 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
             .find { it.name == modelId && server.modelRegistry.getModelDownloadStatus(it).status == ModelDownloadStatusType.SUCCEEDED }
 
         if (model == null) {
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to "Model not found or not downloaded"))
+            call.respond(HttpStatusCode.NotFound, ErrorEnvelope(ErrorBody(message = "Model not found or not downloaded")))
         } else {
             call.respond(model.toModelData(server))
         }
@@ -92,21 +93,7 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
             is LoadResult.Loaded -> call.respond(
                 mapOf("id" to result.name, "status" to "loaded", "accelerator" to result.accelerator)
             )
-            is LoadResult.NotFound -> call.respond(
-                HttpStatusCode.NotFound, ErrorEnvelope(ErrorBody(message = result.message))
-            )
-            is LoadResult.Busy -> call.respond(
-                HttpStatusCode.TooManyRequests, ErrorEnvelope(ErrorBody(message = result.message))
-            )
-            is LoadResult.Conflict -> call.respond(
-                HttpStatusCode.InsufficientStorage, ErrorEnvelope(ErrorBody(message = result.message))
-            )
-            is LoadResult.Error -> call.respond(
-                HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = result.message))
-            )
-            is LoadResult.TimedOut -> call.respond(
-                HttpStatusCode.ServiceUnavailable, ErrorEnvelope(ErrorBody(message = result.message))
-            )
+            else -> respondLoadError(call, result)
         }
     }
 

@@ -120,6 +120,14 @@ suspend fun handleChatCompletion(
         }
 
         val replyCap = request.max_completion_tokens ?: request.max_tokens
+        replyCapError(replyCap)?.let {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+            return@withBusyGuard
+        }
+        samplerRangeError(request.temperature, request.top_p, request.top_k)?.let {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+            return@withBusyGuard
+        }
         withSamplerOverrides(model, originalConfigValues, request.temperature, request.top_p, request.top_k) {
             // F3: tool calling isn't supported -- LiteRT-LM's ToolSet only accepts compile-time-
             // declared tools and never surfaces a model's intended call back to the caller.
@@ -155,7 +163,7 @@ suspend fun handleChatCompletion(
             val conversationMessages = request.messages.filter { it.role != "system" }
 
             if (conversationMessages.isEmpty()) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "No user/assistant messages provided"))
+                call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = "No user/assistant messages provided")))
                 return@withBusyGuard
             }
 
@@ -163,7 +171,7 @@ suspend fun handleChatCompletion(
             // dropped during history replay below.
             val lastMessage = conversationMessages.last()
             if (lastMessage.role != "user") {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Last message must be from user"))
+                call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = "Last message must be from user")))
                 return@withBusyGuard
             }
 
@@ -314,7 +322,7 @@ suspend fun handleChatCompletion(
         }
     }
     when (guardResult) {
-        is BusyResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Model is busy"))
+        is BusyResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, ErrorEnvelope(ErrorBody(message = "Model is busy")))
         is BusyResult.TimedOut -> {} // NO_BUSY_GUARD_TIMEOUT_MS is not expected to elapse
         is BusyResult.Ok -> {}
     }

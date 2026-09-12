@@ -107,6 +107,14 @@ suspend fun handleCompletion(
                 "temperature/top_p/top_k are ignored by the runtime on this backend.")
         }
 
+        replyCapError(request.max_tokens)?.let {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+            return@withBusyGuard
+        }
+        samplerRangeError(request.temperature, request.top_p, request.top_k)?.let {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+            return@withBusyGuard
+        }
         withSamplerOverrides(model, originalConfigValues, request.temperature, request.top_p, request.top_k) {
             if (request.stream) {
                 call.response.cacheControl(CacheControl.NoCache(null))
@@ -152,7 +160,7 @@ suspend fun handleCompletion(
         }
     }
     when (guardResult) {
-        is BusyResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Model is busy"))
+        is BusyResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, ErrorEnvelope(ErrorBody(message = "Model is busy")))
         is BusyResult.TimedOut -> {} // NO_BUSY_GUARD_TIMEOUT_MS is not expected to elapse
         is BusyResult.Ok -> {}
     }

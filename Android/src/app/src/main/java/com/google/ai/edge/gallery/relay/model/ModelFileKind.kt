@@ -27,22 +27,25 @@ private const val FLATBUFFER_STRING_VALUE_TAG = 9 // KeyValue.value_type union t
 private const val TF_LITE_PREFILL_DECODE = "tf_lite_prefill_decode"
 
 private fun probeLiteRtLmFileKind(path: String): ModelFileKind {
+    val modelTypes = probeLiteRtLmModelTypes(path)
+    return when {
+        modelTypes.isEmpty() -> ModelFileKind.CHAT
+        // Section names are upper case in NPU-compiled bundles, lower case elsewhere.
+        modelTypes.any { it.equals(TF_LITE_PREFILL_DECODE, ignoreCase = true) } -> ModelFileKind.CHAT
+        else -> ModelFileKind.EMBEDDING
+    }
+}
+
+internal fun probeLiteRtLmModelTypes(path: String): List<String> {
     RandomAccessFile(path, "r").use { raf ->
         val prefix = ByteArray(32)
         raf.readFully(prefix)
-        if (String(prefix, 0, 8, Charsets.US_ASCII) != LITERTLM_MAGIC) return ModelFileKind.CHAT
+        if (String(prefix, 0, 8, Charsets.US_ASCII) != LITERTLM_MAGIC) return emptyList()
         val headerEndOffset = ByteBuffer.wrap(prefix).order(ByteOrder.LITTLE_ENDIAN).getLong(24)
         val header = ByteArray(minOf(headerEndOffset, LITERTLM_HEADER_CAP_BYTES.toLong()).toInt())
         raf.seek(0)
         raf.readFully(header)
-        val modelTypes = collectLiteRtLmModelTypes(ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN))
-        return when {
-            modelTypes.isEmpty() -> ModelFileKind.CHAT
-            // Section names are upper case in NPU-compiled bundles, lower case elsewhere.
-            modelTypes.any { it.equals(TF_LITE_PREFILL_DECODE, ignoreCase = true) } ->
-                ModelFileKind.CHAT
-            else -> ModelFileKind.EMBEDDING
-        }
+        return collectLiteRtLmModelTypes(ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN))
     }
 }
 

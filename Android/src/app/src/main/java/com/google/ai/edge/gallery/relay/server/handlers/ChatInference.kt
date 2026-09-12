@@ -23,6 +23,7 @@ import com.google.ai.edge.gallery.relay.runtime.isContextOverflow
 import com.google.ai.edge.gallery.relay.server.Usage
 import com.google.ai.edge.gallery.relay.runtime.TurnTokenUsage
 import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
+import com.google.ai.edge.gallery.runtime.LlmModelHelper
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -37,6 +38,16 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 private const val TAG = "AGChatHandler"
+
+// An out-of-range value here closes the runtime's conversation permanently, not just this request.
+internal fun samplerRangeError(temperature: Float?, topP: Float?, topK: Int?): String? {
+    if (topK != null && topK < 1) return "top_k must be at least 1"
+    if (topP != null && (topP < 0 || topP > 1)) return "top_p must be between 0 and 1"
+    if (temperature != null && temperature < 0) return "temperature must be at least 0"
+    return null
+}
+
+internal fun replyCapError(cap: Int?): String? = if (cap != null && cap < 1) "max_tokens must be at least 1" else null
 
 // inline (not suspend lambda) -- handler bodies contain non-local returns like
 // `return@withBusyGuard`, which only thread through an inlined block.
@@ -60,7 +71,7 @@ internal suspend fun respondLoadError(call: ApplicationCall, result: LoadResult)
     when (result) {
         is LoadResult.NotFound -> call.respond(HttpStatusCode.NotFound, ErrorEnvelope(ErrorBody(message = result.message)))
         is LoadResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, ErrorEnvelope(ErrorBody(message = result.message)))
-        is LoadResult.Conflict -> call.respond(HttpStatusCode.InsufficientStorage, ErrorEnvelope(ErrorBody(message = result.message)))
+        is LoadResult.Conflict -> call.respond(HttpStatusCode.Conflict, ErrorEnvelope(ErrorBody(message = result.message)))
         is LoadResult.Error -> call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = result.message)))
         is LoadResult.TimedOut -> call.respond(HttpStatusCode.ServiceUnavailable, ErrorEnvelope(ErrorBody(message = result.message)))
         is LoadResult.Loaded -> {} // caller shouldn't reach here for the success case
@@ -134,11 +145,12 @@ internal suspend fun collectInferenceStream(
     // Param: true iff generation was cut off by maxOutputTokens rather than stopping on its own.
     encodeFinishChunk: ((truncated: Boolean) -> String)? = null,
     maxOutputTokens: Int? = null,
+    helper: LlmModelHelper = model.runtimeHelper,
     encodeChunk: (text: String) -> String,
 ) {
     val events = Channel<StreamEvent>(Channel.UNLIMITED)
 
-    model.runtimeHelper.runInference(
+    helper.runInference(
         model = model,
         input = prompt,
         resultListener = { text, done, _ ->

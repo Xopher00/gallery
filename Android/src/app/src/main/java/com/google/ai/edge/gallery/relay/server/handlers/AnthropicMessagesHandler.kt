@@ -90,7 +90,7 @@ suspend fun handleAnthropicMessages(
     }
 
     if (request.messages.isEmpty()) {
-        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "No messages provided"))
+        call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = "No messages provided")))
         return
     }
 
@@ -114,13 +114,21 @@ suspend fun handleAnthropicMessages(
 
         val originalConfigValues = model.configValues
         val replyCap = request.max_tokens
+        replyCapError(replyCap)?.let {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+            return@withBusyGuard
+        }
+        samplerRangeError(request.temperature, request.top_p, request.top_k)?.let {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+            return@withBusyGuard
+        }
         withSamplerOverrides(model, originalConfigValues, request.temperature, request.top_p, request.top_k) {
             // Anthropic's `system` is top-level, not a message role.
             val systemInstruction = request.system?.let { Contents.of(Content.Text(it)) }
 
             val lastMessage = request.messages.last()
             if (lastMessage.role != "user") {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Last message must be from user"))
+                call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = "Last message must be from user")))
                 return@withBusyGuard
             }
 
@@ -225,7 +233,7 @@ suspend fun handleAnthropicMessages(
         }
     }
     when (guardResult) {
-        is BusyResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Model is busy"))
+        is BusyResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, ErrorEnvelope(ErrorBody(message = "Model is busy")))
         is BusyResult.TimedOut -> {} // NO_BUSY_GUARD_TIMEOUT_MS is not expected to elapse
         is BusyResult.Ok -> {}
     }

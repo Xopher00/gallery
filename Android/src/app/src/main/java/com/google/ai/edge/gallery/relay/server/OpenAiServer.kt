@@ -16,23 +16,18 @@ import android.content.Context
 import android.util.Log
 import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
-import com.google.ai.edge.gallery.relay.server.handlers.ContextLengthExceededException
 import dagger.hilt.android.EntryPointAccessors
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.cio.*
-import io.ktor.server.plugins.BadRequestException
-import io.ktor.server.plugins.CannotTransformContentToTypeException
-import io.ktor.server.plugins.UnsupportedMediaTypeException
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -40,42 +35,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
 private const val TAG = "AGOpenAiServer"
-
-// SECURITY: strips the request body from kotlinx.serialization's exception message before it reaches the wire.
-private fun sanitizeBadRequestMessage(cause: BadRequestException): String {
-    val raw = cause.cause?.message ?: cause.message ?: return "Malformed request body"
-    val reason = raw.substringBefore("\nJSON input:").trim()
-    return reason.ifBlank { "Malformed request body" }
-}
-
-// SECURITY: normalises repeated slashes and ./.. before the public-allowlist check.
-private fun normalizePath(rawPath: String): String {
-    val collapsed = rawPath.replace(Regex("/+"), "/")
-    val resolved = ArrayDeque<String>()
-    for (segment in collapsed.split("/")) {
-        when (segment) {
-            "", "." -> {}
-            ".." -> if (resolved.isNotEmpty()) resolved.removeLast()
-            else -> resolved.addLast(segment)
-        }
-    }
-    return "/" + resolved.joinToString("/")
-}
-
-// SECURITY: requires the RFC 7235 "Bearer" scheme; a bare key with no scheme is rejected.
-private fun extractBearerToken(header: String?): String? {
-    if (header == null) return null
-    val spaceIdx = header.indexOf(' ')
-    if (spaceIdx <= 0) return null
-    val scheme = header.substring(0, spaceIdx)
-    if (!scheme.equals("Bearer", ignoreCase = true)) return null
-    val token = header.substring(spaceIdx + 1).trim()
-    return token.ifEmpty { null }
-}
-
-// SECURITY: constant-time comparison to avoid leaking key-match timing.
-private fun constantTimeEquals(a: String, b: String): Boolean =
-    MessageDigest.isEqual(a.toByteArray(Charsets.UTF_8), b.toByteArray(Charsets.UTF_8))
 
 class OpenAiServer(
     internal val context: Context,
@@ -166,50 +125,11 @@ class OpenAiServer(
                 allowHeader(HttpHeaders.Authorization)
             }
 
-            // SECURITY: deny-by-default -- authenticates every request except "/health";
-            // runs before routing so an unknown path gets 401, not a route-leaking 404.
-            intercept(ApplicationCallPipeline.Plugins) {
-                val normalizedPath = normalizePath(call.request.path())
-                if (normalizedPath == "/health") {
-                    return@intercept
-                }
-                val token = extractBearerToken(call.request.headers[HttpHeaders.Authorization])
-                if (token == null || !constantTimeEquals(token, apiKey)) {
-                    call.respond(
-                        HttpStatusCode.Unauthorized,
-                        ErrorEnvelope(ErrorBody(message = "Invalid or missing API key"))
-                    )
-                    finish()
-                }
-            }
+            installApiKeyAuth(apiKey)
 
-            // Scoped to these specific types only (never Throwable) so it can't swallow
-            // the auth 401 or busy-guard 429s.
+            // Catch-all is safe: auth and busy guards above respond directly, never throw.
             install(StatusPages) {
-                exception<BadRequestException> { call, cause ->
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ErrorEnvelope(ErrorBody(message = sanitizeBadRequestMessage(cause)))
-                    )
-                }
-                exception<CannotTransformContentToTypeException> { call, _ ->
-                    call.respond(
-                        HttpStatusCode.UnsupportedMediaType,
-                        ErrorEnvelope(ErrorBody(message = "Request body is missing or could not be parsed as JSON"))
-                    )
-                }
-                exception<UnsupportedMediaTypeException> { call, _ ->
-                    call.respond(
-                        HttpStatusCode.UnsupportedMediaType,
-                        ErrorEnvelope(ErrorBody(message = "Unsupported content type; expected application/json"))
-                    )
-                }
-                exception<ContextLengthExceededException> { call, cause ->
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ErrorEnvelope(ErrorBody(message = cause.message ?: "", code = "context_length_exceeded"))
-                    )
-                }
+                installOpenAiErrorHandlers()
             }
 
             routing {
