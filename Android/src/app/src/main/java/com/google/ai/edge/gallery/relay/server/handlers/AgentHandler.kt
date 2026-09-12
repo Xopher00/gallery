@@ -206,13 +206,15 @@ suspend fun handleAgentRun(
     if (model == null || model.instance == null) {
         call.respond(
             HttpStatusCode.NotFound,
-            mapOf(
-                "error" to
-                    if (request.model != null) {
-                        "Model '${request.model}' not found or not initialized"
-                    } else {
-                        "No model specified and no mobile-actions-capable model is currently loaded"
-                    }
+            ErrorEnvelope(
+                ErrorBody(
+                    message =
+                        if (request.model != null) {
+                            "Model '${request.model}' not found or not initialized"
+                        } else {
+                            "No model specified and no mobile-actions-capable model is currently loaded"
+                        }
+                )
             ),
         )
         return
