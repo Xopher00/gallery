@@ -28,7 +28,6 @@ import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -36,35 +35,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
 private const val TAG = "AGOpenAiServer"
-
-// SECURITY: normalises repeated slashes and ./.. before the public-allowlist check.
-private fun normalizePath(rawPath: String): String {
-    val collapsed = rawPath.replace(Regex("/+"), "/")
-    val resolved = ArrayDeque<String>()
-    for (segment in collapsed.split("/")) {
-        when (segment) {
-            "", "." -> {}
-            ".." -> if (resolved.isNotEmpty()) resolved.removeLast()
-            else -> resolved.addLast(segment)
-        }
-    }
-    return "/" + resolved.joinToString("/")
-}
-
-// SECURITY: requires the RFC 7235 "Bearer" scheme; a bare key with no scheme is rejected.
-private fun extractBearerToken(header: String?): String? {
-    if (header == null) return null
-    val spaceIdx = header.indexOf(' ')
-    if (spaceIdx <= 0) return null
-    val scheme = header.substring(0, spaceIdx)
-    if (!scheme.equals("Bearer", ignoreCase = true)) return null
-    val token = header.substring(spaceIdx + 1).trim()
-    return token.ifEmpty { null }
-}
-
-// SECURITY: constant-time comparison to avoid leaking key-match timing.
-private fun constantTimeEquals(a: String, b: String): Boolean =
-    MessageDigest.isEqual(a.toByteArray(Charsets.UTF_8), b.toByteArray(Charsets.UTF_8))
 
 class OpenAiServer(
     internal val context: Context,
@@ -155,22 +125,7 @@ class OpenAiServer(
                 allowHeader(HttpHeaders.Authorization)
             }
 
-            // SECURITY: deny-by-default -- authenticates every request except "/health";
-            // runs before routing so an unknown path gets 401, not a route-leaking 404.
-            intercept(ApplicationCallPipeline.Plugins) {
-                val normalizedPath = normalizePath(call.request.path())
-                if (normalizedPath == "/health") {
-                    return@intercept
-                }
-                val token = extractBearerToken(call.request.headers[HttpHeaders.Authorization])
-                if (token == null || !constantTimeEquals(token, apiKey)) {
-                    call.respond(
-                        HttpStatusCode.Unauthorized,
-                        ErrorEnvelope(ErrorBody(message = "Invalid or missing API key"))
-                    )
-                    finish()
-                }
-            }
+            installApiKeyAuth(apiKey)
 
             // Catch-all is safe: auth and busy guards above respond directly, never throw.
             install(StatusPages) {
