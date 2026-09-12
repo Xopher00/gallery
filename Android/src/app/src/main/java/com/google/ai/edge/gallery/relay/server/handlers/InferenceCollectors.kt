@@ -23,6 +23,7 @@ import android.graphics.Bitmap
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import com.google.ai.edge.gallery.relay.runtime.isContextOverflow
+import com.google.ai.edge.gallery.runtime.LlmModelHelper
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -55,11 +56,12 @@ internal suspend fun collectInferenceText(
     maxOutputTokens: Int? = null,
     // Invoked before completion iff the maxOutputTokens cap (not a natural stop) was hit.
     onTruncated: (() -> Unit)? = null,
+    helper: LlmModelHelper = model.runtimeHelper,
 ): String {
     val completer = CompletableDeferred<String>()
     val fullResponse = StringBuilder()
 
-    model.runtimeHelper.runInference(
+    helper.runInference(
         model = model,
         input = prompt,
         resultListener = { text, done, _ ->

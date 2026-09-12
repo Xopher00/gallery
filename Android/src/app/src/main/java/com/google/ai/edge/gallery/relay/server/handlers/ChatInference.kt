@@ -23,6 +23,7 @@ import com.google.ai.edge.gallery.relay.runtime.isContextOverflow
 import com.google.ai.edge.gallery.relay.server.Usage
 import com.google.ai.edge.gallery.relay.runtime.TurnTokenUsage
 import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
+import com.google.ai.edge.gallery.runtime.LlmModelHelper
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -134,11 +135,12 @@ internal suspend fun collectInferenceStream(
     // Param: true iff generation was cut off by maxOutputTokens rather than stopping on its own.
     encodeFinishChunk: ((truncated: Boolean) -> String)? = null,
     maxOutputTokens: Int? = null,
+    helper: LlmModelHelper = model.runtimeHelper,
     encodeChunk: (text: String) -> String,
 ) {
     val events = Channel<StreamEvent>(Channel.UNLIMITED)
 
-    model.runtimeHelper.runInference(
+    helper.runInference(
         model = model,
         input = prompt,
         resultListener = { text, done, _ ->
