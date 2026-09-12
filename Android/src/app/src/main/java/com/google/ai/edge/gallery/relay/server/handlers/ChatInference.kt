@@ -61,7 +61,7 @@ internal suspend fun respondLoadError(call: ApplicationCall, result: LoadResult)
     when (result) {
         is LoadResult.NotFound -> call.respond(HttpStatusCode.NotFound, ErrorEnvelope(ErrorBody(message = result.message)))
         is LoadResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, ErrorEnvelope(ErrorBody(message = result.message)))
-        is LoadResult.Conflict -> call.respond(HttpStatusCode.InsufficientStorage, ErrorEnvelope(ErrorBody(message = result.message)))
+        is LoadResult.Conflict -> call.respond(HttpStatusCode.Conflict, ErrorEnvelope(ErrorBody(message = result.message)))
         is LoadResult.Error -> call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = result.message)))
         is LoadResult.TimedOut -> call.respond(HttpStatusCode.ServiceUnavailable, ErrorEnvelope(ErrorBody(message = result.message)))
         is LoadResult.Loaded -> {} // caller shouldn't reach here for the success case

@@ -99,7 +99,7 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
                 HttpStatusCode.TooManyRequests, ErrorEnvelope(ErrorBody(message = result.message))
             )
             is LoadResult.Conflict -> call.respond(
-                HttpStatusCode.InsufficientStorage, ErrorEnvelope(ErrorBody(message = result.message))
+                HttpStatusCode.Conflict, ErrorEnvelope(ErrorBody(message = result.message))
             )
             is LoadResult.Error -> call.respond(
                 HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = result.message))
