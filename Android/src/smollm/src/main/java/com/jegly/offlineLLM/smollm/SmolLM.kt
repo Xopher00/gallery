@@ -170,9 +170,9 @@ class SmolLM {
         return getContextSizeUsed(nativePtr)
     }
 
-    fun getResponseAsFlow(query: String): Flow<String> = flow {
+    fun getResponseAsFlow(query: String, maxOutputTokens: Int = 0): Flow<String> = flow {
         verifyHandle()
-        startCompletion(nativePtr, query)
+        startCompletion(nativePtr, query, maxOutputTokens)
         var piece = completionLoop(nativePtr)
         while (piece != "[EOG]") {
             emit(piece)
@@ -181,9 +181,9 @@ class SmolLM {
         stopCompletion(nativePtr)
     }
 
-    fun getResponse(query: String): String {
+    fun getResponse(query: String, maxOutputTokens: Int = 0): String {
         verifyHandle()
-        startCompletion(nativePtr, query)
+        startCompletion(nativePtr, query, maxOutputTokens)
         var piece = completionLoop(nativePtr)
         var response = ""
         while (piece != "[EOG]") {
@@ -230,7 +230,7 @@ class SmolLM {
     private external fun getResponseGenerationSpeed(modelPtr: Long): Float
     private external fun getContextSizeUsed(modelPtr: Long): Int
     private external fun close(modelPtr: Long)
-    private external fun startCompletion(modelPtr: Long, prompt: String)
+    private external fun startCompletion(modelPtr: Long, prompt: String, maxOutputTokens: Int)
     private external fun completionLoop(modelPtr: Long): String
     private external fun stopCompletion(modelPtr: Long)
     private external fun benchModel(modelPtr: Long, pp: Int, tg: Int, pl: Int): DoubleArray

@@ -137,17 +137,17 @@ internal suspend fun collectInferenceStream(
     encodeChunk: (text: String) -> String,
 ) {
     val events = Channel<StreamEvent>(Channel.UNLIMITED)
-    var chunkCount = 0
 
     model.runtimeHelper.runInference(
         model = model,
         input = prompt,
         resultListener = { text, done, _ ->
             if (done) {
-                events.trySend(StreamEvent.Done(truncated = maxOutputTokens != null && chunkCount >= maxOutputTokens))
+                // The engine's own count, not a callback tally: llama.cpp suppresses empty deltas.
+                val emitted = TurnUsageStore.peek(model.name)?.completion?.tokens ?: 0
+                events.trySend(StreamEvent.Done(truncated = maxOutputTokens != null && emitted >= maxOutputTokens))
                 events.close()
             } else {
-                chunkCount++
                 events.trySend(StreamEvent.Chunk(text))
             }
         },

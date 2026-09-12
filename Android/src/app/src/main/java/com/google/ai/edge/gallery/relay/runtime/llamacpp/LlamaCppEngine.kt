@@ -177,6 +177,7 @@ class LlamaCppEngine : EmbeddingCapable {
 
     fun generateResponse(
         query: String,
+        maxOutputTokens: Int? = null,
         onToken: (String) -> Unit,
         onComplete: (GenerationResult) -> Unit,
         onCancelled: () -> Unit,
@@ -210,7 +211,7 @@ class LlamaCppEngine : EmbeddingCapable {
                     var shouldStop = false
 
                     val duration = measureTime {
-                        instance.getResponseAsFlow(query)
+                        instance.getResponseAsFlow(query, maxOutputTokens ?: 0)
                             .takeWhile { !shouldStop }
                             .collect { piece ->
                                 // One emission per completionLoop call, i.e. one decoded token.

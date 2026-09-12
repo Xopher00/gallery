@@ -58,12 +58,12 @@ Java_com_jegly_offlineLLM_smollm_SmolLM_close(JNIEnv* env, jobject thiz, jlong m
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_jegly_offlineLLM_smollm_SmolLM_startCompletion(JNIEnv* env, jobject thiz, jlong modelPtr, jstring prompt) {
+Java_com_jegly_offlineLLM_smollm_SmolLM_startCompletion(JNIEnv* env, jobject thiz, jlong modelPtr, jstring prompt, jint maxOutputTokens) {
     jboolean    isCopy       = true;
     const char* promptCstr   = env->GetStringUTFChars(prompt, &isCopy);
     auto*       llmInference = reinterpret_cast<LLMInference*>(modelPtr);
     try {
-        llmInference->startCompletion(promptCstr);
+        llmInference->startCompletion(promptCstr, maxOutputTokens);
     } catch (std::exception& error) {
         env->ReleaseStringUTFChars(prompt, promptCstr);
         env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), error.what());

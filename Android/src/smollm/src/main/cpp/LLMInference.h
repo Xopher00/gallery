@@ -23,7 +23,7 @@ public:
     void addChatMessage(const char *message, const char *role);
     float getResponseGenerationTime() const;
     int getContextSizeUsed() const;
-    void startCompletion(const char *query);
+    void startCompletion(const char *query, int maxOutputTokens);
     std::string completionLoop();
     void stopCompletion();
     BenchResult benchModel(int pp, int tg, int pl);
@@ -48,6 +48,9 @@ private:
 
     int64_t _responseGenerationTime = 0;
     int _responseNumTokens = 0;
+    // 0 means no cap; the loop ends like an end-of-generation token rather than cancelling,
+    // because cancelling a GGUF generation corrupts the context until reload.
+    int _maxOutputTokens = 0;
     int _nCtxUsed = 0;
 
     // Set from the GGUF's own pooling-type metadata; getEmbedding() refuses to run otherwise.

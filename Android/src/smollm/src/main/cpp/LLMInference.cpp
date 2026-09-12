@@ -134,7 +134,7 @@ LLMInference::getContextSizeUsed() const {
 }
 
 void
-LLMInference::startCompletion(const char *query) {
+LLMInference::startCompletion(const char *query, int maxOutputTokens) {
     if (_isEmbeddingModel) {
         throw std::runtime_error("this GGUF has a pooling type and produces embeddings, not chat replies -- use /v1/embeddings");
     }
@@ -144,6 +144,7 @@ LLMInference::startCompletion(const char *query) {
     }
     _responseGenerationTime = 0;
     _responseNumTokens = 0;
+    _maxOutputTokens = maxOutputTokens;
     _response.clear();
     _cacheResponseTokens.clear();
     
@@ -225,6 +226,12 @@ LLMInference::_isValidUtf8(const char *response) {
 
 std::string
 LLMInference::completionLoop() {
+    if (_maxOutputTokens > 0 && _responseNumTokens >= _maxOutputTokens) {
+        addChatMessage(strdup(_response.data()), "assistant");
+        _response.clear();
+        return "[EOG]";
+    }
+
     uint32_t contextSize = llama_n_ctx(_ctx);
     _nCtxUsed = llama_memory_seq_pos_max(llama_get_memory(_ctx), 0) + 1;
     if (_nCtxUsed + _batch->n_tokens > contextSize) {

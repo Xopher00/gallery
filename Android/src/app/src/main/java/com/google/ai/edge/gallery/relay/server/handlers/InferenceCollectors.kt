@@ -21,6 +21,7 @@ package com.google.ai.edge.gallery.relay.server.handlers
 
 import android.graphics.Bitmap
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import com.google.ai.edge.gallery.relay.runtime.isContextOverflow
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import kotlinx.coroutines.CompletableDeferred
@@ -57,17 +58,18 @@ internal suspend fun collectInferenceText(
 ): String {
     val completer = CompletableDeferred<String>()
     val fullResponse = StringBuilder()
-    var chunkCount = 0
 
     model.runtimeHelper.runInference(
         model = model,
         input = prompt,
         resultListener = { text, done, _ ->
             if (done) {
-                if (maxOutputTokens != null && chunkCount >= maxOutputTokens) onTruncated?.invoke()
+                // The engine's own count, not a callback tally: llama.cpp suppresses empty deltas,
+                // so one callback is not one token there.
+                val emitted = TurnUsageStore.peek(model.name)?.completion?.tokens ?: 0
+                if (maxOutputTokens != null && emitted >= maxOutputTokens) onTruncated?.invoke()
                 completer.complete(fullResponse.toString())
             } else {
-                chunkCount++
                 fullResponse.append(text)
                 onPartial?.invoke(fullResponse.toString())
             }

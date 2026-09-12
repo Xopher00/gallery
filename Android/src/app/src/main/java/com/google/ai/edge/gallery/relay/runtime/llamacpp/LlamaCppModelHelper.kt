@@ -192,6 +192,7 @@ object LlamaCppModelHelper : LlmModelHelper {
 
             engine.generateResponse(
                 query = input,
+                maxOutputTokens = maxOutputTokens,
                 onToken = { partialResponse ->
                     resultListener(partialResponse, false, null)
                 },
