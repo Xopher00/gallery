@@ -54,7 +54,6 @@ import androidx.compose.ui.unit.sp
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.Task
-import com.google.ai.edge.gallery.data.isManagedDownload
 import com.google.ai.edge.gallery.relay.Flags
 import com.google.ai.edge.gallery.ui.common.modelitem.StatusIcon
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
@@ -120,7 +119,7 @@ fun ModelPicker(
             model.displayName.ifEmpty { model.name },
             style = MaterialTheme.typography.bodyMedium,
           )
-          if (model.isManagedDownload) {
+          if (!model.isAiCore) {
             Row(
               horizontalArrangement = Arrangement.spacedBy(4.dp),
               verticalAlignment = Alignment.CenterVertically,

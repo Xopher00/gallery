@@ -180,6 +180,8 @@ jobs:
 
       - name: Build (release, signed)
         id: build
+        # Without this the job takes the 6h default, so a hung build costs a night instead of failing.
+        timeout-minutes: 25
         if: steps.state.outputs.work == 'true' && (steps.merge.outputs.clean == 'true' || steps.state.outputs.released == 'false')
         run: |
           set -euo pipefail
@@ -331,12 +333,19 @@ jobs:
             echo "### Compiler errors"
             echo '```'
             grep -E '^e: ' "$LOG" | sed -E 's#file:///home/runner/work/[^/]+/[^/]+/##' \
-              || echo "(no Kotlin compiler errors -- see the log tail below)"
+              || echo "(none -- the build failed outside Kotlin compilation, see below)"
+            echo '```'
+            echo
+            # A Gradle task failure puts its reason mid-log; a blind tail catches only R8 warning spam.
+            echo "### Failing task"
+            echo '```'
+            grep -E "^(FAILURE|\* What went wrong|Execution failed|> Task .*FAILED|Caused by:)" "$LOG" \
+              | head -n 20 || echo "(no Gradle failure banner found in the log)"
             echo '```'
             echo
             echo "### Log tail"
             echo '```'
-            tail -n 100 "$LOG"
+            grep -vE '^WARNING: R8: An error occurred when parsing kotlin metadata' "$LOG" | tail -n 60
             echo '```'
             if [ -n "$LAST_GOOD" ] && git cat-file -e "$LAST_GOOD" 2>/dev/null; then
               echo

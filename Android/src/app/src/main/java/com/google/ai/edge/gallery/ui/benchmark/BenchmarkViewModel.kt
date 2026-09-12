@@ -104,7 +104,7 @@ constructor(
     // Fail safe regardless of how this screen was reached -- only LiteRT-LM models can hit the
     // native benchmark API without crashing (see supportModelBenchmark).
     if (!model.supportModelBenchmark) {
-      Log.w(TAG, "Refusing to benchmark unsupported model: ${model.name} (${model.runtimeType})")
+      Log.w(TAG, "Refusing to benchmark unsupported model: ${model.name} (${model.backendSpec.runtimeType})")
       setUnsupportedModelError(unsupportedModelError = true)
       return
     }

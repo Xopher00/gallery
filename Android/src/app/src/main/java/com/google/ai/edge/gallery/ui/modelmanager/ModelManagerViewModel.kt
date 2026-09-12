@@ -50,14 +50,12 @@ import com.google.ai.edge.gallery.data.ModelDownloadStatus
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.ModelFile
 import com.google.ai.edge.gallery.data.NumberSliderConfig
-import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.SOC
 import com.google.ai.edge.gallery.data.SystemPromptRepository
 import com.google.ai.edge.gallery.data.TMP_FILE_EXT
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.ValueType
 import com.google.ai.edge.gallery.data.createLlmChatConfigs
-import com.google.ai.edge.gallery.data.isManagedDownload
 import com.google.ai.edge.gallery.data.markInitializationFailed
 import com.google.ai.edge.gallery.data.markInitializationStarted
 import com.google.ai.edge.gallery.data.markInitialized
@@ -367,7 +365,7 @@ constructor(
       status = ModelDownloadStatus(status = ModelDownloadStatusType.IN_PROGRESS),
     )
 
-    if (model.runtimeType == RuntimeType.AICORE) {
+    if (model.isAiCore) {
       AICoreModelHelper.downloadModel(
         context = context,
         coroutineScope = viewModelScope,
@@ -441,7 +439,7 @@ constructor(
 
   fun cancelDownloadModel(model: Model) {
     // AICore models cannot be deleted from the download repository within the app.
-    if (!model.isManagedDownload) {
+    if (model.isAiCore) {
       return
     }
     downloadRepository.cancelDownloadModel(model)
@@ -469,9 +467,11 @@ constructor(
   }
 
   fun getModelFamily(model: Model, modelVariants: List<Model> = emptyList()): List<Model> {
-    val rootName = model.parentModelName ?: model.name
+    val rootName = model.hierarchy.parentModelName ?: model.name
     val allModels = (listOf(model) + modelVariants + getAllModels()).distinctBy { it.name }
-    val family = allModels.filter { it.name == rootName || it.parentModelName == rootName }
+    val family = allModels.filter {
+      it.name == rootName || it.hierarchy.parentModelName == rootName
+    }
     return family.ifEmpty { listOf(model) }
   }
 
@@ -1140,10 +1140,7 @@ constructor(
   private fun checkAICoreModelStatuses() {
     viewModelScope.launch(Dispatchers.Main) {
       val aicoreModels =
-        uiState.value.tasks
-          .flatMap { it.models }
-          .filter { it.runtimeType == RuntimeType.AICORE }
-          .distinctBy { it.name }
+        uiState.value.tasks.flatMap { it.models }.filter { it.isAiCore }.distinctBy { it.name }
 
       // Proactively attempt AICore model download upon app startup.
       for (model in aicoreModels) {

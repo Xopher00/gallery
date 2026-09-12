@@ -18,7 +18,6 @@ package com.google.ai.edge.gallery.runtime
 
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelCapability
-import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.relay.runtime.LiteRtLmEmbeddingModelHelper
 import com.google.ai.edge.gallery.relay.runtime.ModelEngine
 import com.google.ai.edge.gallery.relay.runtime.engineFor
@@ -38,7 +37,7 @@ val Model.runtimeHelper: LlmModelHelper
     if (ModelCapability.EMBEDDING in this.capabilities) {
       return LiteRtLmEmbeddingModelHelper
     }
-    if (this.runtimeType == RuntimeType.AICORE) {
+    if (this.isAiCore) {
       return AICoreModelHelper
     }
     if (this.engineFor(taskId = null) == ModelEngine.LlamaCpp) {

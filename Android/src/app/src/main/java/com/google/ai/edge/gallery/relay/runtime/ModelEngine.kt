@@ -8,7 +8,6 @@ import com.google.ai.edge.gallery.data.Accelerator
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.IMPORTS_DIR
 import com.google.ai.edge.gallery.data.Model
-import com.google.ai.edge.gallery.data.RuntimeType
 
 enum class EngineFamily { LLM, STABLE_DIFFUSION, WHISPER }
 
@@ -26,7 +25,7 @@ fun Model.engineFor(taskId: String?): ModelEngine {
         BuiltInTaskId.IMAGE_GEN -> return ModelEngine.StableDiffusion
         BuiltInTaskId.WHISPER -> return ModelEngine.Whisper
     }
-    if (this.runtimeType == RuntimeType.AICORE) {
+    if (this.isAiCore) {
         return ModelEngine.AiCore
     }
     val fileNameToCheck = if (downloadInfo.imported && downloadInfo.downloadFileName.startsWith("$IMPORTS_DIR/")) {

@@ -46,7 +46,6 @@ import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
-import com.google.ai.edge.gallery.data.isManagedDownload
 import com.google.ai.edge.gallery.data.supportModelBenchmark
 import com.google.ai.edge.gallery.ui.common.DownloadAndTryButton
 import com.google.ai.edge.gallery.ui.common.tos.TosViewModel
@@ -79,7 +78,8 @@ fun DownloadModelPanel(
     ) {
       fun isDownloadButtonEnabled(downloadStatus: ModelDownloadStatusType?, model: Model): Boolean {
         val downloadFailed = downloadStatus == ModelDownloadStatusType.FAILED
-        return !downloadFailed || model.isManagedDownload
+        val isLitertLm = model.isLiteRtLm
+        return !downloadFailed || isLitertLm
       }
 
       val downloadSucceeded = downloadStatus == ModelDownloadStatusType.SUCCEEDED

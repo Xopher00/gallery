@@ -68,9 +68,7 @@ import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatus
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
-import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.Task
-import com.google.ai.edge.gallery.data.isManagedDownload
 import com.google.ai.edge.gallery.ui.common.MarkdownText
 import com.google.ai.edge.gallery.ui.common.tos.TosViewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
@@ -114,7 +112,7 @@ fun ModelItem(
   var isExpanded by remember { mutableStateOf(expanded ?: isBestOverall) }
 
   val isDownloadFailed = downloadStatus?.status == ModelDownloadStatusType.FAILED
-  val isAicore = model.runtimeType == RuntimeType.AICORE
+  val isAicore = model.isAiCore
 
   var boxModifier =
     modifier
@@ -179,7 +177,7 @@ fun ModelItem(
               showDeleteButton =
                 showDeleteButton &&
                   model.downloadInfo.localRelativeDirPathOverride.isEmpty() &&
-                  model.isManagedDownload,
+                  !model.isAiCore,
               onBenchmarkClicked = { onBenchmarkClicked(model) },
               modifier = Modifier.offset(y = (-12).dp),
             )
@@ -415,7 +413,7 @@ fun ModelVariantHeader(
     Column(modifier = labelModifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
       // Name.
       Text(
-        text = variantModel.variantLabel ?: variantModel.name,
+        text = variantModel.hierarchy.variantLabel ?: variantModel.name,
         style = bodyMediumMedium,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -443,7 +441,7 @@ fun ModelVariantHeader(
         showDeleteButton =
           showDeleteButton &&
             variantModel.downloadInfo.localRelativeDirPathOverride.isEmpty() &&
-            variantModel.isManagedDownload,
+            !variantModel.isAiCore,
         onBenchmarkClicked = { onBenchmarkClicked(variantModel) },
         modifier = menuModifier.offset(y = (-12).dp),
       )

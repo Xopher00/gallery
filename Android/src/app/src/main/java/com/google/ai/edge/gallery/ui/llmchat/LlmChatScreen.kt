@@ -46,7 +46,6 @@ import com.google.ai.edge.gallery.agent.sessions.generateSessionId
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelCapability
-import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessage
 import com.google.ai.edge.gallery.ui.common.chat.ChatMessageAudioClip
@@ -158,7 +157,7 @@ fun LlmAskImageScreen(
             modifier = Modifier.semantics { heading() },
           )
           val contentRes =
-            if (model.runtimeType == RuntimeType.AICORE) {
+            if (model.isAiCore) {
               R.string.askimage_emptystate_content_aicore
             } else {
               R.string.askimage_emptystate_content

@@ -5,6 +5,7 @@ package com.google.ai.edge.gallery.relay.model
 import android.util.Log
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.Accelerator
+import com.google.ai.edge.gallery.data.BackendSpec
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Config
 import com.google.ai.edge.gallery.data.ConfigKey
@@ -276,7 +277,7 @@ class ImportedModelStore(
         llmMaxToken = llmMaxToken,
         accelerators = accelerators,
         isLlm = !isEmbeddingModel,
-        runtimeType = importedRuntimeType,
+        backendSpec = BackendSpec(runtimeType = importedRuntimeType),
       )
     model.preProcess()
 
