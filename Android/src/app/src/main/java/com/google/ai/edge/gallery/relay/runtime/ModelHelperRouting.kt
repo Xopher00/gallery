@@ -9,13 +9,13 @@ import com.google.ai.edge.gallery.runtime.LlmModelHelper
 
 internal val Model.relayRuntimeHelperOrNull: LlmModelHelper?
   get() {
-    // GGUF embedding models stay on LlamaCppModelHelper -- the native load path self-detects
-    // pooling type. litertlm has no such signal, so it needs the declared capability here.
-    if (ModelCapability.EMBEDDING in this.capabilities) {
-      return LiteRtLmEmbeddingModelHelper
-    }
+    // GGUF always goes to llama.cpp (it serves chat and embeddings, self-detecting pooling type);
+    // the EMBEDDING capability only chooses between the two litertlm helpers.
     if (this.engineFor(taskId = null) == ModelEngine.LlamaCpp) {
       return LlamaCppModelHelper
+    }
+    if (ModelCapability.EMBEDDING in this.capabilities) {
+      return LiteRtLmEmbeddingModelHelper
     }
     return null
   }
