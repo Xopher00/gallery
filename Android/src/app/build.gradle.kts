@@ -121,6 +121,7 @@ android {
     compose = true
     buildConfig = true
   }
+  testOptions { unitTests { isReturnDefaultValues = true } }
   // API server (ported from api-server branch): resource-merge pickFirsts.
   // io.netty.versions.properties was Netty-only and is removed now that the
   // embedded server uses the CIO engine. INDEX.LIST and *.kotlin_module are
@@ -205,6 +206,7 @@ dependencies {
   implementation(libs.androidx.material3.adaptive.navigation.suite)
   implementation(libs.androidx.material3.window.size)
   testImplementation(libs.junit)
+  testImplementation(libs.ktor.server.test.host)
   androidTestImplementation(libs.androidx.junit)
   androidTestImplementation(libs.androidx.espresso.core)
   androidTestImplementation(platform(libs.androidx.compose.bom))
