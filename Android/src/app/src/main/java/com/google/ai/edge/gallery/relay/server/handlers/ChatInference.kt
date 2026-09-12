@@ -47,6 +47,8 @@ internal fun samplerRangeError(temperature: Float?, topP: Float?, topK: Int?): S
     return null
 }
 
+internal fun replyCapError(cap: Int?): String? = if (cap != null && cap < 1) "max_tokens must be at least 1" else null
+
 // inline (not suspend lambda) -- handler bodies contain non-local returns like
 // `return@withBusyGuard`, which only thread through an inlined block.
 internal inline fun <T> withSamplerOverrides(

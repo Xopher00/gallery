@@ -107,11 +107,8 @@ suspend fun handleCompletion(
                 "temperature/top_p/top_k are ignored by the runtime on this backend.")
         }
 
-        if (request.max_tokens != null && request.max_tokens < 1) {
-            call.respond(
-                HttpStatusCode.BadRequest,
-                ErrorEnvelope(ErrorBody(message = "max_tokens must be at least 1"))
-            )
+        replyCapError(request.max_tokens)?.let {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
             return@withBusyGuard
         }
         samplerRangeError(request.temperature, request.top_p, request.top_k)?.let {
