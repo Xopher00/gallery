@@ -13,6 +13,7 @@ package com.google.ai.edge.gallery.relay.server.handlers
 
 import android.graphics.Bitmap
 import android.util.Base64
+import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.relay.server.ErrorBody
 import com.google.ai.edge.gallery.relay.server.ErrorEnvelope
 import com.google.ai.edge.gallery.relay.server.ImageData
@@ -102,16 +103,13 @@ suspend fun handleImageGenerations(
 
     val (width, height) = size.split("x").let { it[0].toInt() to it[1].toInt() }
 
-    val sdModels = modelRegistry.tasks
-        .flatMap { it.models }
-        .filter { modelRegistry.engineOf(it) == ModelEngine.StableDiffusion }
-        .distinctBy { it.name }
+    val sdModels = loadedStableDiffusionModels(
+        models = modelRegistry.tasks.flatMap { it.models },
+        engineOf = modelRegistry::engineOf,
+        isLoadedStableDiffusion = { it.instance is StableDiffusion },
+    )
 
-    var model = if (request.model != null) {
-        sdModels.find { it.name == request.model }
-    } else {
-        sdModels.firstOrNull()
-    }
+    var model = selectStableDiffusionModel(sdModels, request.model)
 
     if (model == null && request.model != null) {
         val requestedModel = modelRegistry.tasks.flatMap { it.models }.find { it.name == request.model }
@@ -153,7 +151,17 @@ suspend fun handleImageGenerations(
         )
         return
     }
-    val sd = model.instance as StableDiffusion
+    val sd = model.instance as? StableDiffusion
+    if (sd == null) {
+        call.respond(
+            HttpStatusCode.ServiceUnavailable,
+            ErrorEnvelope(ErrorBody(
+                message = "Model '${request.model}' is not loaded for image generation. Available: " +
+                    sdModels.joinToString(", ") { it.name }.ifEmpty { "(none loaded)" }
+            ))
+        )
+        return
+    }
 
     val params = StableDiffusion.GenerationParams(
         prompt = request.prompt,
@@ -207,3 +215,15 @@ suspend fun handleImageGenerations(
         is BusyResult.Ok -> {}
     }
 }
+
+internal fun loadedStableDiffusionModels(
+    models: List<Model>,
+    engineOf: (Model) -> ModelEngine,
+    isLoadedStableDiffusion: (Model) -> Boolean,
+): List<Model> =
+    models
+        .filter { engineOf(it) == ModelEngine.StableDiffusion && isLoadedStableDiffusion(it) }
+        .distinctBy { it.name }
+
+internal fun selectStableDiffusionModel(sdModels: List<Model>, requestedName: String?): Model? =
+    if (requestedName != null) sdModels.find { it.name == requestedName } else sdModels.firstOrNull()
