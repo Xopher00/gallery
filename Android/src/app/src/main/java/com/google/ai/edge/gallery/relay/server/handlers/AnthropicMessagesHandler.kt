@@ -114,6 +114,13 @@ suspend fun handleAnthropicMessages(
 
         val originalConfigValues = model.configValues
         val replyCap = request.max_tokens
+        if (replyCap != null && replyCap < 1) {
+            call.respond(
+                HttpStatusCode.BadRequest,
+                ErrorEnvelope(ErrorBody(message = "max_tokens must be at least 1"))
+            )
+            return@withBusyGuard
+        }
         withSamplerOverrides(model, originalConfigValues, request.temperature, request.top_p, request.top_k) {
             // Anthropic's `system` is top-level, not a message role.
             val systemInstruction = request.system?.let { Contents.of(Content.Text(it)) }

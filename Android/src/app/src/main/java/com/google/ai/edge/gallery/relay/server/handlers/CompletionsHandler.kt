@@ -107,6 +107,13 @@ suspend fun handleCompletion(
                 "temperature/top_p/top_k are ignored by the runtime on this backend.")
         }
 
+        if (request.max_tokens != null && request.max_tokens < 1) {
+            call.respond(
+                HttpStatusCode.BadRequest,
+                ErrorEnvelope(ErrorBody(message = "max_tokens must be at least 1"))
+            )
+            return@withBusyGuard
+        }
         withSamplerOverrides(model, originalConfigValues, request.temperature, request.top_p, request.top_k) {
             if (request.stream) {
                 call.response.cacheControl(CacheControl.NoCache(null))

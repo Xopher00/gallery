@@ -120,6 +120,13 @@ suspend fun handleChatCompletion(
         }
 
         val replyCap = request.max_completion_tokens ?: request.max_tokens
+        if (replyCap != null && replyCap < 1) {
+            call.respond(
+                HttpStatusCode.BadRequest,
+                ErrorEnvelope(ErrorBody(message = "max_tokens must be at least 1"))
+            )
+            return@withBusyGuard
+        }
         withSamplerOverrides(model, originalConfigValues, request.temperature, request.top_p, request.top_k) {
             // F3: tool calling isn't supported -- LiteRT-LM's ToolSet only accepts compile-time-
             // declared tools and never surfaces a model's intended call back to the caller.
