@@ -95,12 +95,14 @@ not covered there.
 
 * **Google AI Edge** and **LiteRT**: On-device model execution for `.litertlm` models.
 * **llama.cpp**, **stable-diffusion.cpp** and **whisper.cpp**: Native modules for GGUF
-  inference, image generation and transcription.
+  inference, image generation and transcription. The engine versions and the
+  stable-diffusion.cpp patches come from the `chimera` submodule.
 * **Hugging Face**: Model discovery and download.
 
 ## Development
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for the build, the submodules and upstream syncing.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the build, the Chimera submodule and upstream
+syncing.
 
 ## Feedback
 

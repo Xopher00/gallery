@@ -5,17 +5,22 @@
 You need JDK 21, Android SDK platform 37 and NDK 27.2.12479018. The NDK version is set
 in `Android/src/{smollm,stablediffusion,whisper}/build.gradle.kts`.
 
-The build needs three git submodules. The native modules compile the submodule sources
-through CMake, so a missing submodule fails at configure time.
+The build needs one git submodule, `Android/src/chimera`
+(github.com/shakfu/chimera). Its `scripts/manage.py` pins the versions of the three
+engines the native build uses: llama.cpp, stable-diffusion.cpp and whisper.cpp.
+`Android/src/native/CMakeLists.txt` reads those pins and fetches the three engines
+with CMake's `FetchContent` into `Android/src/native/.deps`, which is gitignored and
+reused between builds. The first build needs network access to fetch them; later
+builds do not, as long as `.deps` survives. To move all three engines to a newer
+release, move the Chimera submodule to a newer commit.
 
-| Path | Source |
-|---|---|
-| `Android/src/llama.cpp` | github.com/ggerganov/llama.cpp |
-| `Android/src/stable-diffusion.cpp` | github.com/leejet/stable-diffusion.cpp |
-| `Android/src/whisper.cpp` | github.com/ggerganov/whisper.cpp |
+`apply-patches.cmake` patches stable-diffusion.cpp at fetch time, with two patches
+from `Android/src/chimera/scripts/patches/` and one from `Android/src/native/patches/`.
+A patch that no longer applies fails the CMake configure step instead of being
+silently skipped.
 
 ```bash
-git submodule update --init --recursive
+git submodule update --init
 cd Android/src
 ./gradlew assembleRelease
 ```
