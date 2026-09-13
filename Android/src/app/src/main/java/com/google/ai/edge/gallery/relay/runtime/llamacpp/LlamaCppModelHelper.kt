@@ -38,6 +38,12 @@ object LlamaCppModelHelper : LlmModelHelper {
     // Indexed by model name
     private val engines: MutableMap<String, LlamaCppEngine> = mutableMapOf()
 
+    // gpu_layers each model's live engine was loaded with; read by ServerModelLoader.loadModel
+    // to decide whether a request's gpu_layers requires an unload+reload.
+    private val loadedGpuLayers: MutableMap<String, Int> = mutableMapOf()
+
+    fun gpuLayersFor(modelName: String): Int? = loadedGpuLayers[modelName]
+
     private fun textOf(contents: Contents?): String =
         contents?.contents?.filterIsInstance<Content.Text>()?.joinToString(separator = "") { it.text }
             ?: ""
@@ -66,11 +72,14 @@ object LlamaCppModelHelper : LlmModelHelper {
         val engine = LlamaCppEngine()
         engines[model.name] = engine
 
+        val gpuLayers = model.configValues["gpu_layers"] as? Int ?: 0
+
         val params = SmolLM.InferenceParams(
             temperature = temperature,
             topP = topP,
             topK = topK,
             numThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(8),
+            gpuLayers = gpuLayers,
         )
 
         engine.loadModel(
@@ -80,6 +89,7 @@ object LlamaCppModelHelper : LlmModelHelper {
             onSuccess = {
                 // Store a marker so the ViewModel knows the model is ready
                 model.instance = engine
+                loadedGpuLayers[model.name] = gpuLayers
                 onDone("")
             },
             onError = { e ->
@@ -134,6 +144,7 @@ object LlamaCppModelHelper : LlmModelHelper {
 
     override fun cleanUp(model: Model, onDone: () -> Unit) {
         val engine = engines.remove(model.name)
+        loadedGpuLayers.remove(model.name)
         engine?.unloadModel()
         model.instance = null
         onDone()

@@ -42,6 +42,8 @@ data class BenchmarkSpec(
   val prefillTokens: Int,
   val decodeTokens: Int,
   val accelerator: String,
+  // llama.cpp only; LiteRT-LM's own backend selection ignores this.
+  val gpuLayers: Int = 0,
 )
 
 /**
@@ -113,6 +115,7 @@ object ModelBenchmarkRunner {
           contextSize = (spec.prefillTokens + spec.decodeTokens + 64).coerceAtLeast(2048).toLong(),
           numThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(8),
           storeChats = false,
+          gpuLayers = spec.gpuLayers,
         )
       val loadStart = System.nanoTime()
       // If cancelled while the native load was in flight, the finally block below already

@@ -53,7 +53,7 @@ suspend fun handleChatCompletion(
     usesNpuSlot: (Accelerator) -> Boolean,
     // Reuses OpenAiServer's ensureAccelerator/NPU-guard; non-null = model name holding the NPU.
     ensureAccelerator: suspend (Model, Accelerator?) -> String?,
-    loadModel: suspend (String, String?) -> LoadResult,
+    loadModel: suspend (String, String?, Int?) -> LoadResult,
 ) {
     val model = modelRegistry.tasks
         .flatMap { it.models }
@@ -64,8 +64,13 @@ suspend fun handleChatCompletion(
         return
     }
 
-    if (model.instance == null) {
-        val result = loadModel(request.model, request.accelerator)
+    gpuLayersRangeError(request.gpu_layers)?.let {
+        call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+        return
+    }
+
+    if (model.instance == null || needsGpuLayersReload(model, request.gpu_layers)) {
+        val result = loadModel(request.model, request.accelerator, request.gpu_layers)
         if (result !is LoadResult.Loaded) {
             respondLoadError(call, result)
             return

@@ -23,6 +23,8 @@ import com.google.ai.edge.gallery.relay.runtime.isContextOverflow
 import com.google.ai.edge.gallery.relay.server.Usage
 import com.google.ai.edge.gallery.relay.runtime.TurnTokenUsage
 import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
+import com.google.ai.edge.gallery.relay.runtime.llamacpp.LlamaCppEngine
+import com.google.ai.edge.gallery.relay.runtime.llamacpp.LlamaCppModelHelper
 import com.google.ai.edge.gallery.runtime.LlmModelHelper
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import io.ktor.http.HttpStatusCode
@@ -48,6 +50,14 @@ internal fun samplerRangeError(temperature: Float?, topP: Float?, topK: Int?): S
 }
 
 internal fun replyCapError(cap: Int?): String? = if (cap != null && cap < 1) "max_tokens must be at least 1" else null
+
+internal fun gpuLayersRangeError(gpuLayers: Int?): String? =
+    if (gpuLayers != null && gpuLayers !in 0..999) "gpu_layers must be between 0 and 999" else null
+
+// null counts as 0 (CPU); a live llama.cpp engine loaded on a different value must be reloaded.
+internal fun needsGpuLayersReload(model: Model, requestedGpuLayers: Int?): Boolean =
+    model.instance is LlamaCppEngine &&
+        (LlamaCppModelHelper.gpuLayersFor(model.name) ?: 0) != (requestedGpuLayers ?: 0)
 
 // inline (not suspend lambda) -- handler bodies contain non-local returns like
 // `return@withBusyGuard`, which only thread through an inlined block.

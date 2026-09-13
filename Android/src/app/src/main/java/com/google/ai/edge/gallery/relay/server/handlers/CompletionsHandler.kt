@@ -44,7 +44,7 @@ suspend fun handleCompletion(
     parseAccelerator: (String) -> Accelerator?,
     usesNpuSlot: (Accelerator) -> Boolean,
     ensureAccelerator: suspend (Model, Accelerator?) -> String?,
-    loadModel: suspend (String, String?) -> LoadResult,
+    loadModel: suspend (String, String?, Int?) -> LoadResult,
 ) {
     val model = modelRegistry.tasks
         .flatMap { it.models }
@@ -55,8 +55,13 @@ suspend fun handleCompletion(
         return
     }
 
-    if (model.instance == null) {
-        val result = loadModel(request.model, request.accelerator)
+    gpuLayersRangeError(request.gpu_layers)?.let {
+        call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+        return
+    }
+
+    if (model.instance == null || needsGpuLayersReload(model, request.gpu_layers)) {
+        val result = loadModel(request.model, request.accelerator, request.gpu_layers)
         if (result !is LoadResult.Loaded) {
             respondLoadError(call, result)
             return

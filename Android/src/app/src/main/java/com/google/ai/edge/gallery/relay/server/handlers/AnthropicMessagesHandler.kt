@@ -44,7 +44,7 @@ suspend fun handleAnthropicMessages(
     llmSessionManager: LlmSessionManager,
     modelMutexes: ConcurrentHashMap<String, Mutex>,
     ensureAccelerator: suspend (Model, Accelerator?) -> String?,
-    loadModel: suspend (String, String?) -> LoadResult,
+    loadModel: suspend (String, String?, Int?) -> LoadResult,
 ) {
     val model = modelRegistry.tasks
         .flatMap { it.models }
@@ -55,9 +55,14 @@ suspend fun handleAnthropicMessages(
         return
     }
 
-    if (model.instance == null) {
+    gpuLayersRangeError(request.gpu_layers)?.let {
+        call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+        return
+    }
+
+    if (model.instance == null || needsGpuLayersReload(model, request.gpu_layers)) {
         // No per-request accelerator field on this request shape -- pass null, same as elsewhere.
-        val result = loadModel(request.model, null)
+        val result = loadModel(request.model, null, request.gpu_layers)
         if (result !is LoadResult.Loaded) {
             respondLoadError(call, result)
             return

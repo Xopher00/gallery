@@ -52,6 +52,9 @@ Java_com_google_ai_edge_gallery_stablediffusion_StableDiffusion_loadModelNative(
     params.n_threads = (int)nThreads;
     params.enable_mmap = true;
     params.vae_decode_only = (bool)vaeDecodeOnly;
+    // An empty backend spec auto-picks the highest-scoring device, which would now be Vulkan
+    // once its backend is present; force CPU to keep this experiment's default behavior.
+    params.backend = "CPU";
 
     sd_set_log_callback([](sd_log_level_t level, const char* text, void*) {
         if (level == SD_LOG_ERROR) {

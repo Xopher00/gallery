@@ -18,6 +18,8 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.relay.runtime.EngineFamily
 import com.google.ai.edge.gallery.relay.runtime.engineFor
+import com.google.ai.edge.gallery.relay.runtime.llamacpp.LlamaCppEngine
+import com.google.ai.edge.gallery.relay.runtime.llamacpp.LlamaCppModelHelper
 import com.google.ai.edge.gallery.relay.server.handlers.BusyResult
 import com.google.ai.edge.gallery.relay.server.handlers.NO_BUSY_GUARD_TIMEOUT_MS
 import com.google.ai.edge.gallery.relay.server.handlers.withBusyGuard
@@ -165,6 +167,7 @@ suspend fun OpenAiServer.loadModel(
     name: String,
     accelerator: String?,
     timeoutMs: Long = NO_BUSY_GUARD_TIMEOUT_MS,
+    gpuLayers: Int? = null,
 ): LoadResult {
     val tasks = modelRegistry.tasks
     val task = tasks.find { t -> t.models.any { it.name == name } }
@@ -173,29 +176,36 @@ suspend fun OpenAiServer.loadModel(
         return LoadResult.NotFound("Unknown model '$name'")
     }
 
-    if (model.instance != null) {
+    val engine = model.engineFor(task.id)
+    val requestedGpuLayers = gpuLayers ?: 0
+    // Only a live llama.cpp engine can differ from the request; LiteRT-LM ignores gpu_layers.
+    val gpuLayersChanged = model.instance is LlamaCppEngine &&
+        (LlamaCppModelHelper.gpuLayersFor(model.name) ?: 0) != requestedGpuLayers
+
+    if (model.instance != null && !gpuLayersChanged) {
         // Already loaded -- hold it and report success rather than re-triggering initialization.
         return markLoaded(name, model)
     }
 
-    val downloaded = modelRegistry.getModelDownloadStatus(model).status ==
-        ModelDownloadStatusType.SUCCEEDED
-    if (!downloaded) {
-        return LoadResult.NotFound("Model '$name' is not downloaded")
-    }
-
-    // One held model per engine kind: refuse a second load of the same kind rather than
-    // silently evicting the held one.
-    val engine = model.engineFor(task.id)
-    val conflicting = modelRegistry.heldModelNames()
-        .filter { it != name }
-        .firstOrNull { heldName ->
-            val heldModel = tasks.flatMap { it.models }.find { it.name == heldName }
-            val heldTask = tasks.find { t -> t.models.any { it.name == heldName } }
-            heldModel != null && heldTask != null && heldModel.engineFor(heldTask.id).family == engine.family
+    if (model.instance == null) {
+        val downloaded = modelRegistry.getModelDownloadStatus(model).status ==
+            ModelDownloadStatusType.SUCCEEDED
+        if (!downloaded) {
+            return LoadResult.NotFound("Model '$name' is not downloaded")
         }
-    if (conflicting != null) {
-        return LoadResult.Conflict("Unload '$conflicting' first")
+
+        // One held model per engine kind: refuse a second load of the same kind rather than
+        // silently evicting the held one.
+        val conflicting = modelRegistry.heldModelNames()
+            .filter { it != name }
+            .firstOrNull { heldName ->
+                val heldModel = tasks.flatMap { it.models }.find { it.name == heldName }
+                val heldTask = tasks.find { t -> t.models.any { it.name == heldName } }
+                heldModel != null && heldTask != null && heldModel.engineFor(heldTask.id).family == engine.family
+            }
+        if (conflicting != null) {
+            return LoadResult.Conflict("Unload '$conflicting' first")
+        }
     }
 
     val requestedAccel = accelerator?.let { raw ->
@@ -231,8 +241,20 @@ suspend fun OpenAiServer.loadModel(
         key = model.name,
         timeoutMs = timeoutMs,
     ) {
-        if (model.instance != null) {
+        if (model.instance != null && !gpuLayersChanged) {
             markLoaded(name, model)
+        } else if (model.instance != null && gpuLayersChanged) {
+            val cleanupDone = CompletableDeferred<Unit>()
+            model.runtimeHelper.cleanUp(model) { cleanupDone.complete(Unit) }
+            cleanupDone.await()
+            model.configValues = model.configValues + ("gpu_layers" to requestedGpuLayers)
+            when (val result = ensureAccelerator(model, requestedAccel)) {
+                is AcceleratorResult.Conflict -> LoadResult.Busy(
+                    "NPU is currently held by model '${result.heldBy}'; only one model " +
+                        "may use the NPU at a time on this device."
+                ) as LoadResult
+                is AcceleratorResult.Ok -> markLoaded(name, model)
+            }
         } else if (requestedAccel == null && engine.family != EngineFamily.LLM) {
             // No explicit accelerator + CPU-only kind: initialise the way the app's UI does
             // (initializeModelFn) instead of forcing the recorded (often stale) default accelerator.
@@ -253,6 +275,7 @@ suspend fun OpenAiServer.loadModel(
                 markLoaded(name, model)
             }
         } else {
+            model.configValues = model.configValues + ("gpu_layers" to requestedGpuLayers)
             when (val result = ensureAccelerator(model, requestedAccel)) {
                 is AcceleratorResult.Conflict -> LoadResult.Busy(
                     "NPU is currently held by model '${result.heldBy}'; only one model " +

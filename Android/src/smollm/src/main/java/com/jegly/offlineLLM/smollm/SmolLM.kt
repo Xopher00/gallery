@@ -30,6 +30,7 @@ class SmolLM {
         val numThreads: Int = 4,
         val useMmap: Boolean = true,
         val useMlock: Boolean = false,
+        val gpuLayers: Int = 0,
     )
 
     /** One benchmark repetition; the caller repeats and aggregates. */
@@ -86,6 +87,7 @@ class SmolLM {
                     params.numThreads,
                     params.useMmap,
                     params.useMlock,
+                    params.gpuLayers,
                 )
             }
         }
@@ -174,7 +176,7 @@ class SmolLM {
     private external fun loadModel(
         modelPath: String, minP: Float, temperature: Float, topP: Float, topK: Int,
         repeatPenalty: Float, storeChats: Boolean, contextSize: Long, chatTemplate: String,
-        nThreads: Int, useMmap: Boolean, useMlock: Boolean
+        nThreads: Int, useMmap: Boolean, useMlock: Boolean, gpuLayers: Int
     ): Long
 
     private external fun addChatMessage(modelPtr: Long, message: String, role: String)

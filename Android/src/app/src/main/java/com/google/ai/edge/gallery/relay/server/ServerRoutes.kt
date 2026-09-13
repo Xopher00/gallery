@@ -42,6 +42,11 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
     val onDemandLoadModel: suspend (String, String?) -> LoadResult = { name, accel ->
         server.loadModel(name, accel, ON_DEMAND_MODEL_LOAD_TIMEOUT_MS)
     }
+    // Separate from onDemandLoadModel above so its other callers (embeddings, audio, images)
+    // keep their existing 2-arg lambda type.
+    val onDemandLoadModelWithGpuLayers: suspend (String, String?, Int?) -> LoadResult = { name, accel, gpuLayers ->
+        server.loadModel(name, accel, ON_DEMAND_MODEL_LOAD_TIMEOUT_MS, gpuLayers)
+    }
 
     get("/health") {
         call.respond(
@@ -139,7 +144,7 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
                     is AcceleratorResult.Conflict -> result.heldBy
                 }
             },
-            loadModel = onDemandLoadModel,
+            loadModel = onDemandLoadModelWithGpuLayers,
         )
     }
 
@@ -158,7 +163,7 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
                     is AcceleratorResult.Conflict -> result.heldBy
                 }
             },
-            loadModel = onDemandLoadModel,
+            loadModel = onDemandLoadModelWithGpuLayers,
         )
     }
 
@@ -178,7 +183,7 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
                     is AcceleratorResult.Conflict -> result.heldBy
                 }
             },
-            loadModel = onDemandLoadModel,
+            loadModel = onDemandLoadModelWithGpuLayers,
         )
     }
 

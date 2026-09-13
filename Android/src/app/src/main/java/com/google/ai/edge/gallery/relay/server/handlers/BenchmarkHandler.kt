@@ -21,6 +21,7 @@ data class BenchmarkRequest(
   val prefill_tokens: Int = 128,
   val decode_tokens: Int = 64,
   val runs: Int = 1,
+  val gpu_layers: Int = 0,
 )
 
 @Serializable
@@ -53,6 +54,7 @@ internal fun benchmarkRequestError(req: BenchmarkRequest): String? = when {
   req.prefill_tokens !in 1..4096 -> "prefill_tokens must be between 1 and 4096"
   req.decode_tokens !in 1..1024 -> "decode_tokens must be between 1 and 1024"
   req.runs !in 1..5 -> "runs must be between 1 and 5"
+  req.gpu_layers !in 0..999 -> "gpu_layers must be between 0 and 999"
   else -> null
 }
 
@@ -85,6 +87,7 @@ suspend fun handleBenchmark(
     prefillTokens = request.prefill_tokens,
     decodeTokens = request.decode_tokens,
     accelerator = accelerator,
+    gpuLayers = request.gpu_layers,
   )
 
   try {

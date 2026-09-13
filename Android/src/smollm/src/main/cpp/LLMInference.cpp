@@ -60,7 +60,8 @@ static void ensureBackendsLoaded() {
 void
 LLMInference::loadModel(const char *model_path, float minP, float temperature, float topP, int topK,
                         float repeatPenalty, bool storeChats, long contextSize,
-                        const char *chatTemplate, int nThreads, bool useMmap, bool useMlock) {
+                        const char *chatTemplate, int nThreads, bool useMmap, bool useMlock,
+                        int gpuLayers) {
     LOGi("loading model with"
          "\n\tmodel_path = %s"
          "\n\tminP = %f"
@@ -72,13 +73,21 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, f
          "\n\tcontextSize = %li"
          "\n\tnThreads = %d"
          "\n\tuseMmap = %d"
-         "\n\tuseMlock = %d",
+         "\n\tuseMlock = %d"
+         "\n\tgpuLayers = %d",
          model_path, minP, temperature, topP, topK, repeatPenalty, storeChats, contextSize,
-         nThreads, useMmap, useMlock);
+         nThreads, useMmap, useMlock, gpuLayers);
 
     ensureBackendsLoaded();
 
     llama_model_params model_params = llama_model_default_params();
+    model_params.n_gpu_layers = gpuLayers;
+    if (gpuLayers > 0) {
+        ggml_backend_dev_t gpuDevice = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU);
+        if (gpuDevice) {
+            LOGi("Vulkan device: %s", ggml_backend_dev_description(gpuDevice));
+        }
+    }
     if (useMmap && useMlock) {
         model_params.load_mode = LLAMA_LOAD_MODE_MMAP_MLOCK;
     } else if (useMlock) {

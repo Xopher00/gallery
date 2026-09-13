@@ -32,6 +32,9 @@ data class ChatCompletionRequest(
     // loaded as context and only the last element of `messages` is treated as the new turn;
     // omitted -> unchanged single-shot behaviour.
     val session_id: String? = null,
+    // Box: optional llama.cpp GPU offload (0..999 layers, LiteRT-LM ignores it); a value
+    // differing from the loaded model's triggers an unload+reload (ServerModelLoader.loadModel).
+    val gpu_layers: Int? = null,
 )
 
 // Box (F4): request-side message DTO. `content` is left as a raw JsonElement here (instead of a
@@ -239,6 +242,8 @@ data class CompletionRequest(
     val stream: Boolean = false,
     // Box: see ChatCompletionRequest.accelerator.
     val accelerator: String? = null,
+    // Box: see ChatCompletionRequest.gpu_layers.
+    val gpu_layers: Int? = null,
 )
 
 @Serializable
@@ -496,6 +501,8 @@ data class AnthropicMessagesRequest(
     val stream: Boolean = false,
     // Box: see ChatCompletionRequest.session_id.
     val session_id: String? = null,
+    // Box: see ChatCompletionRequest.gpu_layers.
+    val gpu_layers: Int? = null,
 )
 
 @Serializable

@@ -58,8 +58,73 @@ FetchContent_Declare(
         GIT_SUBMODULES ""
 )
 
+# Vulkan backend for ggml. Declared and primed before llama.cpp is made available, since
+# ggml-vulkan's own CMakeLists.txt (pulled in as a subdirectory of llama.cpp/ggml) runs
+# find_package(Vulkan) and find_package(SPIRV-Headers) as soon as that happens.
+FetchContent_Declare(
+        vulkan-hpp
+        GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Hpp.git
+        GIT_TAG v1.3.275
+        GIT_SHALLOW TRUE
+        GIT_SUBMODULES ""
+)
+FetchContent_Declare(
+        spirv-headers
+        GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers.git
+        GIT_TAG vulkan-sdk-1.3.275.0
+        GIT_SHALLOW TRUE
+)
+# Headers only: MakeAvailable would configure their own projects, which build code generators we do not need.
+foreach(_hdr vulkan-hpp spirv-headers)
+    FetchContent_GetProperties(${_hdr})
+    if(NOT ${_hdr}_POPULATED)
+        FetchContent_Populate(${_hdr})
+    endif()
+endforeach()
+
+# SPIRV-Headers ships no CMake package config of its own; ggml-vulkan's
+# find_package(SPIRV-Headers CONFIG REQUIRED) needs one, so a minimal one is written here,
+# pointing at the fetched headers, and found via SPIRV-Headers_DIR (CMake 3.22 has no
+# FetchContent FIND_PACKAGE_ARGS to synthesize this instead).
+set(_SPIRV_HEADERS_CONFIG_DIR "${CMAKE_CURRENT_BINARY_DIR}/spirv-headers-config")
+file(WRITE "${_SPIRV_HEADERS_CONFIG_DIR}/SPIRV-HeadersConfig.cmake" "
+if(NOT TARGET SPIRV-Headers::SPIRV-Headers)
+    add_library(SPIRV-Headers::SPIRV-Headers INTERFACE IMPORTED)
+    set_target_properties(SPIRV-Headers::SPIRV-Headers PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES \"${spirv-headers_SOURCE_DIR}/include\")
+endif()
+")
+set(SPIRV-Headers_DIR "${_SPIRV_HEADERS_CONFIG_DIR}" CACHE PATH "" FORCE)
+
+# The NDK sysroot already carries vulkan/vulkan.h (VK_HEADER_VERSION 275, matching the tags
+# above), libvulkan.so and glslc; pre-seed FindVulkan's cache variables so
+# find_package(Vulkan COMPONENTS glslc REQUIRED) resolves them instead of searching for a
+# desktop Vulkan SDK. Every module in this project builds arm64-v8a only (see the abiFilters
+# comments in the Gradle files), so the triple is fixed.
+set(_NDK_SYSROOT "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/${ANDROID_HOST_TAG}/sysroot")
+set(Vulkan_INCLUDE_DIR "${_NDK_SYSROOT}/usr/include" CACHE PATH "" FORCE)
+set(Vulkan_LIBRARY "${_NDK_SYSROOT}/usr/lib/aarch64-linux-android/${ANDROID_PLATFORM_LEVEL}/libvulkan.so" CACHE FILEPATH "" FORCE)
+set(Vulkan_GLSLC_EXECUTABLE "${CMAKE_ANDROID_NDK}/shader-tools/${ANDROID_HOST_TAG}/glslc" CACHE FILEPATH "" FORCE)
+
+set(GGML_VULKAN ON CACHE BOOL "" FORCE)
+
+# ggml-vulkan builds its shader generator as a separate laptop-side project that cannot find the SDK ninja
+# on its own; give it a toolchain file naming the laptop compilers and this build's ninja.
+find_program(_HOST_CC gcc REQUIRED)
+find_program(_HOST_CXX g++ REQUIRED)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/vulkan-shaders-gen-host.cmake"
+"set(CMAKE_BUILD_TYPE Release)\nset(CMAKE_C_COMPILER \"${_HOST_CC}\")\nset(CMAKE_CXX_COMPILER \"${_HOST_CXX}\")\nset(CMAKE_MAKE_PROGRAM \"${CMAKE_MAKE_PROGRAM}\" CACHE FILEPATH \"\" FORCE)\n")
+set(GGML_VULKAN_SHADERS_GEN_TOOLCHAIN "${CMAKE_CURRENT_BINARY_DIR}/vulkan-shaders-gen-host.cmake" CACHE FILEPATH "" FORCE)
+
 FetchContent_MakeAvailable(llamacpp)
 set(LLAMA_DIR ${llamacpp_SOURCE_DIR})
+
+# vulkan.hpp lives at the Vulkan-Hpp repo root (vulkan/vulkan.hpp); the NDK sysroot only ships
+# the C header, and ggml-vulkan.cpp includes the C++ one.
+if(TARGET ggml-vulkan)
+    # ggml-vulkan only find_package()s SPIRV-Headers and expects them in a system include dir.
+    target_include_directories(ggml-vulkan PRIVATE ${vulkan-hpp_SOURCE_DIR} ${spirv-headers_SOURCE_DIR}/include)
+endif()
 
 set(GGML_DIR ${LLAMA_DIR}/ggml)
 set(COMMON_DIR ${LLAMA_DIR}/common)
