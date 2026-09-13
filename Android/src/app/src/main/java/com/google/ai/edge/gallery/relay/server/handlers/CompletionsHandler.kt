@@ -21,17 +21,21 @@ import com.google.ai.edge.gallery.relay.server.ErrorEnvelope
 import com.google.ai.edge.gallery.relay.server.LoadResult
 import com.google.ai.edge.gallery.relay.server.honestDefaultAcceleratorLabel
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
+import com.google.ai.edge.gallery.relay.runtime.ThermalGovernor
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.relay.vision.VisionToolListing
 import io.ktor.http.CacheControl
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.cacheControl
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytesWriter
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -58,6 +62,16 @@ suspend fun handleCompletion(
         }
         call.respond(HttpStatusCode.NotFound, ErrorEnvelope(ErrorBody(message = "Unknown model '${request.model}'")))
         return
+    }
+
+    when (val decision = ThermalGovernor.gateDecision(context)) {
+        is ThermalGovernor.GateDecision.Shed -> {
+            call.response.header(HttpHeaders.RetryAfter, decision.retryAfterSeconds.toString())
+            call.respond(HttpStatusCode.ServiceUnavailable, ErrorEnvelope(ErrorBody(message = "Device is too hot; retry later")))
+            return
+        }
+        ThermalGovernor.GateDecision.Delay -> delay(ThermalGovernor.MODERATE_START_DELAY_MS)
+        ThermalGovernor.GateDecision.Proceed -> {}
     }
 
     gpuLayersRangeError(request.gpu_layers)?.let {
@@ -149,11 +163,16 @@ suspend fun handleCompletion(
                 }
             } else {
                 var truncated = false
+                val startMs = System.currentTimeMillis()
+                val stopWatcher = ThermalStopWatcher(model)
                 val responseText = collectInferenceText(
                     model, request.prompt,
                     maxOutputTokens = request.max_tokens,
                     onTruncated = { truncated = true },
+                    onPartial = stopWatcher::onPartial,
                 )
+                if (stopWatcher.triggered) truncated = true
+                feedDecodeRate(model, System.currentTimeMillis() - startMs)
                 call.respond(CompletionResponse(
                     id = "cmpl-" + UUID.randomUUID().toString(),
                     created = System.currentTimeMillis() / 1000,

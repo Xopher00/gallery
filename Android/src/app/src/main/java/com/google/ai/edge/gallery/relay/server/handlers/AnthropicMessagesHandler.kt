@@ -21,6 +21,7 @@ import com.google.ai.edge.gallery.relay.server.ErrorBody
 import com.google.ai.edge.gallery.relay.server.ErrorEnvelope
 import com.google.ai.edge.gallery.relay.server.LoadResult
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
+import com.google.ai.edge.gallery.relay.runtime.ThermalGovernor
 import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.relay.sessions.openSession
@@ -28,11 +29,14 @@ import com.google.ai.edge.gallery.relay.vision.VisionToolListing
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Message
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 
 private const val TAG = "AGChatHandler"
@@ -58,6 +62,16 @@ suspend fun handleAnthropicMessages(
         }
         call.respond(HttpStatusCode.NotFound, ErrorEnvelope(ErrorBody(message = "Unknown model '${request.model}'")))
         return
+    }
+
+    when (val decision = ThermalGovernor.gateDecision(context)) {
+        is ThermalGovernor.GateDecision.Shed -> {
+            call.response.header(HttpHeaders.RetryAfter, decision.retryAfterSeconds.toString())
+            call.respond(HttpStatusCode.ServiceUnavailable, ErrorEnvelope(ErrorBody(message = "Device is too hot; retry later")))
+            return
+        }
+        ThermalGovernor.GateDecision.Delay -> delay(ThermalGovernor.MODERATE_START_DELAY_MS)
+        ThermalGovernor.GateDecision.Proceed -> {}
     }
 
     gpuLayersRangeError(request.gpu_layers)?.let {
@@ -213,12 +227,17 @@ suspend fun handleAnthropicMessages(
             }
 
             var truncated = false
+            val startMs = System.currentTimeMillis()
+            val stopWatcher = ThermalStopWatcher(model)
             val resultText =
                 collectInferenceText(
                     model, lastParsed.text, lastParsed.images,
                     maxOutputTokens = replyCap,
                     onTruncated = { truncated = true },
+                    onPartial = stopWatcher::onPartial,
                 )
+            if (stopWatcher.triggered) truncated = true
+            feedDecodeRate(model, System.currentTimeMillis() - startMs)
 
             if (effectiveSessionId != null) {
                 llmSessionManager.saveSessionHistory(

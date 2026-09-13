@@ -1,6 +1,6 @@
 // Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
 
-// I4a follow-up: vision tools have no ModelRegistry membership (not Model objects, see
+// vision tools have no ModelRegistry membership (not Model objects, see
 // ModelCatalog.kt); this lists them in GET /v1/models too so a client's model picker sees them.
 package com.google.ai.edge.gallery.relay.vision
 

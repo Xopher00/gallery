@@ -11,6 +11,7 @@
  */
 package com.google.ai.edge.gallery.relay.server.handlers
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.util.Base64
 import com.google.ai.edge.gallery.data.Model
@@ -22,13 +23,17 @@ import com.google.ai.edge.gallery.relay.server.ImageGenerationRequest
 import com.google.ai.edge.gallery.relay.server.ImageGenerationResponse
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import com.google.ai.edge.gallery.relay.runtime.ModelEngine
+import com.google.ai.edge.gallery.relay.runtime.ThermalGovernor
 import com.google.ai.edge.gallery.stablediffusion.StableDiffusion
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receive
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.sync.Mutex
 
@@ -47,10 +52,21 @@ private const val DEFAULT_SIZE = "512x512"
 
 suspend fun handleImageGenerations(
     call: ApplicationCall,
+    context: Context,
     modelRegistry: ModelRegistry,
     mutexes: ConcurrentHashMap<String, Mutex>,
     loadModel: suspend (String, String?) -> LoadResult,
 ) {
+    when (val decision = ThermalGovernor.gateDecision(context)) {
+        is ThermalGovernor.GateDecision.Shed -> {
+            call.response.header(HttpHeaders.RetryAfter, decision.retryAfterSeconds.toString())
+            call.respond(HttpStatusCode.ServiceUnavailable, ErrorEnvelope(ErrorBody(message = "Device is too hot; retry later")))
+            return
+        }
+        ThermalGovernor.GateDecision.Delay -> delay(ThermalGovernor.MODERATE_START_DELAY_MS)
+        ThermalGovernor.GateDecision.Proceed -> {}
+    }
+
     val request = call.receive<ImageGenerationRequest>()
 
     if (request.prompt.isBlank()) {

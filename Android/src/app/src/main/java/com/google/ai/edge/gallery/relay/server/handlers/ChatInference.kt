@@ -21,6 +21,7 @@ import com.google.ai.edge.gallery.relay.server.LoadResult
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import com.google.ai.edge.gallery.relay.runtime.isContextOverflow
 import com.google.ai.edge.gallery.relay.server.Usage
+import com.google.ai.edge.gallery.relay.runtime.ThermalGovernor
 import com.google.ai.edge.gallery.relay.runtime.TurnTokenUsage
 import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import com.google.ai.edge.gallery.relay.runtime.llamacpp.LlamaCppEngine
@@ -110,13 +111,39 @@ internal fun TurnTokenUsage.toUsage(): Usage =
 
 internal fun TurnTokenUsage.exactnessLabel(): String = if (isFullyExact) "exact" else "estimated"
 
+// Shared by non-streaming call sites outside collectInferenceStream's own Done handling.
+internal fun feedDecodeRate(model: Model, elapsedMs: Long) {
+    val tokens = TurnUsageStore.peek(model.name)?.completion?.tokens ?: return
+    if (tokens <= 0 || elapsedMs <= 0) return
+    ThermalGovernor.recordDecodeRate(tokens * 1000.0 / elapsedMs)
+}
+
+// Once-per-turn stop, called from onPartial or a stream's own chunk loop. [triggered] then folds
+// into the caller's truncated/finish_reason so a thermal stop reports "length" like a token cap.
+internal class ThermalStopWatcher(private val model: Model) {
+    var triggered: Boolean = false
+        private set
+
+    fun onPartial(@Suppress("UNUSED_PARAMETER") text: String) {
+        if (!triggered && ThermalGovernor.shouldStopNow()) {
+            triggered = true
+            model.runtimeHelper.stopResponse(model)
+        }
+    }
+}
+
 internal suspend fun runInferenceBlocking(model: Model, prompt: String, images: List<Bitmap> = emptyList(), maxOutputTokens: Int? = null): ChatCompletionResponse {
     var truncated = false
+    val startMs = System.currentTimeMillis()
+    val stopWatcher = ThermalStopWatcher(model)
     val resultText = collectInferenceText(
         model, prompt, images,
         maxOutputTokens = maxOutputTokens,
         onTruncated = { truncated = true },
+        onPartial = stopWatcher::onPartial,
     )
+    if (stopWatcher.triggered) truncated = true
+    feedDecodeRate(model, System.currentTimeMillis() - startMs)
     val usage = TurnUsageStore.peek(model.name)
     return ChatCompletionResponse(
         id = "chatcmpl-" + UUID.randomUUID().toString(),
@@ -159,6 +186,8 @@ internal suspend fun collectInferenceStream(
     encodeChunk: (text: String) -> String,
 ) {
     val events = Channel<StreamEvent>(Channel.UNLIMITED)
+    val startMs = System.currentTimeMillis()
+    val stopWatcher = ThermalStopWatcher(model)
 
     helper.runInference(
         model = model,
@@ -191,13 +220,16 @@ internal suspend fun collectInferenceStream(
         for (event in events) {
             when (event) {
                 is StreamEvent.Chunk -> {
+                    stopWatcher.onPartial(event.text)
                     writer.writeStringUtf8("data: ${encodeChunk(event.text)}\n\n")
                     writer.flush()
                 }
                 is StreamEvent.Done -> {
+                    feedDecodeRate(model, System.currentTimeMillis() - startMs)
                     val usage = TurnUsageStore.peek(model.name)
+                    val truncated = event.truncated || stopWatcher.triggered
                     if (encodeFinishChunk != null) {
-                        writer.writeStringUtf8("data: ${encodeFinishChunk(event.truncated)}\n\n")
+                        writer.writeStringUtf8("data: ${encodeFinishChunk(truncated)}\n\n")
                     }
                     if (encodeUsageChunk != null && usage != null) {
                         writer.writeStringUtf8("data: ${encodeUsageChunk(usage)}\n\n")

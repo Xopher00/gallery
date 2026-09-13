@@ -29,12 +29,25 @@ import com.google.ai.edge.gallery.relay.server.handlers.handleOcr
 import com.google.ai.edge.gallery.relay.server.handlers.handleVisionDetect
 import com.google.ai.edge.gallery.relay.server.handlers.handleVisionSegment
 import com.google.ai.edge.gallery.relay.server.handlers.respondLoadError
+import com.google.ai.edge.gallery.relay.runtime.ThermalGovernor
 import com.google.ai.edge.gallery.relay.vision.VisionToolListing
 import com.google.ai.edge.gallery.relay.vision.toModelData
 import io.ktor.http.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.serialization.Serializable
+
+// Map<String, Any> has no kotlinx.serialization support; thermal_status/thermal_headroom need
+// real number types, not strings, so /health responds with this instead.
+@Serializable
+private data class HealthResponse(
+    val status: String,
+    val bind: String,
+    val key: String,
+    val thermal_status: Int,
+    val thermal_headroom: Float?,
+)
 
 // The OpenAI-shaped v1 API surface, installed by OpenAiServer.start() inside its routing {}
 // block after plugins and the auth interceptor are in place.
@@ -52,10 +65,12 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
 
     get("/health") {
         call.respond(
-            mapOf(
-                "status" to "ok",
-                "bind" to "${server.boundHost}:$port",
-                "key" to server.apiKeyFingerprint,
+            HealthResponse(
+                status = "ok",
+                bind = "${server.boundHost}:$port",
+                key = server.apiKeyFingerprint,
+                thermal_status = ThermalGovernor.currentThermalStatus(),
+                thermal_headroom = ThermalGovernor.headroom(server.context),
             )
         )
     }
@@ -198,7 +213,7 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
     }
 
     post("/v1/images/generations") {
-        handleImageGenerations(call, server.modelRegistry, server.imageGenMutexes, onDemandLoadModel)
+        handleImageGenerations(call, server.context, server.modelRegistry, server.imageGenMutexes, onDemandLoadModel)
     }
 
     // MediaPipe tasks-vision (GPU delegate, CPU fallback). Models are Google MediaPipe downloads,

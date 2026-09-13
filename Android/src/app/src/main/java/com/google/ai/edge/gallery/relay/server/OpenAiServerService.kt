@@ -20,6 +20,7 @@ import com.google.ai.edge.gallery.MainActivity
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
 import com.google.ai.edge.gallery.relay.model.ModelRegistryEntryPoint
+import com.google.ai.edge.gallery.relay.runtime.ThermalGovernor
 import com.google.ai.edge.gallery.relay.server.ServerRuntime.BindMode
 import com.google.ai.edge.gallery.relay.sessions.LlmSessionManagerEntryPoint
 import dagger.hilt.android.EntryPointAccessors
@@ -82,6 +83,7 @@ class OpenAiServerService : Service() {
         }
 
         createNotificationChannel()
+        ThermalGovernor.registerListener(applicationContext)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             // specialUse escapes dataSync's daily time cap; only declarable/usable API 34+.
             startForeground(
@@ -236,6 +238,7 @@ class OpenAiServerService : Service() {
         ServerRuntime.markStopped()
         stopForeground(STOP_FOREGROUND_REMOVE)
         releaseLocks()
+        ThermalGovernor.unregisterListener(applicationContext)
         Log.i(TAG, "OpenAI API Server Service stopped")
         if (stoppingServer != null) {
             CoroutineScope(Dispatchers.IO).launch { stoppingServer.stop() }
