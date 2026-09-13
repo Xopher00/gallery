@@ -4,11 +4,40 @@
 #include <vector>
 #include <mutex>
 #include <atomic>
+#include <dlfcn.h>
 #include "whisper.h"
+#include "ggml-backend.h"
 
 #define TAG "WhisperJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+// dladdr on our own symbol finds this lib's directory, where libggml-cpu-*.so also lives.
+static std::string nativeLibDir() {
+    Dl_info info;
+    if (dladdr(reinterpret_cast<void*>(&nativeLibDir), &info) && info.dli_fname) {
+        std::string path(info.dli_fname);
+        size_t slash = path.find_last_of('/');
+        if (slash != std::string::npos) {
+            return path.substr(0, slash);
+        }
+    }
+    return "";
+}
+
+// ggml backend registration dedupes by reg, so a redundant load already done by the
+// llama.cpp/SD JNI libs sharing this process is harmless; once_flag covers this call site.
+static void ensureBackendsLoaded() {
+    static std::once_flag flag;
+    std::call_once(flag, [] {
+        std::string dir = nativeLibDir();
+        if (!dir.empty()) {
+            ggml_backend_load_all_from_path(dir.c_str());
+        } else {
+            ggml_backend_load_all();
+        }
+    });
+}
 
 static std::mutex g_whisper_mutex;
 static std::atomic<bool> g_cancelled{false};
@@ -21,6 +50,8 @@ extern "C" {
 JNIEXPORT jlong JNICALL
 Java_com_google_ai_edge_gallery_whisper_WhisperEngine_loadModelNative(
         JNIEnv* env, jobject, jstring modelPath) {
+    ensureBackendsLoaded();
+
     // Clear any stale cancellation flag left over from an earlier cancelled transcription so it
     // cannot leak into the abort_callback/encoder_begin_callback wiring of the next transcribe.
     g_cancelled.store(false);

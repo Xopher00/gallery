@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include "ggml-backend.h"
 #include "stable-diffusion.h"
 
 #define LOG_TAG "SDInference"
@@ -24,20 +25,33 @@ static void progress_callback(int step, int steps, float /*time*/, void* /*data*
     g_progress_total.store(steps);
 }
 
+// Loading is process-wide state in ggml, so this must run exactly once even across model reloads,
+// and before new_sd_ctx since generation can start before any llama.cpp model has loaded.
+static void ensureBackendsLoaded(const char* nativeLibDir) {
+    static std::once_flag flag;
+    std::call_once(flag, [nativeLibDir] {
+        ggml_backend_load_all_from_path(nativeLibDir);
+    });
+}
+
 extern "C" {
 
 JNIEXPORT jlong JNICALL
 Java_com_google_ai_edge_gallery_stablediffusion_StableDiffusion_loadModelNative(
-        JNIEnv* env, jobject /*thiz*/, jstring modelPath, jint nThreads) {
+        JNIEnv* env, jobject /*thiz*/, jstring modelPath, jint nThreads, jstring nativeLibDir,
+        jboolean vaeDecodeOnly) {
     const char* path = env->GetStringUTFChars(modelPath, nullptr);
+    const char* libDir = env->GetStringUTFChars(nativeLibDir, nullptr);
+    ensureBackendsLoaded(libDir);
+    env->ReleaseStringUTFChars(nativeLibDir, libDir);
     LOGI("Loading SD model: %s (threads=%d)", path, nThreads);
 
     sd_ctx_params_t params;
     sd_ctx_params_init(&params);
     params.model_path = path;
     params.n_threads = (int)nThreads;
-    params.vae_decode_only = true;
     params.enable_mmap = true;
+    params.vae_decode_only = (bool)vaeDecodeOnly;
 
     sd_set_log_callback([](sd_log_level_t level, const char* text, void*) {
         if (level == SD_LOG_ERROR) {
@@ -99,20 +113,24 @@ Java_com_google_ai_edge_gallery_stablediffusion_StableDiffusion_generateImageNat
     LOGI("Generating image: %dx%d, steps=%d, cfg=%.1f, seed=%lld",
          width, height, steps, cfgScale, (long long)seed);
 
-    sd_image_t* result = generate_image(ctx, &genParams);
+    sd_image_t* images = nullptr;
+    int numImages = 0;
+    bool ok = generate_image(ctx, &genParams, &images, &numImages);
 
     env->ReleaseStringUTFChars(prompt, promptStr);
     env->ReleaseStringUTFChars(negPrompt, negStr);
 
-    if (!result) {
-        LOGE("generate_image returned null");
+    if (!ok || !images || numImages <= 0) {
+        LOGE("generate_image failed");
+        if (images) free_sd_images(images, numImages);
         LOGI("generate: released sd mutex");
         return nullptr;
     }
 
+    sd_image_t* result = &images[0];
     if (!result->data) {
         LOGE("generate_image returned image with null data");
-        free(result);
+        free_sd_images(images, numImages);
         LOGI("generate: released sd mutex");
         return nullptr;
     }
@@ -126,11 +144,7 @@ Java_com_google_ai_edge_gallery_stablediffusion_StableDiffusion_generateImageNat
     env->SetByteArrayRegion(byteArr, 0, dataSize,
                             reinterpret_cast<const jbyte*>(result->data));
 
-    // result->data was allocated with malloc() (util.cpp tensor_to_sd_image) and result itself
-    // with calloc() (stable-diffusion.cpp generate_image); both must be released with free(),
-    // not delete[] (delete[]/malloc-calloc mismatch is undefined behaviour).
-    free(result->data);
-    free(result);
+    free_sd_images(images, numImages);
 
     LOGI("generate: released sd mutex");
     return byteArr;

@@ -299,6 +299,7 @@ data class ImageGenerationRequest(
     val n: Int? = null,
     val size: String? = null,
     val response_format: String? = null,
+    val seed: Long? = null,
 )
 
 @Serializable

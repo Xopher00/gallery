@@ -32,6 +32,7 @@ plugins {
 
 android {
   namespace = "com.google.ai.edge.gallery"
+  ndkVersion = "27.2.12479018"
   compileSdk { this.version = release(37) { minorApiLevel = 0 } }
 
   defaultConfig {

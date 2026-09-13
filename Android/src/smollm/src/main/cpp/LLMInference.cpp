@@ -6,10 +6,56 @@
 #include <sstream>
 #include <cmath>
 #include <algorithm>
+#include <dlfcn.h>
+#include <fstream>
+#include <mutex>
 
 #define TAG "[offlineLLM-Cpp]"
 #define LOGi(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGe(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+// Must match stable-diffusion.cpp's pinned GGML_MAX_NAME so a later shared-GGML build stays compatible.
+static_assert(GGML_MAX_NAME == 160, "GGML_MAX_NAME must be 160");
+
+// dladdr on our own symbol finds the app's native lib dir (libggml-cpu-*.so lives beside it);
+// ggml_backend_load_all() alone would search the executable's dir instead, which is wrong on Android.
+static std::string nativeLibDir() {
+    Dl_info info;
+    if (dladdr(reinterpret_cast<void *>(&nativeLibDir), &info) && info.dli_fname) {
+        std::string path(info.dli_fname);
+        size_t slash = path.find_last_of('/');
+        if (slash != std::string::npos) {
+            return path.substr(0, slash);
+        }
+    }
+    return "";
+}
+
+static void logChosenCpuBackend() {
+    std::ifstream maps("/proc/self/maps");
+    std::string line;
+    while (std::getline(maps, line)) {
+        size_t pos = line.find("libggml-cpu");
+        if (pos != std::string::npos) {
+            LOGi("ggml CPU backend: %s", line.c_str() + pos);
+            return;
+        }
+    }
+}
+
+// Loading is process-wide state in ggml, so this must run exactly once even across model reloads.
+static void ensureBackendsLoaded() {
+    static std::once_flag flag;
+    std::call_once(flag, [] {
+        std::string dir = nativeLibDir();
+        if (!dir.empty()) {
+            ggml_backend_load_all_from_path(dir.c_str());
+        } else {
+            ggml_backend_load_all();
+        }
+        logChosenCpuBackend();
+    });
+}
 
 void
 LLMInference::loadModel(const char *model_path, float minP, float temperature, float topP, int topK,
@@ -30,11 +76,18 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, f
          model_path, minP, temperature, topP, topK, repeatPenalty, storeChats, contextSize,
          nThreads, useMmap, useMlock);
 
-    ggml_backend_load_all();
+    ensureBackendsLoaded();
 
     llama_model_params model_params = llama_model_default_params();
-    model_params.use_mmap = useMmap;
-    model_params.use_mlock = useMlock;
+    if (useMmap && useMlock) {
+        model_params.load_mode = LLAMA_LOAD_MODE_MMAP_MLOCK;
+    } else if (useMlock) {
+        model_params.load_mode = LLAMA_LOAD_MODE_MLOCK;
+    } else if (useMmap) {
+        model_params.load_mode = LLAMA_LOAD_MODE_MMAP;
+    } else {
+        model_params.load_mode = LLAMA_LOAD_MODE_NONE;
+    }
     _model = llama_model_load_from_file(model_path, model_params);
     if (!_model) {
         LOGe("failed to load model from %s", model_path);
@@ -72,7 +125,8 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, f
     _sampler = llama_sampler_chain_init(sampler_params);
 
     if (repeatPenalty > 1.0f) {
-        llama_sampler_chain_add(_sampler, llama_sampler_init_penalties(256, repeatPenalty, 0.0f, 0.0f));
+        int32_t nVocab = llama_vocab_n_tokens(llama_model_get_vocab(_model));
+        llama_sampler_chain_add(_sampler, llama_sampler_init_penalties(nVocab, 256, repeatPenalty, 0.0f, 0.0f));
     }
 
     if (topK > 0) {

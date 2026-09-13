@@ -28,6 +28,7 @@
 /captures
 .externalNativeBuild
 .cxx
+native/.deps/
 local.properties
 keystore.properties
 .kotlin

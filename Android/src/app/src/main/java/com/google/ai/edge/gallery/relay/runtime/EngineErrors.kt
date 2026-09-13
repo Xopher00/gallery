@@ -6,4 +6,5 @@ package com.google.ai.edge.gallery.relay.runtime
 fun isContextOverflow(message: String?): Boolean =
     message != null &&
         (message.contains("Input token ids are too long") ||
-            message.contains("Exceeding the maximum number of tokens allowed"))
+            message.contains("Exceeding the maximum number of tokens allowed") ||
+            message.contains("context size reached"))

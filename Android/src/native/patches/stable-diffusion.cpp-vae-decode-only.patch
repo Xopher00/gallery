@@ -1,0 +1,66 @@
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+index 57e4117..1a1f760 100644
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -221,6 +221,7 @@ typedef struct {
+     bool diffusion_conv_direct;
+     bool vae_conv_direct;
+     bool force_sdxl_vae_conv_scale;
++    bool vae_decode_only;  // skip building/loading the VAE encoder; encode() will fail. No effect on TAE/video VAEs.
+     enum sd_vae_format_t vae_format;
+     const char* max_vram;  // GiB budget or backend assignment spec for graph-cut segmented param offload (0 = disabled, -1 = auto)
+     bool stream_layers;  // Enable residency+prefetch streaming on top of --max-vram (no effect without --max-vram)
+diff --git a/src/model/vae/auto_encoder_kl.hpp b/src/model/vae/auto_encoder_kl.hpp
+index 604347d..2cb237b 100644
+--- a/src/model/vae/auto_encoder_kl.hpp
++++ b/src/model/vae/auto_encoder_kl.hpp
+@@ -740,7 +740,10 @@ struct AutoEncoderKL : public VAE {
+     sd::Tensor<float> _compute(const int n_threads,
+                                const sd::Tensor<float>& z,
+                                bool decode_graph) override {
+-        GGML_ASSERT(!decode_only || decode_graph);
++        if (decode_only && !decode_graph) {
++            LOG_ERROR("vae encode requested but this VAE was loaded decode-only (vae_decode_only); no encoder weights are available");
++            return {};
++        }
+         auto get_graph = [&]() -> ggml_cgraph* {
+             return build_graph(z, decode_graph);
+         };
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+index 5986163..d08f60d 100644
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -1449,10 +1449,13 @@ public:
+                                                                vae_version,
+                                                                model_manager);
+                 } else {
++                    if (sd_ctx_params->vae_decode_only) {
++                        LOG_INFO("VAE encoder disabled (vae_decode_only); image-to-image / encode will fail");
++                    }
+                     auto model = std::make_shared<AutoEncoderKL>(backend_for(SDBackendModule::VAE),
+                                                                  tensor_storage_map,
+                                                                  "first_stage_model",
+-                                                                 false,
++                                                                 sd_ctx_params->vae_decode_only,
+                                                                  false,
+                                                                  vae_version,
+                                                                  model_manager);
+@@ -1630,6 +1633,10 @@ public:
+         if (use_tae && !tae_preview_only) {
+             ignore_tensors.insert("first_stage_model.");
+         }
++        if (sd_ctx_params->vae_decode_only) {
++            ignore_tensors.insert("first_stage_model.encoder");
++            ignore_tensors.insert("first_stage_model.quant_conv");
++        }
+         for (auto& extension : generation_extensions) {
+             extension->add_ignore_tensors(ignore_tensors);
+         }
+@@ -3533,6 +3540,7 @@ void sd_ctx_params_init(sd_ctx_params_t* sd_ctx_params) {
+     sd_ctx_params->stream_layers        = false;
+     sd_ctx_params->eager_load           = false;
+     sd_ctx_params->enable_mmap          = false;
++    sd_ctx_params->vae_decode_only      = false;
+     sd_ctx_params->diffusion_flash_attn = false;
+     sd_ctx_params->vae_format           = SD_VAE_FORMAT_AUTO;
+     sd_ctx_params->backend              = nullptr;

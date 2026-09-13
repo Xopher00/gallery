@@ -17,7 +17,9 @@ import com.google.ai.edge.gallery.relay.server.handlers.ON_DEMAND_MODEL_LOAD_TIM
 import com.google.ai.edge.gallery.relay.server.handlers.handleAgentRun
 import com.google.ai.edge.gallery.relay.server.handlers.handleAgentTools
 import com.google.ai.edge.gallery.relay.server.handlers.handleAnthropicMessages
+import com.google.ai.edge.gallery.relay.server.handlers.BenchmarkRequest
 import com.google.ai.edge.gallery.relay.server.handlers.handleAudioTranscriptions
+import com.google.ai.edge.gallery.relay.server.handlers.handleBenchmark
 import com.google.ai.edge.gallery.relay.server.handlers.handleChatCompletion
 import com.google.ai.edge.gallery.relay.server.handlers.handleCompletion
 import com.google.ai.edge.gallery.relay.server.handlers.handleEmbeddings
@@ -105,6 +107,20 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
         }
         server.unloadModel(id)
         call.respond(mapOf("id" to id, "status" to "unloaded"))
+    }
+
+    post("/v1/models/{id}/benchmark") {
+        val id = call.parameters["id"]
+        if (id.isNullOrBlank()) {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = "Missing model id")))
+            return@post
+        }
+        val request = try {
+            call.receive<BenchmarkRequest>()
+        } catch (e: Exception) {
+            BenchmarkRequest()
+        }
+        handleBenchmark(call, id, request, server.context, server.modelRegistry)
     }
 
     post("/v1/chat/completions") {

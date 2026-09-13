@@ -168,6 +168,7 @@ suspend fun handleImageGenerations(
         width = width,
         height = height,
         steps = IMAGE_GEN_STEPS,
+        seed = imageSeed(request.seed),
     )
 
     val guardResult = withBusyGuard(
@@ -227,3 +228,7 @@ internal fun loadedStableDiffusionModels(
 
 internal fun selectStableDiffusionModel(sdModels: List<Model>, requestedName: String?): Model? =
     if (requestedName != null) sdModels.find { it.name == requestedName } else sdModels.firstOrNull()
+
+// -1L is StableDiffusion.GenerationParams' own "pick a random seed" sentinel; a null request seed
+// maps to it so an omitted seed keeps today's random behavior.
+internal fun imageSeed(requested: Long?): Long = requested ?: -1L

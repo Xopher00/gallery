@@ -17,36 +17,6 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
-        externalNativeBuild {
-            cmake {
-                cppFlags += listOf("-std=c++17")
-                arguments += listOf(
-                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
-                    "-DCMAKE_BUILD_TYPE=Release",
-                    "-DSD_BUILD_EXAMPLES=OFF",
-                    "-DSD_BUILD_SHARED_LIBS=OFF",
-                    "-DSD_BUILD_SHARED_GGML_LIB=OFF",
-                    "-DSD_WEBP=OFF",
-                    "-DSD_WEBM=OFF",
-                    "-DSD_CUDA=OFF",
-                    "-DSD_METAL=OFF",
-                    "-DSD_VULKAN=OFF",
-                    "-DGGML_BUILD_TESTS=OFF",
-                    "-DGGML_BUILD_EXAMPLES=OFF",
-                    "-DBUILD_SHARED_LIBS=OFF",
-                )
-                // Opt-in ccache compiler launcher for the native build. Only
-                // enabled when the "useCcache" Gradle property is set, which
-                // CI passes explicitly (-PuseCcache) -- local builds never set
-                // it and are unaffected.
-                if (project.hasProperty("useCcache")) {
-                    arguments += listOf(
-                        "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
-                        "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
-                    )
-                }
-            }
-        }
     }
 
     buildTypes {
@@ -58,12 +28,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-    }
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
     }
 }
 

@@ -47,13 +47,18 @@ class StableDiffusion {
 
     fun isLoaded(): Boolean = contextHandle != 0L
 
-    suspend fun loadModel(modelPath: String, nThreads: Int = 4): Boolean =
+    suspend fun loadModel(
+        modelPath: String,
+        nativeLibraryDir: String,
+        nThreads: Int = 4,
+        vaeDecodeOnly: Boolean = false,
+    ): Boolean =
         withContext(Dispatchers.Default) {
             if (contextHandle != 0L) {
                 freeContextNative(contextHandle)
                 contextHandle = 0L
             }
-            contextHandle = loadModelNative(modelPath, nThreads)
+            contextHandle = loadModelNative(modelPath, nThreads, nativeLibraryDir, vaeDecodeOnly)
             contextHandle != 0L
         }
 
@@ -150,7 +155,12 @@ class StableDiffusion {
         return bitmap
     }
 
-    private external fun loadModelNative(modelPath: String, nThreads: Int): Long
+    private external fun loadModelNative(
+        modelPath: String,
+        nThreads: Int,
+        nativeLibDir: String,
+        vaeDecodeOnly: Boolean,
+    ): Long
     private external fun generateImageNative(
         ctxHandle: Long,
         prompt: String, negPrompt: String,

@@ -107,7 +107,7 @@ class ImageGenTask @Inject constructor() : CustomTask {
             val sd = StableDiffusion()
             val modelPath = model.getPath(context)
             val nThreads = Runtime.getRuntime().availableProcessors().coerceIn(4, 8)
-            val ok = sd.loadModel(modelPath, nThreads)
+            val ok = sd.loadModel(modelPath, context.applicationInfo.nativeLibraryDir, nThreads)
             if (ok) {
                 model.instance = sd
                 onDone("")

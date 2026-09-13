@@ -1,68 +1,19 @@
 package com.jegly.offlineLLM.smollm
 
-import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileNotFoundException
 
 class SmolLM {
     companion object {
         private const val TAG = "SmolLM"
 
         init {
-            val cpuFeatures = getCPUFeatures()
-            val hasFp16 = cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp")
-            val hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp")
-            val hasSve = cpuFeatures.contains("sve")
-            val hasI8mm = cpuFeatures.contains("i8mm")
-            val isAtLeastArmV82 =
-                cpuFeatures.contains("asimd") &&
-                    cpuFeatures.contains("crc32") &&
-                    cpuFeatures.contains("aes")
-            val isAtLeastArmV84 = cpuFeatures.contains("dcpop") && cpuFeatures.contains("uscat")
-
-            val isEmulated =
-                (Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu"))
-
-            if (!isEmulated) {
-                if (supportsArm64V8a()) {
-                    if (isAtLeastArmV84 && hasSve && hasI8mm && hasFp16 && hasDotProd) {
-                        System.loadLibrary("smollm_v8_4_fp16_dotprod_i8mm_sve")
-                    } else if (isAtLeastArmV84 && hasSve && hasFp16 && hasDotProd) {
-                        System.loadLibrary("smollm_v8_4_fp16_dotprod_sve")
-                    } else if (isAtLeastArmV84 && hasI8mm && hasFp16 && hasDotProd) {
-                        System.loadLibrary("smollm_v8_4_fp16_dotprod_i8mm")
-                    } else if (isAtLeastArmV84 && hasFp16 && hasDotProd) {
-                        System.loadLibrary("smollm_v8_4_fp16_dotprod")
-                    } else if (isAtLeastArmV82 && hasFp16 && hasDotProd) {
-                        System.loadLibrary("smollm_v8_2_fp16_dotprod")
-                    } else if (isAtLeastArmV82 && hasFp16) {
-                        System.loadLibrary("smollm_v8_2_fp16")
-                    } else {
-                        System.loadLibrary("smollm_v8")
-                    }
-                } else {
-                    System.loadLibrary("smollm")
-                }
-            } else {
-                System.loadLibrary("smollm")
-            }
+            System.loadLibrary("smollm")
         }
-
-        private fun getCPUFeatures(): String {
-            return try {
-                File("/proc/cpuinfo").readText()
-                    .substringAfter("Features").substringAfter(":").substringBefore("\n").trim()
-            } catch (e: FileNotFoundException) {
-                ""
-            }
-        }
-
-        private fun supportsArm64V8a(): Boolean = Build.SUPPORTED_ABIS[0] == "arm64-v8a"
     }
 
     private var nativePtr = 0L
