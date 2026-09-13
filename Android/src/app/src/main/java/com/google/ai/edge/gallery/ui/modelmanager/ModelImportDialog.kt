@@ -88,6 +88,8 @@ import com.google.ai.edge.gallery.huggingface.isLiteRtLmFileName
 import com.google.ai.edge.gallery.proto.ImportedModel
 import com.google.ai.edge.gallery.proto.importedModel
 import com.google.ai.edge.gallery.proto.llmConfig
+import com.google.ai.edge.gallery.relay.model.MODEL_FILE_DETAILS_LABEL_KEY
+import com.google.ai.edge.gallery.relay.model.buildModelFileDetailsTextFromFileName
 import com.google.ai.edge.gallery.relay.model.importedFile
 import com.google.ai.edge.gallery.relay.runtime.isLlamaCppFile
 import com.google.ai.edge.gallery.relay.security.OfflineMode
@@ -173,20 +175,29 @@ private val IMPORT_CONFIGS_LLM: List<Config> =
   )
 
 // Swaps only the accelerator config; SegmentedButtonConfig isn't a data class, so fields are passed through by hand.
-private fun importConfigsLlmFor(acceleratorOptions: List<Accelerator>): List<Config> =
-  IMPORT_CONFIGS_LLM.map { config ->
+// Also inserts the filename-derived details row, read-only, right above that accelerator selector.
+private fun importConfigsLlmFor(acceleratorOptions: List<Accelerator>, fileName: String): List<Config> {
+  val detailsText = buildModelFileDetailsTextFromFileName(fileName)
+  return IMPORT_CONFIGS_LLM.flatMap { config ->
     if (config.key == ConfigKeys.COMPATIBLE_ACCELERATORS) {
       val original = config as SegmentedButtonConfig
-      SegmentedButtonConfig(
-        key = original.key,
-        defaultValue = acceleratorOptions[0].label,
-        options = acceleratorOptions.map { it.label },
-        allowMultiple = original.allowMultiple,
-      )
+      val acceleratorsConfig =
+        SegmentedButtonConfig(
+          key = original.key,
+          defaultValue = acceleratorOptions[0].label,
+          options = acceleratorOptions.map { it.label },
+          allowMultiple = original.allowMultiple,
+        )
+      if (detailsText != null) {
+        listOf(LabelConfig(key = MODEL_FILE_DETAILS_LABEL_KEY, defaultValue = detailsText), acceleratorsConfig)
+      } else {
+        listOf(acceleratorsConfig)
+      }
     } else {
-      config
+      listOf(config)
     }
   }
+}
 
 @Composable
 fun ModelImportDialog(
@@ -230,7 +241,8 @@ fun ModelImportDialog(
   }
 
   val acceleratorOptions = remember(fileName) { acceleratorOptionsFor(fileName) }
-  val importConfigsLlm = remember(acceleratorOptions) { importConfigsLlmFor(acceleratorOptions) }
+  val importConfigsLlm =
+    remember(acceleratorOptions, fileName) { importConfigsLlmFor(acceleratorOptions, fileName) }
 
   val initialValues: Map<String, Any> = remember {
     mutableMapOf<String, Any>().apply {

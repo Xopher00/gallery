@@ -6,6 +6,7 @@
  */
 package com.google.ai.edge.gallery.relay.server.handlers
 
+import android.content.Context
 import android.util.Log
 import com.google.ai.edge.gallery.data.Accelerator
 import com.google.ai.edge.gallery.data.ConfigKeys
@@ -21,6 +22,7 @@ import com.google.ai.edge.gallery.relay.server.LoadResult
 import com.google.ai.edge.gallery.relay.server.honestDefaultAcceleratorLabel
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import com.google.ai.edge.gallery.runtime.runtimeHelper
+import com.google.ai.edge.gallery.relay.vision.VisionToolListing
 import io.ktor.http.CacheControl
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -39,6 +41,7 @@ private const val TAG = "AGChatHandler"
 suspend fun handleCompletion(
     call: ApplicationCall,
     request: CompletionRequest,
+    context: Context,
     modelRegistry: ModelRegistry,
     modelMutexes: ConcurrentHashMap<String, Mutex>,
     parseAccelerator: (String) -> Accelerator?,
@@ -46,11 +49,13 @@ suspend fun handleCompletion(
     ensureAccelerator: suspend (Model, Accelerator?) -> String?,
     loadModel: suspend (String, String?, Int?) -> LoadResult,
 ) {
-    val model = modelRegistry.tasks
-        .flatMap { it.models }
-        .find { it.name == request.model }
+    val model = modelRegistry.getModelByName(request.model)
 
     if (model == null) {
+        VisionToolListing.findById(context, request.model)?.let {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = VisionToolListing.misdirectedTextRequestMessage(it))))
+            return
+        }
         call.respond(HttpStatusCode.NotFound, ErrorEnvelope(ErrorBody(message = "Unknown model '${request.model}'")))
         return
     }

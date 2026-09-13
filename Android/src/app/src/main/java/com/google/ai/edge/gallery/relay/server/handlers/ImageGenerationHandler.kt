@@ -112,7 +112,7 @@ suspend fun handleImageGenerations(
     var model = selectStableDiffusionModel(sdModels, request.model)
 
     if (model == null && request.model != null) {
-        val requestedModel = modelRegistry.tasks.flatMap { it.models }.find { it.name == request.model }
+        val requestedModel = modelRegistry.getModelByName(request.model)
         if (requestedModel != null && modelRegistry.engineOf(requestedModel) != ModelEngine.StableDiffusion) {
             call.respond(
                 HttpStatusCode.BadRequest,
@@ -127,9 +127,7 @@ suspend fun handleImageGenerations(
     if (model == null && request.model != null) {
         when (val result = loadModel(request.model, null)) {
             is LoadResult.Loaded -> {
-                val loaded = modelRegistry.tasks
-                    .flatMap { it.models }
-                    .find { it.name == request.model }
+                val loaded = modelRegistry.getModelByName(request.model)
                 if (loaded?.instance is StableDiffusion) {
                     model = loaded
                 }

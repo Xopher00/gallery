@@ -198,7 +198,7 @@ suspend fun handleAgentRun(
     val allModels = modelRegistry.tasks.flatMap { it.models }
     val model =
         if (request.model != null) {
-            allModels.find { it.name == request.model }
+            modelRegistry.getModelByName(request.model)
         } else {
             allModels.find { it.instance != null && it.llmSupportMobileActions }
         }

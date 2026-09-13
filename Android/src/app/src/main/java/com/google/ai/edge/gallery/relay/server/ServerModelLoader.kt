@@ -199,7 +199,7 @@ suspend fun OpenAiServer.loadModel(
         val conflicting = modelRegistry.heldModelNames()
             .filter { it != name }
             .firstOrNull { heldName ->
-                val heldModel = tasks.flatMap { it.models }.find { it.name == heldName }
+                val heldModel = modelRegistry.getModelByName(heldName)
                 val heldTask = tasks.find { t -> t.models.any { it.name == heldName } }
                 heldModel != null && heldTask != null && heldModel.engineFor(heldTask.id).family == engine.family
             }

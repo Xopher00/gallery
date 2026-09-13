@@ -25,6 +25,8 @@ private const val LITERTLM_MAGIC = "LITERTLM"
 private const val LITERTLM_HEADER_CAP_BYTES = 64 * 1024
 private const val FLATBUFFER_STRING_VALUE_TAG = 9 // KeyValue.value_type union tag for StringValue
 private const val TF_LITE_PREFILL_DECODE = "tf_lite_prefill_decode"
+private const val BACKEND_CONSTRAINT_KEY = "backend_constraint"
+private const val GPU_ARTISAN_WEIGHTS_VERSION_KEY = "gpu_artisan_weights_version"
 
 private fun probeLiteRtLmFileKind(path: String): ModelFileKind {
     val modelTypes = probeLiteRtLmModelTypes(path)
@@ -67,6 +69,54 @@ private fun collectLiteRtLmModelTypes(buf: ByteBuffer): List<String> {
         }
     }
     return values
+}
+
+/** The header's `backend_constraint` values and whether a `gpu_artisan_weights_version` key exists. */
+internal data class LiteRtLmBackendInfo(
+    val backendConstraints: List<String>,
+    val hasGpuArtisanWeightsVersionKey: Boolean,
+)
+
+internal fun probeLiteRtLmBackendInfo(path: String): LiteRtLmBackendInfo {
+    RandomAccessFile(path, "r").use { raf ->
+        val prefix = ByteArray(32)
+        raf.readFully(prefix)
+        if (String(prefix, 0, 8, Charsets.US_ASCII) != LITERTLM_MAGIC) {
+            return LiteRtLmBackendInfo(emptyList(), false)
+        }
+        val headerEndOffset = ByteBuffer.wrap(prefix).order(ByteOrder.LITTLE_ENDIAN).getLong(24)
+        val header = ByteArray(minOf(headerEndOffset, LITERTLM_HEADER_CAP_BYTES.toLong()).toInt())
+        raf.seek(0)
+        raf.readFully(header)
+        return collectLiteRtLmBackendInfo(ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN))
+    }
+}
+
+private fun collectLiteRtLmBackendInfo(buf: ByteBuffer): LiteRtLmBackendInfo {
+    val rootTable = resolveOffset(buf, 32)
+    val sectionsHolder =
+        readOffsetField(buf, rootTable, fieldId = 1) ?: return LiteRtLmBackendInfo(emptyList(), false)
+    val sectionsVec =
+        readOffsetField(buf, sectionsHolder, fieldId = 0) ?: return LiteRtLmBackendInfo(emptyList(), false)
+    val constraints = mutableListOf<String>()
+    var hasGpuWeightsKey = false
+    for (section in readTableVector(buf, sectionsVec)) {
+        val keyValueVec = readOffsetField(buf, section, fieldId = 0) ?: continue
+        for (keyValue in readTableVector(buf, keyValueVec)) {
+            val keyPos = readOffsetField(buf, keyValue, fieldId = 0) ?: continue
+            val key = readFbString(buf, keyPos)
+            if (key == GPU_ARTISAN_WEIGHTS_VERSION_KEY) {
+                hasGpuWeightsKey = true
+                continue
+            }
+            if (key != BACKEND_CONSTRAINT_KEY) continue
+            if (readUByteField(buf, keyValue, fieldId = 1) != FLATBUFFER_STRING_VALUE_TAG) continue
+            val stringValueTable = readOffsetField(buf, keyValue, fieldId = 2) ?: continue
+            val stringPos = readOffsetField(buf, stringValueTable, fieldId = 0) ?: continue
+            constraints.add(readFbString(buf, stringPos))
+        }
+    }
+    return LiteRtLmBackendInfo(constraints, hasGpuWeightsKey)
 }
 
 private fun resolveOffset(buf: ByteBuffer, at: Int): Int = at + buf.getInt(at)

@@ -16,8 +16,7 @@
 
 package com.google.ai.edge.gallery.data
 
-import com.google.ai.edge.gallery.relay.runtime.ModelEngine
-import com.google.ai.edge.gallery.relay.runtime.engineFor
+import com.google.ai.edge.gallery.relay.runtime.relaySupportsBenchmark
 
 import android.content.Context
 import com.google.ai.edge.gallery.common.getModelStorageDir
@@ -336,14 +335,7 @@ val EMPTY_MODEL: Model =
   )
 
 val Model.supportModelBenchmark: Boolean
-  get() =
-    when (engineFor(taskId = null)) {
-      ModelEngine.LlamaCpp -> true
-      // engineFor falls back to LiteRtLm for any non-.gguf import, so the runtime check stays:
-      // an imported SD or Whisper file must not reach the LiteRT benchmark call.
-      ModelEngine.LiteRtLm -> isLiteRtLm
-      else -> false
-    }
+  get() = relaySupportsBenchmark
 
 /** Marks the model as initialization started. */
 fun Model.markInitializationStarted(timeSource: TimeSource = TimeSource.Monotonic) {

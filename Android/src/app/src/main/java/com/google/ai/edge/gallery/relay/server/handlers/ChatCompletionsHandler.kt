@@ -6,6 +6,7 @@
  */
 package com.google.ai.edge.gallery.relay.server.handlers
 
+import android.content.Context
 import android.util.Log
 import com.google.ai.edge.gallery.agent.sessions.LlmSessionManager
 import com.google.ai.edge.gallery.data.Accelerator
@@ -24,6 +25,7 @@ import com.google.ai.edge.gallery.relay.server.honestDefaultAcceleratorLabel
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.relay.sessions.openSession
+import com.google.ai.edge.gallery.relay.vision.VisionToolListing
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Message
@@ -45,6 +47,7 @@ private const val TAG = "AGChatHandler"
 suspend fun handleChatCompletion(
     call: ApplicationCall,
     request: ChatCompletionRequest,
+    context: Context,
     modelRegistry: ModelRegistry,
     llmSessionManager: LlmSessionManager,
     modelMutexes: ConcurrentHashMap<String, Mutex>,
@@ -55,11 +58,13 @@ suspend fun handleChatCompletion(
     ensureAccelerator: suspend (Model, Accelerator?) -> String?,
     loadModel: suspend (String, String?, Int?) -> LoadResult,
 ) {
-    val model = modelRegistry.tasks
-        .flatMap { it.models }
-        .find { it.name == request.model }
+    val model = modelRegistry.getModelByName(request.model)
 
     if (model == null) {
+        VisionToolListing.findById(context, request.model)?.let {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = VisionToolListing.misdirectedTextRequestMessage(it))))
+            return
+        }
         call.respond(HttpStatusCode.NotFound, ErrorEnvelope(ErrorBody(message = "Unknown model '${request.model}'")))
         return
     }
@@ -200,6 +205,14 @@ suspend fun handleChatCompletion(
                 return@withBusyGuard
             }
 
+            val audioTranscripts = transcribeAudioClips(
+                call = call,
+                context = context,
+                modelRegistry = modelRegistry,
+                audioClips = lastParsed.audioClips,
+                loadModel = { name, accel -> loadModel(name, accel, null) },
+            ) ?: return@withBusyGuard
+
             // session_id present -> saved chat is the context, only the last message is new.
             var effectiveSessionId: String? = null
             var sessionHistory: List<ChatMessageProto> = emptyList()
@@ -245,7 +258,7 @@ suspend fun handleChatCompletion(
                 ).messages
             }
 
-            val prompt = lastParsed.text
+            val prompt = appendAudioTranscriptBlocks(lastParsed.text, audioTranscripts)
 
             suspend fun persistTurn(assistantText: String) {
                 val sid = effectiveSessionId ?: return

@@ -12,6 +12,7 @@ import com.google.ai.edge.gallery.data.ConfigKey
 import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.data.IMPORTS_DIR
+import com.google.ai.edge.gallery.data.LabelConfig
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelCapability
 import com.google.ai.edge.gallery.data.ModelDownloadInfo
@@ -212,19 +213,37 @@ class ImportedModelStore(
         info.fileName
       }
     val importedFilePath = importedFile(modelsDir, importedFileNameToCheck).absolutePath
-    val importedMaxContextLength =
-      if (importedFileNameToCheck.endsWith(".gguf", ignoreCase = true)) {
+    val isGgufImport = importedFileNameToCheck.endsWith(".gguf", ignoreCase = true)
+    var ggufReadFailed = false
+    val ggufDeclaredContextLength =
+      if (isGgufImport) {
         try {
-          val declaredContextSize = GGUFReader().use { it.open(importedFilePath); it.getContextSize() }
-          val engineContextLimit =
-            if (File(importedFilePath).length() > 2_147_483_648L) 4096 else 8192
-          declaredContextSize?.let { minOf(it, engineContextLimit.toLong()).toInt() }
-            ?: engineContextLimit
+          GGUFReader().use { it.open(importedFilePath); it.getContextSize() }
         } catch (e: Exception) {
-          4096
+          ggufReadFailed = true
+          null
         }
       } else {
-        4096
+        null
+      }
+    val modelFileDetails =
+      resolveModelFileDetails(
+        fileName = importedFileNameToCheck,
+        litertlmHeaderPath = importedFilePath,
+        ggufDeclaredContextLength = ggufDeclaredContextLength,
+      )
+    val importedMaxContextLength =
+      if (isGgufImport) {
+        if (ggufReadFailed) {
+          4096
+        } else {
+          val engineContextLimit =
+            if (File(importedFilePath).length() > 2_147_483_648L) 4096 else 8192
+          ggufDeclaredContextLength?.let { minOf(it, engineContextLimit.toLong()).toInt() }
+            ?: engineContextLimit
+        }
+      } else {
+        modelFileDetails.contextLength?.value ?: 4096
       }
     val configs: MutableList<Config> =
       createLlmChatConfigs(
@@ -238,6 +257,9 @@ class ImportedModelStore(
           supportSpeculativeDecoding = llmSupportSpeculativeDecoding,
         )
         .toMutableList()
+    buildModelFileDetailsText(details = modelFileDetails, selectedAccelerators = accelerators)?.let {
+      configs.add(1, LabelConfig(key = MODEL_FILE_DETAILS_LABEL_KEY, defaultValue = it))
+    }
     val capabilities: MutableList<ModelCapability> = mutableListOf()
     val capabilityToTaskTypes: MutableMap<ModelCapability, List<String>> = mutableMapOf()
     if (llmSupportThinking) {

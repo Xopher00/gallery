@@ -16,6 +16,7 @@ import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.relay.server.ErrorBody
 import com.google.ai.edge.gallery.relay.server.ErrorEnvelope
 import com.google.ai.edge.gallery.relay.server.LoadResult
@@ -40,7 +41,66 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.io.readByteArray
 
-private class UnsupportedAudioFormatException(message: String) : Exception(message)
+internal class UnsupportedAudioFormatException(message: String) : Exception(message)
+
+internal fun loadedWhisperModels(modelRegistry: ModelRegistry): List<Model> =
+    modelRegistry.tasks
+        .flatMap { it.models }
+        .filter { modelRegistry.engineOf(it) == ModelEngine.Whisper && it.instance is WhisperEngine }
+        .distinctBy { it.name }
+
+internal sealed class WhisperEngineResult {
+    data class Ok(val engine: WhisperEngine, val model: Model) : WhisperEngineResult()
+    data class NotAWhisperModel(val message: String) : WhisperEngineResult()
+    data class LoadFailed(val loadResult: LoadResult) : WhisperEngineResult()
+    data class Unavailable(val message: String) : WhisperEngineResult()
+}
+
+/**
+ * Resolves [requestedModel] to a loaded WhisperEngine, loading it on demand if it isn't already
+ * loaded as one. Shared by /v1/audio/transcriptions and the chat-completions audio path.
+ */
+internal suspend fun resolveWhisperEngine(
+    modelRegistry: ModelRegistry,
+    requestedModel: String,
+    loadModel: suspend (String, String?) -> LoadResult,
+): WhisperEngineResult {
+    val whisperModels = loadedWhisperModels(modelRegistry)
+    var model = whisperModels.find { it.name == requestedModel }
+
+    if (model == null) {
+        val existingModel = modelRegistry.getModelByName(requestedModel)
+        if (existingModel != null && modelRegistry.engineOf(existingModel) != ModelEngine.Whisper) {
+            return WhisperEngineResult.NotAWhisperModel("Model '$requestedModel' is not a transcription model")
+        }
+    }
+
+    // WP: not currently loaded as a WhisperEngine instance -- try loading it on demand before
+    // giving up (matches ChatHandler's pattern).
+    if (model == null) {
+        when (val result = loadModel(requestedModel, null)) {
+            is LoadResult.Loaded -> {
+                val loaded = modelRegistry.getModelByName(requestedModel)
+                if (loaded?.instance is WhisperEngine) {
+                    model = loaded
+                }
+            }
+            else -> return WhisperEngineResult.LoadFailed(result)
+        }
+    }
+
+    val resolvedModel = model
+        ?: return WhisperEngineResult.Unavailable(
+            "Model '$requestedModel' is not loaded for transcription. Available: " +
+                whisperModels.joinToString(", ") { it.name }.ifEmpty { "(none loaded)" }
+        )
+    val engine = resolvedModel.instance as? WhisperEngine
+        ?: return WhisperEngineResult.Unavailable(
+            "Model '$requestedModel' is not loaded for transcription. Available: " +
+                whisperModels.joinToString(", ") { it.name }.ifEmpty { "(none loaded)" }
+        )
+    return WhisperEngineResult.Ok(engine, resolvedModel)
+}
 
 private const val SUPPORTED_FORMATS_MSG =
     "wav, m4a/aac, mp3, ogg (any container/codec combination the device's MediaExtractor/" +
@@ -104,63 +164,25 @@ suspend fun handleAudioTranscriptions(
             return
         }
 
-        val whisperModels = modelRegistry.tasks
-            .flatMap { it.models }
-            .filter { modelRegistry.engineOf(it) == ModelEngine.Whisper && it.instance is WhisperEngine }
-            .distinctBy { it.name }
-
-        var model = whisperModels.find { it.name == requestedModel }
-
-        if (model == null) {
-            val existingModel = modelRegistry.tasks.flatMap { it.models }.find { it.name == requestedModel }
-            if (existingModel != null && modelRegistry.engineOf(existingModel) != ModelEngine.Whisper) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorEnvelope(ErrorBody(message = "Model '$requestedModel' is not a transcription model"))
-                )
+        val model: Model
+        val engine: WhisperEngine
+        when (val result = resolveWhisperEngine(modelRegistry, requestedModel, loadModel)) {
+            is WhisperEngineResult.NotAWhisperModel -> {
+                call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = result.message)))
                 return
             }
-        }
-
-        // WP: not currently loaded as a WhisperEngine instance -- try loading it on demand
-        // before giving up (matches ChatHandler's pattern).
-        if (model == null) {
-            when (val result = loadModel(requestedModel, null)) {
-                is LoadResult.Loaded -> {
-                    val loaded = modelRegistry.tasks
-                        .flatMap { it.models }
-                        .find { it.name == requestedModel }
-                    if (loaded?.instance is WhisperEngine) {
-                        model = loaded
-                    }
-                }
-                else -> {
-                    respondLoadError(call, result)
-                    return
-                }
+            is WhisperEngineResult.LoadFailed -> {
+                respondLoadError(call, result.loadResult)
+                return
             }
-        }
-
-        if (model == null) {
-            call.respond(
-                HttpStatusCode.ServiceUnavailable,
-                ErrorEnvelope(ErrorBody(
-                    message = "Model '$requestedModel' is not loaded for transcription. Available: " +
-                        whisperModels.joinToString(", ") { it.name }.ifEmpty { "(none loaded)" }
-                ))
-            )
-            return
-        }
-        val engine = model.instance as? WhisperEngine
-        if (engine == null) {
-            call.respond(
-                HttpStatusCode.ServiceUnavailable,
-                ErrorEnvelope(ErrorBody(
-                    message = "Model '$requestedModel' is not loaded for transcription. Available: " +
-                        whisperModels.joinToString(", ") { it.name }.ifEmpty { "(none loaded)" }
-                ))
-            )
-            return
+            is WhisperEngineResult.Unavailable -> {
+                call.respond(HttpStatusCode.ServiceUnavailable, ErrorEnvelope(ErrorBody(message = result.message)))
+                return
+            }
+            is WhisperEngineResult.Ok -> {
+                model = result.model
+                engine = result.engine
+            }
         }
 
         tempFile = File.createTempFile("upload", ".audio", context.cacheDir)
@@ -220,7 +242,7 @@ suspend fun handleAudioTranscriptions(
  * MediaExtractor sniffs the container from content, not the file extension, so this works for
  * any container the device supports regardless of what the upload was named.
  */
-private object AudioDecoder {
+internal object AudioDecoder {
 
     fun decodeTo16kMono(file: File): FloatArray {
         val extractor = MediaExtractor()

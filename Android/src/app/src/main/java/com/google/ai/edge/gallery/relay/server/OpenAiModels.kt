@@ -190,7 +190,10 @@ data class ModelData(
     // "available" if it's downloaded but not initialized. GET /v1/models and GET
     // /v1/models/{id} now list every downloaded model (not just loaded ones) -- this field is
     // how a client tells the two apart without calling /v1/models/{id}/load speculatively.
-    val status: String = "available"
+    val status: String = "available",
+    // Box: set for vision tools listed alongside models (see relay/vision/VisionToolListing.kt)
+    // -- "ocr" | "object_detection" | "segmentation". Null for every plain Model entry.
+    val kind: String? = null,
 )
 
 // WP: request body for POST /v1/models/{id}/load. `accelerator` is optional ("cpu"|"gpu"|

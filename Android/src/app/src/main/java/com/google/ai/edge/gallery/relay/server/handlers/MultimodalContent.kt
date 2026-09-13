@@ -27,7 +27,16 @@ const val MAX_IMAGES_PER_MESSAGE = 4
 /** Max decoded (raw bitmap byte) size per image. */
 const val MAX_IMAGE_DECODED_BYTES = 10 * 1024 * 1024 // 10 MB
 
-data class ParsedMessageContent(val text: String, val images: List<Bitmap>)
+/** Max decoded audio byte size per clip -- matches OpenAI's documented audio upload limit. */
+const val MAX_AUDIO_DECODED_BYTES = 25 * 1024 * 1024 // 25 MB
+
+data class ParsedAudioClip(val bytes: ByteArray, val format: String)
+
+data class ParsedMessageContent(
+    val text: String,
+    val images: List<Bitmap>,
+    val audioClips: List<ParsedAudioClip> = emptyList(),
+)
 
 sealed class ContentParseResult {
     data class Ok(val parsed: ParsedMessageContent) : ContentParseResult()
@@ -48,13 +57,15 @@ private val DATA_URI_RE = Regex(
  */
 fun parseMessageContent(content: JsonElement?): ContentParseResult {
     if (content == null) {
-        return ContentParseResult.Ok(ParsedMessageContent(text = "", images = emptyList()))
+        return ContentParseResult.Ok(ParsedMessageContent(text = "", images = emptyList(), audioClips = emptyList()))
     }
 
     return when (content) {
         is JsonPrimitive -> {
             // Plain string content -- unchanged from pre-F4 behavior.
-            ContentParseResult.Ok(ParsedMessageContent(text = content.content, images = emptyList()))
+            ContentParseResult.Ok(
+                ParsedMessageContent(text = content.content, images = emptyList(), audioClips = emptyList())
+            )
         }
         is JsonArray -> parseContentParts(content)
         else -> ContentParseResult.Error(
@@ -66,6 +77,7 @@ fun parseMessageContent(content: JsonElement?): ContentParseResult {
 private fun parseContentParts(parts: JsonArray): ContentParseResult {
     val textBuilder = StringBuilder()
     val images = mutableListOf<Bitmap>()
+    val audioClips = mutableListOf<ParsedAudioClip>()
 
     for (partEl in parts) {
         val part = try {
@@ -123,6 +135,35 @@ private fun parseContentParts(parts: JsonArray): ContentParseResult {
 
                 images.add(bitmap)
             }
+            "input_audio" -> {
+                val audioObj = part["input_audio"]?.jsonObject
+                    ?: return ContentParseResult.Error(
+                        "Content part of type 'input_audio' is missing 'input_audio'"
+                    )
+                val base64Data = audioObj["data"]?.jsonPrimitive?.content
+                    ?: return ContentParseResult.Error(
+                        "Content part of type 'input_audio' is missing 'input_audio.data'"
+                    )
+                val format = audioObj["format"]?.jsonPrimitive?.content
+                    ?: return ContentParseResult.Error(
+                        "Content part of type 'input_audio' is missing 'input_audio.format'"
+                    )
+
+                val bytes = try {
+                    Base64.decode(base64Data, Base64.DEFAULT)
+                } catch (e: Exception) {
+                    return ContentParseResult.Error("Failed to decode base64 audio data: ${e.message}")
+                }
+
+                if (bytes.size > MAX_AUDIO_DECODED_BYTES) {
+                    return ContentParseResult.Error(
+                        "Audio too large: ${bytes.size} bytes exceeds the " +
+                            "$MAX_AUDIO_DECODED_BYTES byte cap per audio clip"
+                    )
+                }
+
+                audioClips.add(ParsedAudioClip(bytes = bytes, format = format))
+            }
             else -> {
                 // Unknown part type -- ignore rather than fail, matching OpenAI's general
                 // "ignore fields you don't recognize" leniency for forward-compat part types.
@@ -136,5 +177,7 @@ private fun parseContentParts(parts: JsonArray): ContentParseResult {
         )
     }
 
-    return ContentParseResult.Ok(ParsedMessageContent(text = textBuilder.toString(), images = images))
+    return ContentParseResult.Ok(
+        ParsedMessageContent(text = textBuilder.toString(), images = images, audioClips = audioClips)
+    )
 }

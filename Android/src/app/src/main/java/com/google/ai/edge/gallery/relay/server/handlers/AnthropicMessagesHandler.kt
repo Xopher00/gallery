@@ -6,6 +6,7 @@
  */
 package com.google.ai.edge.gallery.relay.server.handlers
 
+import android.content.Context
 import android.util.Log
 import com.google.ai.edge.gallery.agent.sessions.LlmSessionManager
 import com.google.ai.edge.gallery.data.Accelerator
@@ -23,6 +24,7 @@ import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.relay.sessions.openSession
+import com.google.ai.edge.gallery.relay.vision.VisionToolListing
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Message
@@ -40,17 +42,20 @@ private const val TAG = "AGChatHandler"
 suspend fun handleAnthropicMessages(
     call: ApplicationCall,
     request: AnthropicMessagesRequest,
+    context: Context,
     modelRegistry: ModelRegistry,
     llmSessionManager: LlmSessionManager,
     modelMutexes: ConcurrentHashMap<String, Mutex>,
     ensureAccelerator: suspend (Model, Accelerator?) -> String?,
     loadModel: suspend (String, String?, Int?) -> LoadResult,
 ) {
-    val model = modelRegistry.tasks
-        .flatMap { it.models }
-        .find { it.name == request.model }
+    val model = modelRegistry.getModelByName(request.model)
 
     if (model == null) {
+        VisionToolListing.findById(context, request.model)?.let {
+            call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = VisionToolListing.misdirectedTextRequestMessage(it))))
+            return
+        }
         call.respond(HttpStatusCode.NotFound, ErrorEnvelope(ErrorBody(message = "Unknown model '${request.model}'")))
         return
     }
@@ -144,6 +149,14 @@ suspend fun handleAnthropicMessages(
                     return@withBusyGuard
                 }
             }
+            if (lastParsed.audioClips.isNotEmpty()) {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    ErrorEnvelope(ErrorBody(message = "Audio input is supported on /v1/chat/completions only"))
+                )
+                return@withBusyGuard
+            }
+
             if (lastParsed.images.isNotEmpty() && !model.llmSupportImage) {
                 call.respond(
                     HttpStatusCode.BadRequest,

@@ -29,6 +29,8 @@ import com.google.ai.edge.gallery.relay.server.handlers.handleOcr
 import com.google.ai.edge.gallery.relay.server.handlers.handleVisionDetect
 import com.google.ai.edge.gallery.relay.server.handlers.handleVisionSegment
 import com.google.ai.edge.gallery.relay.server.handlers.respondLoadError
+import com.google.ai.edge.gallery.relay.vision.VisionToolListing
+import com.google.ai.edge.gallery.relay.vision.toModelData
 import io.ktor.http.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
@@ -66,20 +68,21 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
             .filter { server.modelRegistry.getModelDownloadStatus(it).status == ModelDownloadStatusType.SUCCEEDED }
             .distinctBy { it.name }
             .map { it.toModelData(server) }
+        val visionTools = VisionToolListing.entries(server.context).map { it.toModelData() }
 
-        call.respond(ModelsListResponse(data = models))
+        call.respond(ModelsListResponse(data = models + visionTools))
     }
 
     get("/v1/models/{modelId}") {
         val modelId = call.parameters["modelId"]
-        val model = server.modelRegistry.tasks
-            .flatMap { it.models }
-            .find { it.name == modelId && server.modelRegistry.getModelDownloadStatus(it).status == ModelDownloadStatusType.SUCCEEDED }
+        val model = modelId?.let { server.modelRegistry.getModelByName(it) }
+            ?.takeIf { server.modelRegistry.getModelDownloadStatus(it).status == ModelDownloadStatusType.SUCCEEDED }
+        val visionTool = modelId?.let { VisionToolListing.findById(server.context, it) }
 
-        if (model == null) {
-            call.respond(HttpStatusCode.NotFound, ErrorEnvelope(ErrorBody(message = "Model not found or not downloaded")))
-        } else {
-            call.respond(model.toModelData(server))
+        when {
+            model != null -> call.respond(model.toModelData(server))
+            visionTool != null -> call.respond(visionTool.toModelData())
+            else -> call.respond(HttpStatusCode.NotFound, ErrorEnvelope(ErrorBody(message = "Model not found or not downloaded")))
         }
     }
 
@@ -133,6 +136,7 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
         handleChatCompletion(
             call = call,
             request = request,
+            context = server.context,
             modelRegistry = server.modelRegistry,
             llmSessionManager = server.llmSessionManager,
             modelMutexes = server.modelMutexes,
@@ -153,6 +157,7 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
         handleCompletion(
             call = call,
             request = request,
+            context = server.context,
             modelRegistry = server.modelRegistry,
             modelMutexes = server.modelMutexes,
             parseAccelerator = server::parseAccelerator,
@@ -174,6 +179,7 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
         handleAnthropicMessages(
             call = call,
             request = request,
+            context = server.context,
             modelRegistry = server.modelRegistry,
             llmSessionManager = server.llmSessionManager,
             modelMutexes = server.modelMutexes,
