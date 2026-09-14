@@ -28,7 +28,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.sp
 import com.google.ai.edge.gallery.ui.theme.customColors
-import com.google.ai.edge.gallery.ui.theme.monoFontFamily
 import com.halilibo.richtext.commonmark.Markdown
 import com.halilibo.richtext.ui.CodeBlockStyle
 import com.halilibo.richtext.ui.RichTextStyle
@@ -66,7 +65,7 @@ fun MarkdownText(
                 textStyle =
                   TextStyle(
                     fontSize = MaterialTheme.typography.bodySmall.fontSize,
-                    fontFamily = monoFontFamily,
+                    fontFamily = FontFamily.Monospace,
                     lineHeight = MaterialTheme.typography.bodySmall.fontSize * 1.4f,
                   )
               ),

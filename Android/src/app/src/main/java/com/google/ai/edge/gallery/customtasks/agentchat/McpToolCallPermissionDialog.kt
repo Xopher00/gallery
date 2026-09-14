@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.tools.PermissionResult
-import com.google.ai.edge.gallery.ui.theme.monoFontFamily
 import org.json.JSONObject
 
 /** A dialog that prompts the user for permission to execute a MCP tool call. */
@@ -88,7 +87,7 @@ fun McpToolCallPermissionDialog(
           Text(
             text = formattedArgument,
             style = MaterialTheme.typography.bodySmall,
-            fontFamily = monoFontFamily,
+            fontFamily = FontFamily.Monospace,
           )
         }
       }

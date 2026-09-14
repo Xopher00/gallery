@@ -51,7 +51,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.google.ai.edge.gallery.ui.theme.monoFontFamily
 import kotlinx.coroutines.launch
 
 /**
@@ -120,7 +119,7 @@ fun CursorTrackingTextField(
     modifier = modifier.fillMaxWidth().bringIntoViewRequester(bringIntoViewRequester),
     textStyle =
       (if (monoFont) {
-          MaterialTheme.typography.bodySmall.copy(fontFamily = monoFontFamily)
+          MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
         } else {
           MaterialTheme.typography.bodyMedium
         })

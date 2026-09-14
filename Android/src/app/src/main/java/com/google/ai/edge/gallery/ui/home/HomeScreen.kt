@@ -135,6 +135,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val TAG = "AGHomeScreen"
+private const val SHOW_GOOGLE_PROMO = false
 private const val TASK_COUNT_ANIMATION_DURATION = 250
 private const val ANIMATION_INIT_DELAY = 0L
 private const val TOP_APP_BAR_ANIMATION_DURATION = 600
@@ -440,8 +441,10 @@ fun HomeScreen(
                   verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                   AppTitle(enableAnimation = enableAnimation)
-                  IntroText(enableAnimation = enableAnimation)
-                  TryGm4IntroText(enableAnimation = enableAnimation)
+                  if (SHOW_GOOGLE_PROMO) {
+                    IntroText(enableAnimation = enableAnimation)
+                    TryGm4IntroText(enableAnimation = enableAnimation)
+                  }
                 }
 
                 // Quick-action buttons row.
@@ -539,12 +542,9 @@ fun HomeScreen(
 
 @Composable
 private fun AppTitle(enableAnimation: Boolean) {
-  val text1 = "Your models,"
-  val text2 = "held outright."
+  val appName = stringResource(R.string.app_name)
   val annotatedText = buildAnnotatedString {
-    withStyle(style = SpanStyle(color = MaterialTheme.colorScheme.onSurface)) { append(text1) }
-    append(" ")
-    withStyle(style = SpanStyle(color = MaterialTheme.colorScheme.primary)) { append(text2) }
+    withStyle(style = SpanStyle(color = MaterialTheme.colorScheme.onSurface)) { append(appName) }
   }
 
   RevealingText(
