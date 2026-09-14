@@ -66,7 +66,7 @@
         android:fullBackupContent="@xml/backup_rules"
         android:networkSecurityConfig="@xml/network_security_config"
         android:icon="${appIcon}"
-        android:label="Edge Gallery"
+        android:label="Freehold"
         android:roundIcon="${appIcon}"
         android:supportsRtl="true"
         android:theme="@style/Theme.Gallery"
@@ -108,7 +108,7 @@
         </activity>
 
         <!-- API server (ported from api-server branch): quick-action surface reachable
-             from any app without opening Box first. android:theme uses a stock system
+             from any app without opening Freehold first. android:theme uses a stock system
              dialog theme (DeviceDefault.Dialog) so this presents as a small floating card
              over the caller app rather than a full-screen launch. -->
         <activity

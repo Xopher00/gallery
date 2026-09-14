@@ -2,7 +2,7 @@
 
 /*
  * Makes the on-device model reachable from the rest of Android without opening the app first,
- * via ACTION_PROCESS_TEXT (selection menu "Ask Box") and ACTION_SEND (share sheet).
+ * via ACTION_PROCESS_TEXT (selection menu "Ask Freehold") and ACTION_SEND (share sheet).
  *
  * Deliberately not a Hilt entry point: a fresh `by viewModels()` ModelManagerViewModel here
  * would start with an empty model list, not the one already loaded from MainActivity. Instead
@@ -124,7 +124,7 @@ class ProcessTextActivity : ComponentActivity() {
 
   private fun copyToClipboard(text: String) {
     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("Box answer", text))
+    clipboard.setPrimaryClip(ClipData.newPlainText("Freehold answer", text))
     Toast.makeText(this, getString(R.string.process_text_copied), Toast.LENGTH_SHORT).show()
   }
 

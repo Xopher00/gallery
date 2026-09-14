@@ -539,8 +539,8 @@ fun HomeScreen(
 
 @Composable
 private fun AppTitle(enableAnimation: Boolean) {
-  val text1 = "Google"
-  val text2 = "AI Edge Gallery"
+  val text1 = "Your models,"
+  val text2 = "held outright."
   val annotatedText = buildAnnotatedString {
     withStyle(style = SpanStyle(color = MaterialTheme.colorScheme.onSurface)) { append(text1) }
     append(" ")

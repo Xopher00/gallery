@@ -141,7 +141,7 @@ fun SecuritySettingsSection(context: Context) {
       style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
     )
     Text(
-      "Box is a privacy-focused fork of Google AI Edge Gallery. " +
+      "Freehold is a privacy-focused fork of Google AI Edge Gallery. " +
         "Chat history stays on this device. " +
         "Biometric authentication protects app access. " +
         "Not affiliated with Google.",
