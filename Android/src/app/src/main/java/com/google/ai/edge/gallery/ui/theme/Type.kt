@@ -16,73 +16,101 @@
 
 package com.google.ai.edge.gallery.ui.theme
 
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.Font
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.google.ai.edge.gallery.R
 
-val appFontFamily =
+val displayFontFamily =
   FontFamily(
-    Font(R.font.nunito_regular, FontWeight.Normal),
-    Font(R.font.nunito_extralight, FontWeight.ExtraLight),
-    Font(R.font.nunito_light, FontWeight.Light),
-    Font(R.font.nunito_medium, FontWeight.Medium),
-    Font(R.font.nunito_semibold, FontWeight.SemiBold),
-    Font(R.font.nunito_bold, FontWeight.Bold),
-    Font(R.font.nunito_extrabold, FontWeight.ExtraBold),
-    Font(R.font.nunito_black, FontWeight.Black),
+    Font(R.font.spectral_medium, FontWeight.Medium),
+    Font(R.font.spectral_semibold, FontWeight.SemiBold),
+    Font(R.font.spectral_bold, FontWeight.Bold),
+  )
+
+@OptIn(ExperimentalTextApi::class)
+val bodyFontFamily =
+  FontFamily(
+    Font(
+      R.font.public_sans,
+      FontWeight.Normal,
+      variationSettings = FontVariation.Settings(FontVariation.weight(400)),
+    ),
+    Font(
+      R.font.public_sans,
+      FontWeight.Medium,
+      variationSettings = FontVariation.Settings(FontVariation.weight(500)),
+    ),
+    Font(
+      R.font.public_sans,
+      FontWeight.SemiBold,
+      variationSettings = FontVariation.Settings(FontVariation.weight(600)),
+    ),
+    Font(
+      R.font.public_sans,
+      FontWeight.Bold,
+      variationSettings = FontVariation.Settings(FontVariation.weight(700)),
+    ),
+  )
+
+val monoFontFamily =
+  FontFamily(
+    Font(R.font.ibm_plex_mono_regular, FontWeight.Normal),
+    Font(R.font.ibm_plex_mono_medium, FontWeight.Medium),
   )
 
 val baseline = Typography()
 
 val AppTypography =
   Typography(
-    displayLarge = baseline.displayLarge.copy(fontFamily = appFontFamily),
-    displayMedium = baseline.displayMedium.copy(fontFamily = appFontFamily),
-    displaySmall = baseline.displaySmall.copy(fontFamily = appFontFamily),
-    headlineLarge = baseline.headlineLarge.copy(fontFamily = appFontFamily),
-    headlineMedium = baseline.headlineMedium.copy(fontFamily = appFontFamily),
-    headlineSmall = baseline.headlineSmall.copy(fontFamily = appFontFamily),
-    titleLarge = baseline.titleLarge.copy(fontFamily = appFontFamily),
-    titleMedium = baseline.titleMedium.copy(fontFamily = appFontFamily),
-    titleSmall = baseline.titleSmall.copy(fontFamily = appFontFamily),
-    bodyLarge = baseline.bodyLarge.copy(fontFamily = appFontFamily),
-    bodyMedium = baseline.bodyMedium.copy(fontFamily = appFontFamily),
-    bodySmall = baseline.bodySmall.copy(fontFamily = appFontFamily),
-    labelLarge = baseline.labelLarge.copy(fontFamily = appFontFamily),
-    labelMedium = baseline.labelMedium.copy(fontFamily = appFontFamily),
-    labelSmall = baseline.labelSmall.copy(fontFamily = appFontFamily),
+    displayLarge = baseline.displayLarge.copy(fontFamily = displayFontFamily),
+    displayMedium = baseline.displayMedium.copy(fontFamily = displayFontFamily),
+    displaySmall = baseline.displaySmall.copy(fontFamily = displayFontFamily),
+    headlineLarge = baseline.headlineLarge.copy(fontFamily = displayFontFamily),
+    headlineMedium = baseline.headlineMedium.copy(fontFamily = displayFontFamily),
+    headlineSmall = baseline.headlineSmall.copy(fontFamily = displayFontFamily),
+    titleLarge = baseline.titleLarge.copy(fontFamily = displayFontFamily),
+    titleMedium = baseline.titleMedium.copy(fontFamily = displayFontFamily),
+    titleSmall = baseline.titleSmall.copy(fontFamily = displayFontFamily),
+    bodyLarge = baseline.bodyLarge.copy(fontFamily = bodyFontFamily),
+    bodyMedium = baseline.bodyMedium.copy(fontFamily = bodyFontFamily),
+    bodySmall = baseline.bodySmall.copy(fontFamily = bodyFontFamily),
+    labelLarge = baseline.labelLarge.copy(fontFamily = bodyFontFamily),
+    labelMedium = baseline.labelMedium.copy(fontFamily = bodyFontFamily),
+    labelSmall = baseline.labelSmall.copy(fontFamily = bodyFontFamily),
   )
 
 val titleMediumNarrow =
-  baseline.titleMedium.copy(fontFamily = appFontFamily, letterSpacing = 0.0.sp)
+  baseline.titleMedium.copy(fontFamily = displayFontFamily, letterSpacing = 0.0.sp)
 
 val titleSmaller =
   baseline.titleSmall.copy(
-    fontFamily = appFontFamily,
+    fontFamily = displayFontFamily,
     fontSize = 12.sp,
     fontWeight = FontWeight.Bold,
   )
 
-val labelSmallNarrow = baseline.labelSmall.copy(fontFamily = appFontFamily, letterSpacing = 0.0.sp)
+val labelSmallNarrow = baseline.labelSmall.copy(fontFamily = bodyFontFamily, letterSpacing = 0.0.sp)
 
 val labelSmallNarrowMedium =
   baseline.labelSmall.copy(
-    fontFamily = appFontFamily,
+    fontFamily = bodyFontFamily,
     fontWeight = FontWeight.Medium,
     letterSpacing = 0.0.sp,
   )
 
-val bodySmallNarrow = baseline.bodySmall.copy(fontFamily = appFontFamily, letterSpacing = 0.0.sp)
+val bodySmallNarrow = baseline.bodySmall.copy(fontFamily = bodyFontFamily, letterSpacing = 0.0.sp)
 
 val bodySmallMediumNarrow =
-  baseline.bodySmall.copy(fontFamily = appFontFamily, letterSpacing = 0.0.sp, fontSize = 14.sp)
+  baseline.bodySmall.copy(fontFamily = bodyFontFamily, letterSpacing = 0.0.sp, fontSize = 14.sp)
 
 val bodySmallMediumNarrowBold =
   baseline.bodySmall.copy(
-    fontFamily = appFontFamily,
+    fontFamily = bodyFontFamily,
     letterSpacing = 0.0.sp,
     fontSize = 14.sp,
     fontWeight = FontWeight.Bold,
@@ -90,17 +118,21 @@ val bodySmallMediumNarrowBold =
 
 val homePageTitleStyle =
   baseline.displayMedium.copy(
-    fontFamily = appFontFamily,
+    fontFamily = displayFontFamily,
     fontSize = 48.sp,
     lineHeight = 48.sp,
     letterSpacing = -1.sp,
     fontWeight = FontWeight.Medium,
   )
 
-val bodyLargeNarrow = baseline.bodyLarge.copy(letterSpacing = 0.2.sp)
-val bodyMediumMedium = baseline.bodyMedium.copy(fontWeight = FontWeight.Medium)
+val bodyLargeNarrow = baseline.bodyLarge.copy(fontFamily = bodyFontFamily, letterSpacing = 0.2.sp)
+val bodyMediumMedium =
+  baseline.bodyMedium.copy(fontFamily = bodyFontFamily, fontWeight = FontWeight.Medium)
 
-val headlineLargeMedium = baseline.headlineLarge.copy(fontWeight = FontWeight.Medium)
+val headlineLargeMedium =
+  baseline.headlineLarge.copy(fontFamily = displayFontFamily, fontWeight = FontWeight.Medium)
 
-val emptyStateTitle = baseline.headlineSmall.copy(fontSize = 37.sp, lineHeight = 50.sp)
-val emptyStateContent = baseline.headlineSmall.copy(fontSize = 16.sp, lineHeight = 22.sp)
+val emptyStateTitle =
+  baseline.headlineSmall.copy(fontFamily = displayFontFamily, fontSize = 37.sp, lineHeight = 50.sp)
+val emptyStateContent =
+  baseline.headlineSmall.copy(fontFamily = displayFontFamily, fontSize = 16.sp, lineHeight = 22.sp)

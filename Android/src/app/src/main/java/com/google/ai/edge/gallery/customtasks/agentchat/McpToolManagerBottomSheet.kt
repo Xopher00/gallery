@@ -65,6 +65,7 @@ import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.proto.McpTool
 import com.google.ai.edge.gallery.ui.common.SmallFilledTonalButton
 import com.google.ai.edge.gallery.ui.common.SmallOutlinedButton
+import com.google.ai.edge.gallery.ui.theme.monoFontFamily
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -262,7 +263,7 @@ fun McpToolManagerBottomSheet(
               Text(
                 text = formattedSchema,
                 style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = monoFontFamily,
               )
             }
           }
