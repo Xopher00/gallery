@@ -124,6 +124,7 @@ suspend fun handleAudioTranscriptions(
         var language: String? = null
         var responseFormat = "json"
         var fileBytes: ByteArray? = null
+        var oversized = false
 
         val multipart = call.receiveMultipart()
         multipart.forEachPart { part ->
@@ -139,7 +140,13 @@ suspend fun handleAudioTranscriptions(
                 }
                 is PartData.FileItem -> {
                     if (part.name == "file") {
-                        fileBytes = part.provider().readRemaining().readByteArray()
+                        val remaining = part.provider().readRemaining(MAX_AUDIO_DECODED_BYTES.toLong() + 1)
+                        val bytes = remaining.readByteArray()
+                        if (bytes.size > MAX_AUDIO_DECODED_BYTES) {
+                            oversized = true
+                        } else {
+                            fileBytes = bytes
+                        }
                     }
                 }
                 else -> {}
@@ -147,6 +154,13 @@ suspend fun handleAudioTranscriptions(
             part.dispose()
         }
 
+        if (oversized) {
+            call.respond(
+                HttpStatusCode.PayloadTooLarge,
+                ErrorEnvelope(ErrorBody(message = "Audio upload exceeds the $MAX_AUDIO_DECODED_BYTES byte cap"))
+            )
+            return
+        }
         if (fileBytes == null) {
             call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = "Missing required 'file' field")))
             return
