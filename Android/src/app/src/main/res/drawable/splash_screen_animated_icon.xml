@@ -1,49 +1,19 @@
-<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Row 1 -->
-    <path android:fillColor="#FF5722" android:pathData="M30,30h8v8h-8z"/>
-    <path android:fillColor="#FFC107" android:pathData="M38,30h8v8h-8z"/>
-    <path android:fillColor="#4CAF50" android:pathData="M46,30h8v8h-8z"/>
-    <path android:fillColor="#2196F3" android:pathData="M54,30h8v8h-8z"/>
-    <path android:fillColor="#9C27B0" android:pathData="M62,30h8v8h-8z"/>
-    <path android:fillColor="#E91E63" android:pathData="M70,30h8v8h-8z"/>
-    <!-- Row 2 -->
-    <path android:fillColor="#00BCD4" android:pathData="M30,38h8v8h-8z"/>
-    <path android:fillColor="#8BC34A" android:pathData="M38,38h8v8h-8z"/>
-    <path android:fillColor="#FFEB3B" android:pathData="M46,38h8v8h-8z"/>
-    <path android:fillColor="#FF9800" android:pathData="M54,38h8v8h-8z"/>
-    <path android:fillColor="#F44336" android:pathData="M62,38h8v8h-8z"/>
-    <path android:fillColor="#673AB7" android:pathData="M70,38h8v8h-8z"/>
-    <!-- Row 3 -->
-    <path android:fillColor="#3F51B5" android:pathData="M30,46h8v8h-8z"/>
-    <path android:fillColor="#009688" android:pathData="M38,46h8v8h-8z"/>
-    <path android:fillColor="#CDDC39" android:pathData="M46,46h8v8h-8z"/>
-    <path android:fillColor="#FF5722" android:pathData="M54,46h8v8h-8z"/>
-    <path android:fillColor="#795548" android:pathData="M62,46h8v8h-8z"/>
-    <path android:fillColor="#607D8B" android:pathData="M70,46h8v8h-8z"/>
-    <!-- Row 4 -->
-    <path android:fillColor="#E91E63" android:pathData="M30,54h8v8h-8z"/>
-    <path android:fillColor="#9C27B0" android:pathData="M38,54h8v8h-8z"/>
-    <path android:fillColor="#2196F3" android:pathData="M46,54h8v8h-8z"/>
-    <path android:fillColor="#4CAF50" android:pathData="M54,54h8v8h-8z"/>
-    <path android:fillColor="#FFC107" android:pathData="M62,54h8v8h-8z"/>
-    <path android:fillColor="#FF5722" android:pathData="M70,54h8v8h-8z"/>
-    <!-- Row 5 -->
-    <path android:fillColor="#673AB7" android:pathData="M30,62h8v8h-8z"/>
-    <path android:fillColor="#F44336" android:pathData="M38,62h8v8h-8z"/>
-    <path android:fillColor="#FF9800" android:pathData="M46,62h8v8h-8z"/>
-    <path android:fillColor="#FFEB3B" android:pathData="M54,62h8v8h-8z"/>
-    <path android:fillColor="#8BC34A" android:pathData="M62,62h8v8h-8z"/>
-    <path android:fillColor="#00BCD4" android:pathData="M70,62h8v8h-8z"/>
-    <!-- Row 6 -->
-    <path android:fillColor="#E91E63" android:pathData="M30,70h8v8h-8z"/>
-    <path android:fillColor="#9C27B0" android:pathData="M38,70h8v8h-8z"/>
-    <path android:fillColor="#2196F3" android:pathData="M46,70h8v8h-8z"/>
-    <path android:fillColor="#4CAF50" android:pathData="M54,70h8v8h-8z"/>
-    <path android:fillColor="#FFC107" android:pathData="M62,70h8v8h-8z"/>
-    <path android:fillColor="#FF5722" android:pathData="M70,70h8v8h-8z"/>
+  <path
+      android:fillColor="@color/freehold_splash_mark"
+      android:fillType="evenOdd"
+      android:pathData="M27.61,38.88 A11.27,11.27 0 1,0 50.15,38.88 A11.27,11.27 0 1,0 27.61,38.88 Z M30.91,38.88 A7.97,7.97 0 1,1 46.85,38.88 A7.97,7.97 0 1,1 30.91,38.88 Z" />
+  <path
+      android:fillColor="@color/freehold_splash_mark"
+      android:pathData="M36.81,48.5 H40.94 Q43.0,48.5 43.0,50.56 V71.19 Q43.0,73.25 40.94,73.25 H36.81 Q34.75,73.25 34.75,71.19 V50.56 Q34.75,48.5 36.81,48.5 Z" />
+  <path
+      android:fillColor="@color/freehold_splash_mark"
+      android:pathData="M47.13,54.0 H53.99 Q55.37,54.0 55.37,55.38 V58.12 Q55.37,59.5 53.99,59.5 H47.13 Q45.75,59.5 45.75,58.12 V55.38 Q45.75,54.0 47.13,54.0 Z" />
+  <path
+      android:fillColor="@color/freehold_splash_mark"
+      android:pathData="M58.13,54.0 H63.62 Q65.0,54.0 65.0,55.38 V58.12 Q65.0,59.5 63.62,59.5 H58.13 Q56.75,59.5 56.75,58.12 V55.38 Q56.75,54.0 58.13,54.0 Z" />
 </vector>
