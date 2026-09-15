@@ -120,6 +120,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.google.ai.edge.gallery.R
+import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.resetInitialization
@@ -282,6 +283,7 @@ private val TABS =
 fun MobileActionsScreen(
   task: Task,
   modelManagerViewModel: ModelManagerViewModel,
+  selectedModel: Model,
   mobileActionsViewModel: MobileActionsViewModel = hiltViewModel(),
   bottomPadding: Dp,
   setAppBarControlsDisabled: (Boolean) -> Unit,
@@ -324,6 +326,7 @@ fun MobileActionsScreen(
       MainUi(
         task = task,
         modelManagerViewModel = modelManagerViewModel,
+        selectedModel = selectedModel,
         tools = tools,
         bottomPadding = bottomPadding,
         viewModel = mobileActionsViewModel,
@@ -340,6 +343,7 @@ fun MobileActionsScreen(
 fun MainUi(
   task: Task,
   modelManagerViewModel: ModelManagerViewModel,
+  selectedModel: Model,
   tools: List<ToolProvider>,
   bottomPadding: Dp,
   viewModel: MobileActionsViewModel,
@@ -349,7 +353,7 @@ fun MainUi(
   onProcessingStarted: () -> Unit,
 ) {
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
-  val model = modelManagerUiState.selectedModel
+  val model = selectedModel
   val initialModelConfigValues = remember { model.configValues }
   val holdToDictateUiState by holdToDictateViewModel.uiState.collectAsState()
   val uiState by viewModel.uiState.collectAsState()

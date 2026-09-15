@@ -109,6 +109,7 @@ object MobileActionExecutor {
             ContactsContract.Intents.Insert.PHONE_TYPE,
             ContactsContract.CommonDataKinds.Phone.TYPE_WORK,
           )
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
     try {
@@ -129,6 +130,7 @@ object MobileActionExecutor {
         putExtra(Intent.EXTRA_EMAIL, arrayOf(to))
         putExtra(Intent.EXTRA_SUBJECT, subject)
         putExtra(Intent.EXTRA_TEXT, body)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       }
 
     try {
@@ -144,7 +146,7 @@ object MobileActionExecutor {
   private fun showLocationOnMap(context: Context, location: String): String {
     val encodedLocation = URLEncoder.encode(location, StandardCharsets.UTF_8.toString())
     val intent = Intent(Intent.ACTION_VIEW).apply { data = "geo:0,0?q=$encodedLocation".toUri() }
-
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     try {
       context.startActivity(intent)
     } catch (e: Exception) {
@@ -157,6 +159,7 @@ object MobileActionExecutor {
 
   private fun openWifiSettings(context: Context): String {
     val intent = Intent(Settings.ACTION_WIFI_SETTINGS)
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     try {
       context.startActivity(intent)
     } catch (e: Exception) {
@@ -174,6 +177,7 @@ object MobileActionExecutor {
         putExtra(AlarmClock.EXTRA_MINUTES, minute)
         if (label.isNotBlank()) putExtra(AlarmClock.EXTRA_MESSAGE, label)
         putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       }
     return try {
       context.startActivity(intent)
@@ -190,6 +194,7 @@ object MobileActionExecutor {
         putExtra(AlarmClock.EXTRA_LENGTH, lengthSeconds)
         if (label.isNotBlank()) putExtra(AlarmClock.EXTRA_MESSAGE, label)
         putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       }
     return try {
       context.startActivity(intent)
@@ -202,6 +207,7 @@ object MobileActionExecutor {
 
   private fun dialNumber(context: Context, phoneNumber: String): String {
     val intent = Intent(Intent.ACTION_DIAL).apply { data = "tel:$phoneNumber".toUri() }
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     return try {
       context.startActivity(intent)
       ""
@@ -216,6 +222,7 @@ object MobileActionExecutor {
       Intent(Intent.ACTION_SENDTO).apply {
         data = "smsto:$phoneNumber".toUri()
         putExtra("sms_body", message)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       }
     return try {
       context.startActivity(intent)
@@ -229,6 +236,7 @@ object MobileActionExecutor {
   private fun openUrl(context: Context, url: String): String {
     val fullUrl = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
     val intent = Intent(Intent.ACTION_VIEW).apply { data = fullUrl.toUri() }
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     return try {
       context.startActivity(intent)
       ""
@@ -240,6 +248,7 @@ object MobileActionExecutor {
 
   private fun openBluetoothSettings(context: Context): String {
     val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     return try {
       context.startActivity(intent)
       ""
@@ -251,6 +260,7 @@ object MobileActionExecutor {
 
   private fun openSoundSettings(context: Context): String {
     val intent = Intent(Settings.ACTION_SOUND_SETTINGS)
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     return try {
       context.startActivity(intent)
       ""
@@ -277,6 +287,7 @@ object MobileActionExecutor {
         putExtra(CalendarContract.Events.TITLE, title)
         putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, ms)
         putExtra(CalendarContract.EXTRA_EVENT_END_TIME, ms + 3600000)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       }
     try {
       context.startActivity(intent)

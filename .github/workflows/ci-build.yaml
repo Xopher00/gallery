@@ -37,6 +37,10 @@ jobs:
       - name: Build
         run: ./gradlew assembleRelease --no-daemon -PuseCcache
 
+      # JVM-only task; -PuseCcache only affects native compilation.
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
       - name: Check APK contents
         run: |
           set -euo pipefail

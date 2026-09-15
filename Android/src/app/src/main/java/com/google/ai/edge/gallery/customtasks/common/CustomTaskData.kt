@@ -18,6 +18,7 @@ package com.google.ai.edge.gallery.customtasks.common
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 
 /**
@@ -35,6 +36,7 @@ import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
  */
 data class CustomTaskData(
   val modelManagerViewModel: ModelManagerViewModel,
+  val selectedModel: Model,
   val bottomPadding: Dp = 0.dp,
   val setAppBarControlsDisabled: (Boolean) -> Unit = {},
   val setTopBarVisible: (Boolean) -> Unit = {},

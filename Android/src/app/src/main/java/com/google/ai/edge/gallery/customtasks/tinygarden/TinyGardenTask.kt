@@ -138,6 +138,7 @@ class TinyGardenTask @Inject constructor(@ApplicationContext private val context
     TinyGardenScreen(
       task = task,
       modelManagerViewModel = customTaskData.modelManagerViewModel,
+      selectedModel = customTaskData.selectedModel,
       tools = tools,
       bottomPadding = customTaskData.bottomPadding,
       commandFlow = commandFlow,

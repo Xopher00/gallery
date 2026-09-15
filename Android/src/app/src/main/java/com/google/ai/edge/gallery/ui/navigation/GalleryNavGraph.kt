@@ -60,6 +60,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -299,7 +300,6 @@ fun GalleryNavHost(
       val queryParam = backStackEntry.arguments?.getString("query")
       val sessionId = backStackEntry.arguments?.getString("sessionId")
       val autoResume = backStackEntry.arguments?.getBoolean("autoResume") ?: true
-      val scope = rememberCoroutineScope()
       val context = LocalContext.current
 
       modelManagerViewModel.getModelByName(name = modelName)?.let { initialModel ->
@@ -340,7 +340,7 @@ fun GalleryNavHost(
                     // clean up all models.
                     for (curModel in customTask.task.models) {
                       val instanceToCleanUp = curModel.instance
-                      scope.launch(Dispatchers.Default) {
+                      modelManagerViewModel.viewModelScope.launch(Dispatchers.Default) {
                         modelManagerViewModel.cleanupModel(
                           context = context,
                           task = customTask.task,
@@ -355,11 +355,12 @@ fun GalleryNavHost(
               disableAppBarControls = disableAppBarControls,
               hideTopBar = hideTopBar,
               useThemeColor = customTask.task.useThemeColor,
-            ) { bottomPadding ->
+            ) { bottomPadding, selectedModel ->
               customTask.MainScreen(
                 data =
                   CustomTaskData(
                     modelManagerViewModel = modelManagerViewModel,
+                    selectedModel = selectedModel,
                     bottomPadding = bottomPadding,
                     setAppBarControlsDisabled = { disableAppBarControls = it },
                     setTopBarVisible = { hideTopBar = !it },
@@ -529,7 +530,7 @@ private fun CustomTaskScreen(
   hideTopBar: Boolean,
   useThemeColor: Boolean,
   onNavigateUp: () -> Unit,
-  content: @Composable (bottomPadding: Dp) -> Unit,
+  content: @Composable (bottomPadding: Dp, selectedModel: Model) -> Unit,
 ) {
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
   // Use currentModel on initial composition to prevent reading stale selectedModel from
@@ -649,7 +650,7 @@ private fun CustomTaskScreen(
       ) { targetState ->
         when (targetState) {
           // Main UI when model is downloaded.
-          true -> content(innerPadding.calculateBottomPadding())
+          true -> content(innerPadding.calculateBottomPadding(), selectedModel)
           // Model download
           false ->
             ModelDownloadStatusInfoPanel(

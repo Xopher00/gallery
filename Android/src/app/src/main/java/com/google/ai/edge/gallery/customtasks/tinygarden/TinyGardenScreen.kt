@@ -93,6 +93,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.webkit.WebViewAssetLoader
 import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.data.ConfigKeys
+import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.ValueType
@@ -123,6 +124,7 @@ private const val ASSETS_BASE_URL = "https://appassets.androidplatform.net"
 fun TinyGardenScreen(
   task: Task,
   modelManagerViewModel: ModelManagerViewModel,
+  selectedModel: Model,
   tools: List<ToolProvider>,
   bottomPadding: Dp,
   setAppBarControlsDisabled: (Boolean) -> Unit,
@@ -166,6 +168,7 @@ fun TinyGardenScreen(
         MainUi(
           task = task,
           modelManagerViewModel = modelManagerViewModel,
+          selectedModel = selectedModel,
           tools = tools,
           bottomPadding = bottomPadding,
           commandFlow = commandFlow,
@@ -219,6 +222,7 @@ fun TinyGardenScreen(
 fun MainUi(
   task: Task,
   modelManagerViewModel: ModelManagerViewModel,
+  selectedModel: Model,
   tools: List<ToolProvider>,
   bottomPadding: Dp,
   viewModel: TinyGardenViewModel,
@@ -228,7 +232,7 @@ fun MainUi(
   holdToDictateViewModel: HoldToDictateViewModel = hiltViewModel(),
 ) {
   val modelManagerUiState by modelManagerViewModel.uiState.collectAsState()
-  val model = modelManagerUiState.selectedModel
+  val model = selectedModel
   val initialModelConfigValues = remember(model) { model.configValues }
   var webViewRef: WebView? by remember { mutableStateOf(null) }
   val scope = rememberCoroutineScope()

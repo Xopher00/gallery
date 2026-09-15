@@ -116,6 +116,7 @@ class MobileActionsTask @Inject constructor(@ApplicationContext private val cont
     MobileActionsScreen(
       task = task,
       modelManagerViewModel = customTaskData.modelManagerViewModel,
+      selectedModel = customTaskData.selectedModel,
       bottomPadding = customTaskData.bottomPadding,
       setAppBarControlsDisabled = customTaskData.setAppBarControlsDisabled,
       curActions = curActions,
