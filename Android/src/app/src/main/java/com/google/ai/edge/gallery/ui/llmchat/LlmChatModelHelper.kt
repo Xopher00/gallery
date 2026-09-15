@@ -193,6 +193,7 @@ object LlmChatModelHelper : LlmModelHelper {
                   topK = topK,
                   topP = topP.toDouble(),
                   temperature = temperature.toDouble(),
+                  seed = kotlin.random.Random.nextInt(),
                 )
               },
             systemInstruction = systemInstruction,
@@ -257,6 +258,7 @@ object LlmChatModelHelper : LlmModelHelper {
                   topK = topK,
                   topP = topP.toDouble(),
                   temperature = temperature.toDouble(),
+                  seed = kotlin.random.Random.nextInt(),
                 )
               },
             systemInstruction = systemInstruction,

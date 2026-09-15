@@ -879,7 +879,12 @@ fun MessageInputText(
       }
 
       LaunchedEffect(Unit) {
-        cameraProvider = ProcessCameraProvider.awaitInstance(localContext)
+        try {
+          cameraProvider = ProcessCameraProvider.awaitInstance(localContext)
+        } catch (e: Exception) {
+          Log.d(TAG, "No camera provider available", e)
+          return@LaunchedEffect
+        }
         rebindCameraProvider()
       }
 
@@ -1110,8 +1115,8 @@ private fun checkFrontCamera(context: Context, callback: (Boolean) -> Unit) {
   val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
   cameraProviderFuture.addListener(
     {
-      val cameraProvider = cameraProviderFuture.get()
       try {
+        val cameraProvider = cameraProviderFuture.get()
         // Attempt to select the default front camera
         val hasFront = cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
         callback(hasFront)
