@@ -3,6 +3,7 @@
 package com.google.ai.edge.gallery.relay.runtime
 
 import com.google.ai.edge.gallery.data.BackendSpec
+import com.google.ai.edge.gallery.data.LlmProfile
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadInfo
 import com.google.ai.edge.gallery.data.RuntimeType
@@ -10,11 +11,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+// isLlm is now computed from llmProfile, so a non-null profile is what makes isLlm true.
 private fun ggufModel(isLlm: Boolean): Model =
     Model(
         name = "gguf",
         downloadInfo = ModelDownloadInfo(downloadFileName = "model.gguf"),
-        isLlm = isLlm,
+        llmProfile = if (isLlm) LlmProfile() else null,
     )
 
 private fun liteRtLmModel(isLlm: Boolean): Model =
@@ -22,7 +24,7 @@ private fun liteRtLmModel(isLlm: Boolean): Model =
         name = "litert",
         downloadInfo = ModelDownloadInfo(downloadFileName = "model.task"),
         backendSpec = BackendSpec(runtimeType = RuntimeType.LITERT_LM),
-        isLlm = isLlm,
+        llmProfile = if (isLlm) LlmProfile() else null,
     )
 
 class ModelBenchmarkSupportTest {
