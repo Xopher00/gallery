@@ -296,7 +296,7 @@ private fun ProcessTextDialog(
       allModels.isEmpty() -> Phase.NO_MODELS_REGISTERED
       !modelReady && loadFailed -> Phase.NO_MODEL
       !modelReady -> Phase.LOADING
-      image != null && model?.llmSupportImage != true -> Phase.IMAGE_UNSUPPORTED
+      image != null && model?.supportImage != true -> Phase.IMAGE_UNSUPPORTED
       image == null && displayInput.isBlank() -> Phase.EMPTY_INPUT
       else -> Phase.READY
     }

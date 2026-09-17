@@ -40,7 +40,7 @@ fun Model.engineFor(taskId: String?): ModelEngine {
 val Model.benchmarkAccelerators: List<Accelerator>
     get() =
         if (engineFor(taskId = null) == ModelEngine.LlamaCpp) listOf(Accelerator.CPU)
-        else accelerators
+        else backendSpec.accelerators
 
 // Absorbed from the deleted InferenceEngineType: the only distinction that ever mattered.
 internal fun isLlamaCppFile(path: String): Boolean = path.endsWith(".gguf", ignoreCase = true)

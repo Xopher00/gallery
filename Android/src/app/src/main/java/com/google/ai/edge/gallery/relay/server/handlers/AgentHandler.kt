@@ -200,7 +200,7 @@ suspend fun handleAgentRun(
         if (request.model != null) {
             modelRegistry.getModelByName(request.model)
         } else {
-            allModels.find { it.instance != null && it.llmSupportMobileActions }
+            allModels.find { it.instance != null && it.llmProfile?.supportMobileActions == true }
         }
 
     if (model == null || model.instance == null) {
@@ -220,7 +220,7 @@ suspend fun handleAgentRun(
         return
     }
 
-    if (!model.llmSupportMobileActions) {
+    if (model.llmProfile?.supportMobileActions != true) {
         call.respond(
             HttpStatusCode.NotImplemented,
             ErrorEnvelope(
@@ -229,7 +229,7 @@ suspend fun handleAgentRun(
                         "Model '${model.name}' cannot drive tools: this endpoint reuses the same " +
                             "runtime tool-calling loop as the in-app MobileActions task (LiteRT-LM " +
                             "automatic tool calling, closed inside Conversation.sendMessageAsync), " +
-                            "which is only wired up for models with llmSupportMobileActions=true. " +
+                            "which is only wired up for models with llmProfile.supportMobileActions=true. " +
                             "GGUF/llama.cpp models and other function-calling-incapable models are " +
                             "not supported here -- same limitation as the 'tools' 501 on " +
                             "/v1/chat/completions.",
@@ -240,7 +240,7 @@ suspend fun handleAgentRun(
         return
     }
 
-    // llmSupportMobileActions doesn't imply LiteRT-LM; the tool-calling loop is engine-specific.
+    // llmProfile.supportMobileActions doesn't imply LiteRT-LM; the tool-calling loop is engine-specific.
     val engine = model.engineFor(taskIdFor(modelRegistry, model))
     if (engine != ModelEngine.LiteRtLm) {
         call.respond(

@@ -176,7 +176,7 @@ data class ModelData(
     // running on. Always populated, loaded or not.
     val preferred_accelerator: String = "",
     // Every accelerator this model can run on (e.g. ["cpu", "gpu", "npu"]), lowercased, from
-    // Model.accelerators / ConfigKeys.COMPATIBLE_ACCELERATORS -- this is what the model
+    // Model.backendSpec.accelerators / ConfigKeys.COMPATIBLE_ACCELERATORS -- this is what the model
     // SUPPORTS, which can be a larger set than the single value in `accelerator` above.
     val compatible_accelerators: List<String> = emptyList(),
     // Retained for compatibility with existing clients: duplicates `accelerator` above as a
@@ -447,7 +447,7 @@ data class EmbeddingData(
 data class AgentRunRequest(
     val prompt: String,
     // Which initialized model to run the agent loop on. Omitted -> the first initialized model
-    // with llmSupportMobileActions=true is used; 404 if none is loaded.
+    // with llmProfile.supportMobileActions=true is used; 404 if none is loaded.
     val model: String? = null,
     // Caps how many of the model's tool calls are actually allowed to execute during this run
     // (further calls are answered with a "blocked: max_steps reached" tool result instead of

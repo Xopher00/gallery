@@ -684,7 +684,7 @@ fun ChatPanel(
             selectedModel,
             listOf(
               ChatMessagePromptTemplates(
-                templates = selectedModel.llmPromptTemplates,
+                templates = selectedModel.llmProfile?.promptTemplates ?: emptyList(),
                 showMakeYourOwn = false,
               )
             ),
@@ -705,8 +705,8 @@ fun ChatPanel(
         showPromptTemplatesInMenu = false,
         showSkillsPicker = task.id === BuiltInTaskId.LLM_AGENT_CHAT,
         showMcpPicker = task.id === BuiltInTaskId.LLM_AGENT_CHAT,
-        showImagePicker = selectedModel.llmSupportImage && showImagePicker,
-        showAudioPicker = selectedModel.llmSupportAudio && showAudioPicker,
+        showImagePicker = selectedModel.supportImage && showImagePicker,
+        showAudioPicker = selectedModel.supportAudio && showAudioPicker,
         showDocumentPicker = task.id == BuiltInTaskId.LLM_CHAT,
         showStopButtonWhenInProgress = showStopButtonInInputWhenInProgress,
         onImageLimitExceeded = { showImageLimitBanner = true },

@@ -41,7 +41,7 @@ fun ContextWindowIndicator(model: Model, viewModel: LlmChatViewModelBase) {
 
   val maxTokens = model.configValues[ConfigKeys.MAX_TOKENS.label]
     ?.toString()?.toIntOrNull()?.takeIf { it > 0 }
-    ?: model.llmMaxToken.takeIf { it > 0 }
+    ?: model.llmProfile?.maxTokens?.takeIf { it > 0 }
     ?: 1024
   val estimatedTokens = (totalChars / 4).coerceAtMost(maxTokens)
   val fraction = (estimatedTokens.toFloat() / maxTokens).coerceIn(0f, 1f)

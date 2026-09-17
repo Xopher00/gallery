@@ -10,9 +10,11 @@ import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Config
 import com.google.ai.edge.gallery.data.ConfigKey
 import com.google.ai.edge.gallery.data.ConfigKeys
+import com.google.ai.edge.gallery.data.DEFAULT_MAX_TOKEN
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.data.IMPORTS_DIR
 import com.google.ai.edge.gallery.data.LabelConfig
+import com.google.ai.edge.gallery.data.LlmProfile
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelCapability
 import com.google.ai.edge.gallery.data.ModelDownloadInfo
@@ -56,13 +58,13 @@ class ImportedModelStore(
       taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_CHAT }, model)
       taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_PROMPT_LAB }, model)
       taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_AGENT_CHAT }, model)
-      if (model.llmSupportImage) {
+      if (model.supportImage) {
         taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_ASK_IMAGE }, model)
       }
-      if (model.llmSupportAudio) {
+      if (model.supportAudio) {
         taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_ASK_AUDIO }, model)
       }
-      if (model.llmSupportTinyGarden) {
+      if (model.llmProfile?.supportTinyGarden == true) {
         taskCatalog.addModelIfAbsent(
           curTasks.find { it.id == BuiltInTaskId.LLM_TINY_GARDEN },
           model,
@@ -72,7 +74,7 @@ class ImportedModelStore(
         model.configs = newConfigs
         model.preProcess()
       }
-      if (model.llmSupportMobileActions) {
+      if (model.llmProfile?.supportMobileActions == true) {
         taskCatalog.addModelIfAbsent(
           curTasks.find { it.id == BuiltInTaskId.LLM_MOBILE_ACTIONS },
           model,
@@ -120,10 +122,11 @@ class ImportedModelStore(
         task.models.removeAt(modelIndex)
       }
       if (
-        (task.id == BuiltInTaskId.LLM_ASK_IMAGE && model.llmSupportImage) ||
-          (task.id == BuiltInTaskId.LLM_ASK_AUDIO && model.llmSupportAudio) ||
-          (task.id == BuiltInTaskId.LLM_TINY_GARDEN && model.llmSupportTinyGarden) ||
-          (task.id == BuiltInTaskId.LLM_MOBILE_ACTIONS && model.llmSupportMobileActions) ||
+        (task.id == BuiltInTaskId.LLM_ASK_IMAGE && model.supportImage) ||
+          (task.id == BuiltInTaskId.LLM_ASK_AUDIO && model.supportAudio) ||
+          (task.id == BuiltInTaskId.LLM_TINY_GARDEN && model.llmProfile?.supportTinyGarden == true) ||
+          (task.id == BuiltInTaskId.LLM_MOBILE_ACTIONS &&
+            model.llmProfile?.supportMobileActions == true) ||
           (task.id != BuiltInTaskId.LLM_ASK_IMAGE &&
             task.id != BuiltInTaskId.LLM_ASK_AUDIO &&
             task.id != BuiltInTaskId.LLM_TINY_GARDEN &&
@@ -306,16 +309,23 @@ class ImportedModelStore(
         configs = configs,
         downloadInfo = downloadInfo,
         showRunAgainButton = false,
-        llmSupportImage = llmSupportImage,
-        llmSupportAudio = llmSupportAudio,
-        llmSupportTinyGarden = llmSupportTinyGarden,
-        llmSupportMobileActions = llmSupportMobileActions,
+        supportImage = llmSupportImage,
+        supportAudio = llmSupportAudio,
+        // LlmProfile.init{} throws on a non-positive maxTokens; a proto default of 0 must not reach
+        // it. null for an embedding model keeps isLlm (computed from llmProfile) false.
+        llmProfile =
+          if (isEmbeddingModel) {
+            null
+          } else {
+            LlmProfile(
+              maxTokens = llmMaxToken.takeIf { it > 0 } ?: DEFAULT_MAX_TOKEN,
+              supportTinyGarden = llmSupportTinyGarden,
+              supportMobileActions = llmSupportMobileActions,
+            )
+          },
         capabilities = capabilities.toList(),
         capabilityToTaskTypes = capabilityToTaskTypes.toMap(),
-        llmMaxToken = llmMaxToken,
-        accelerators = accelerators,
-        isLlm = !isEmbeddingModel,
-        backendSpec = BackendSpec(runtimeType = importedRuntimeType),
+        backendSpec = BackendSpec(runtimeType = importedRuntimeType, accelerators = accelerators),
       )
     model.preProcess()
 

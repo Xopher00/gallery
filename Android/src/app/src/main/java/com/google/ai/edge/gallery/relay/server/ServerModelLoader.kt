@@ -48,7 +48,7 @@ sealed class LoadResult {
 // Fallback when a model's ACCELERATOR config key was never set. Public so ChatHandler can
 // share this fallback instead of hardcoding GPU.
 fun honestDefaultAcceleratorLabel(model: Model): String =
-    model.accelerators.firstOrNull()?.label ?: Accelerator.GPU.label
+    model.backendSpec.accelerators.firstOrNull()?.label ?: Accelerator.GPU.label
 
 // Persists (name, accelerator) as the boot-preload target for BootReceiver.
 private fun OpenAiServer.pinLastModel(name: String, accelerator: String?) {
@@ -83,7 +83,7 @@ private fun OpenAiServer.markLoaded(name: String, model: Model): LoadResult {
 // Compares the engine's ACTUAL accelerator, not the possibly-stale stored preference; call under modelMutexes[model.name].withLock.
 internal suspend fun OpenAiServer.ensureAccelerator(model: Model, requestedRaw: Accelerator?): AcceleratorResult {
     val currentLabel = (if (model.instance != null) modelRegistry.getEngineAccelerator(model.name) else null)
-        ?: model.getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = honestDefaultAcceleratorLabel(model))
+        ?: model.currentAccelerator?.label ?: honestDefaultAcceleratorLabel(model)
     val currentAccel = parseAccelerator(currentLabel) ?: Accelerator.GPU
     val requested = requestedRaw ?: currentAccel
     // Also reinitializes with no live instance yet (loadModel on a never-initialized model),
@@ -122,10 +122,8 @@ internal suspend fun OpenAiServer.ensureAccelerator(model: Model, requestedRaw: 
 private suspend fun OpenAiServer.reinitializeModel(model: Model, accelerator: Accelerator) {
     // No separate accelerator param on initialize() -- must be set in configValues first, and
     // rolled back to `previousAcceleratorLabel` on failure so a failed reinit leaves no stale config.
-    val previousAcceleratorLabel = model.getStringConfigValue(
-        key = ConfigKeys.ACCELERATOR,
-        defaultValue = honestDefaultAcceleratorLabel(model),
-    )
+    val previousAcceleratorLabel =
+        model.currentAccelerator?.label ?: honestDefaultAcceleratorLabel(model)
     model.configValues = model.configValues + (ConfigKeys.ACCELERATOR.label to accelerator.label)
 
     if (model.instance != null) {
@@ -139,7 +137,7 @@ private suspend fun OpenAiServer.reinitializeModel(model: Model, accelerator: Ac
         context = context,
         model = model,
         taskId = API_TASK_ID,
-        supportImage = model.llmSupportImage,
+        supportImage = model.supportImage,
         supportAudio = false,
         onDone = { errorMsg -> initError.complete(errorMsg) },
     )
@@ -226,11 +224,11 @@ suspend fun OpenAiServer.loadModel(
 
     // Import-time accelerator narrowing (NPU-only, or CPU-only llama.cpp) must be enforced server-side too.
     if (requestedAccel != null && engine.family == EngineFamily.LLM &&
-        model.accelerators.isNotEmpty() && requestedAccel !in model.accelerators
+        model.backendSpec.accelerators.isNotEmpty() && requestedAccel !in model.backendSpec.accelerators
     ) {
         return LoadResult.Error(
             "Model '$name' does not support accelerator '${requestedAccel.label.lowercase()}'. " +
-                "Allowed: " + model.accelerators.joinToString(", ") { it.label.lowercase() }
+                "Allowed: " + model.backendSpec.accelerators.joinToString(", ") { it.label.lowercase() }
         )
     }
 
@@ -296,7 +294,7 @@ suspend fun OpenAiServer.loadModel(
 }
 
 private fun OpenAiServer.currentAcceleratorLabel(model: Model): String =
-    model.getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = honestDefaultAcceleratorLabel(model))
+    model.currentAccelerator?.label ?: honestDefaultAcceleratorLabel(model)
 
 // Releases the hold first so cleanupModel's holder guard doesn't no-op this, then awaits
 // teardown so the caller doesn't return until the native free actually completes.

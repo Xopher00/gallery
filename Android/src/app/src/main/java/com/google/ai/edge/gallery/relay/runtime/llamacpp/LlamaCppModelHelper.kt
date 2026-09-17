@@ -13,7 +13,6 @@ import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
-import com.google.ai.edge.gallery.common.metrics.MetricsTracker
 import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.DEFAULT_TEMPERATURE
 import com.google.ai.edge.gallery.data.DEFAULT_TOPK
@@ -166,7 +165,6 @@ object LlamaCppModelHelper : LlmModelHelper {
         audioClips: List<ByteArray>,
         coroutineScope: CoroutineScope?,
         extraContext: Map<String, String>?,
-        metricsTracker: MetricsTracker?,
         maxOutputTokens: Int?,
     ) {
         val engine = engines[model.name]

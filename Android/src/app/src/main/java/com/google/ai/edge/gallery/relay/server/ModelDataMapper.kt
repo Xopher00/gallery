@@ -21,10 +21,8 @@ internal fun Model.toModelData(server: OpenAiServer): ModelData {
     val runtime = server.modelRegistry.engineOf(this).wireName
     // Stored ACCELERATOR preference -- independent of what the engine actually runs on (a
     // per-request override can reinit without durably changing this; see ChatHandler snapshot/restore).
-    val preferredAccelerator = this
-        .getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = honestDefaultAcceleratorLabel(this))
-        .trim()
-        .lowercase()
+    val preferredAccelerator =
+        (this.currentAccelerator?.label ?: honestDefaultAcceleratorLabel(this)).trim().lowercase()
     // Actually-running accelerator -- only meaningful while instance != null (getEngineAccelerator
     // is never cleared on cleanup); falls back to the stored preference when there's no live engine.
     val actualAccelerator = if (this.instance != null) {
@@ -32,9 +30,9 @@ internal fun Model.toModelData(server: OpenAiServer): ModelData {
     } else {
         preferredAccelerator
     }
-    // Every accelerator this model SUPPORTS, from Model.accelerators (populated at import
-    // time from ConfigKeys.COMPATIBLE_ACCELERATORS -- see ModelRegistry.createModelFromImportedModelInfo).
-    val compatibleAccelerators = this.accelerators.map { it.label.lowercase() }
+    // Every accelerator this model SUPPORTS, from Model.backendSpec.accelerators (populated at
+    // import time from ConfigKeys.COMPATIBLE_ACCELERATORS -- see ModelRegistry.createModelFromImportedModelInfo).
+    val compatibleAccelerators = this.backendSpec.accelerators.map { it.label.lowercase() }
 
     return ModelData(
         id = this.name,

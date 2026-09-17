@@ -122,7 +122,7 @@ suspend fun handleCompletion(
             return@withBusyGuard
         }
 
-        val effectiveAccelLabel = model.getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = honestDefaultAcceleratorLabel(model))
+        val effectiveAccelLabel = model.currentAccelerator?.label ?: honestDefaultAcceleratorLabel(model)
         val effectiveAccel = parseAccelerator(effectiveAccelLabel)
         if (effectiveAccel != null && usesNpuSlot(effectiveAccel) &&
             (request.temperature != null || request.top_p != null || request.top_k != null)

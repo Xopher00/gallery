@@ -460,7 +460,7 @@ fun MessageInputText(
                             (imageCount + pickedImages.size) >= MAX_IMAGE_COUNT_AI_CORE
                         val enableAddImageMenuItems =
                           (imageCount + pickedImages.size) < MAX_IMAGE_COUNT
-                        val isImageSupported = modelManagerUiState.selectedModel.llmSupportImage
+                        val isImageSupported = modelManagerUiState.selectedModel.supportImage
                         val imageItemColors =
                           MenuDefaults.itemColors(
                             textColor =
@@ -552,7 +552,7 @@ fun MessageInputText(
                       if (showAudioPicker) {
                         val enableRecordAudioClipMenuItems =
                           (audioClipMessageCount + pickedAudioClips.size) < MAX_AUDIO_CLIP_COUNT
-                        val isAudioSupported = modelManagerUiState.selectedModel.llmSupportAudio
+                        val isAudioSupported = modelManagerUiState.selectedModel.supportAudio
                         val audioItemColors =
                           MenuDefaults.itemColors(
                             textColor =

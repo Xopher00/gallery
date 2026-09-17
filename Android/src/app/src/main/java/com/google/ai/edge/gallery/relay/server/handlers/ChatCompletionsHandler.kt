@@ -132,7 +132,7 @@ suspend fun handleChatCompletion(
             return@withBusyGuard
         }
 
-        val effectiveAccelLabel = model.getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = honestDefaultAcceleratorLabel(model))
+        val effectiveAccelLabel = model.currentAccelerator?.label ?: honestDefaultAcceleratorLabel(model)
         val effectiveAccel = parseAccelerator(effectiveAccelLabel)
         if (effectiveAccel != null && usesNpuSlot(effectiveAccel) &&
             (request.temperature != null || request.top_p != null || request.top_k != null)
@@ -207,12 +207,12 @@ suspend fun handleChatCompletion(
                 }
             }
 
-            if (lastParsed.images.isNotEmpty() && !model.llmSupportImage) {
+            if (lastParsed.images.isNotEmpty() && !model.supportImage) {
                 call.respond(
                     HttpStatusCode.BadRequest,
                     ErrorEnvelope(ErrorBody(
                         message = "Model '${model.name}' does not accept image input " +
-                            "(llmSupportImage is false); remove the image_url content part(s) " +
+                            "(supportImage is false); remove the image_url content part(s) " +
                             "or use a vision-capable model."
                     ))
                 )
@@ -251,7 +251,7 @@ suspend fun handleChatCompletion(
 
                 model.runtimeHelper.resetConversation(
                     model = model,
-                    supportImage = model.llmSupportImage,
+                    supportImage = model.supportImage,
                     supportAudio = false,
                     systemInstruction = systemInstruction,
                     tools = emptyList(),
@@ -266,7 +266,7 @@ suspend fun handleChatCompletion(
                     sessionId = request.session_id,
                     taskId = taskIdFor(modelRegistry, model),
                     model = model,
-                    supportImage = model.llmSupportImage,
+                    supportImage = model.supportImage,
                     supportAudio = false,
                     defaultSystemPrompt = systemTexts.firstOrNull(),
                 ).messages

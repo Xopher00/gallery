@@ -4,7 +4,6 @@ package com.google.ai.edge.gallery.relay.server.handlers
 
 import android.content.Context
 import android.graphics.Bitmap
-import com.google.ai.edge.gallery.common.metrics.MetricsTracker
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.relay.runtime.CountKind
 import com.google.ai.edge.gallery.relay.runtime.TokenCount
@@ -61,7 +60,6 @@ internal class FakeLlmModelHelper(
     audioClips: List<ByteArray>,
     coroutineScope: CoroutineScope?,
     extraContext: Map<String, String>?,
-    metricsTracker: MetricsTracker?,
     maxOutputTokens: Int?,
   ) {
     for (delta in deltas) resultListener(delta, false, null)

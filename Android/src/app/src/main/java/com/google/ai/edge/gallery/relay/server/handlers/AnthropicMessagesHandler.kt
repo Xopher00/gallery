@@ -171,12 +171,12 @@ suspend fun handleAnthropicMessages(
                 return@withBusyGuard
             }
 
-            if (lastParsed.images.isNotEmpty() && !model.llmSupportImage) {
+            if (lastParsed.images.isNotEmpty() && !model.supportImage) {
                 call.respond(
                     HttpStatusCode.BadRequest,
                     ErrorEnvelope(ErrorBody(
                         message = "Model '${model.name}' does not accept image input " +
-                            "(llmSupportImage is false); remove the image_url content part(s) " +
+                            "(supportImage is false); remove the image_url content part(s) " +
                             "or use a vision-capable model."
                     ))
                 )
@@ -206,7 +206,7 @@ suspend fun handleAnthropicMessages(
 
                 model.runtimeHelper.resetConversation(
                     model = model,
-                    supportImage = model.llmSupportImage,
+                    supportImage = model.supportImage,
                     supportAudio = false,
                     systemInstruction = systemInstruction,
                     tools = emptyList(),
@@ -220,7 +220,7 @@ suspend fun handleAnthropicMessages(
                     sessionId = request.session_id,
                     taskId = taskIdFor(modelRegistry, model),
                     model = model,
-                    supportImage = model.llmSupportImage,
+                    supportImage = model.supportImage,
                     supportAudio = false,
                     defaultSystemPrompt = request.system,
                 ).messages

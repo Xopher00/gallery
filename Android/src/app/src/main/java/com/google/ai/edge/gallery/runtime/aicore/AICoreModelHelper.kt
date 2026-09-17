@@ -20,7 +20,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
 import com.google.ai.edge.gallery.common.cleanUpMediapipeTaskErrorMessage
-import com.google.ai.edge.gallery.common.metrics.MetricsTracker
 import com.google.ai.edge.gallery.data.AICoreModelPreference
 import com.google.ai.edge.gallery.data.AICoreModelReleaseStage
 import com.google.ai.edge.gallery.data.ConfigKeys
@@ -28,10 +27,10 @@ import com.google.ai.edge.gallery.data.DEFAULT_MAX_OUTPUT_TOKEN
 import com.google.ai.edge.gallery.data.DEFAULT_TEMPERATURE
 import com.google.ai.edge.gallery.data.DEFAULT_TOPK
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import com.google.ai.edge.gallery.runtime.CleanUpListener
 import com.google.ai.edge.gallery.runtime.LlmModelHelper
 import com.google.ai.edge.gallery.runtime.ResultListener
-import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.Role
@@ -271,7 +270,6 @@ object AICoreModelHelper : LlmModelHelper {
     audioClips: List<ByteArray>,
     coroutineScope: CoroutineScope?,
     extraContext: Map<String, String>?,
-    metricsTracker: MetricsTracker?,
     maxOutputTokens: Int?,
   ) {
     val instance = model.instance as? AICoreModelInstance
@@ -305,17 +303,17 @@ object AICoreModelHelper : LlmModelHelper {
     instance.inferenceJob = scope.launch {
       TurnUsageStore.begin(model.name)
       try {
-      executeRunInference(
-        instance = instance,
-        prompt = prompt,
-        temperature = temperature,
-        topK = topK,
-        maxOutputTokens = effectiveMaxOutputTokens,
-        images = images,
-        input = input,
-        resultListener = resultListener,
-        onError = onError,
-      )
+        executeRunInference(
+          instance = instance,
+          prompt = prompt,
+          temperature = temperature,
+          topK = topK,
+          maxOutputTokens = effectiveMaxOutputTokens,
+          images = images,
+          input = input,
+          resultListener = resultListener,
+          onError = onError,
+        )
       } finally {
         // Covers completion, error and cancellation (this job is also cancelled by the next turn).
         TurnUsageStore.abort(model.name)

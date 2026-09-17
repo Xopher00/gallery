@@ -18,7 +18,6 @@ package com.google.ai.edge.gallery.runtime
 
 import android.content.Context
 import android.graphics.Bitmap
-import com.google.ai.edge.gallery.common.metrics.MetricsTracker
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Message
@@ -105,7 +104,8 @@ interface LlmModelHelper {
    * @param audioClips optional list of audio clips provided as input context.
    * @param coroutineScope optional coroutine scope for async inference execution.
    * @param extraContext optional extra context for inference.
-   * @param metricsTracker optional metrics tracker utility to record inference telemetry.
+   * @param maxOutputTokens optional per-request cap on generated tokens; overrides the model's
+   *   configured MAX_OUTPUT_TOKENS when non-null.
    */
   fun runInference(
     model: Model,
@@ -117,7 +117,6 @@ interface LlmModelHelper {
     audioClips: List<ByteArray> = listOf(),
     coroutineScope: CoroutineScope? = null,
     extraContext: Map<String, String>? = null,
-    metricsTracker: MetricsTracker? = null,
     maxOutputTokens: Int? = null,
   )
 

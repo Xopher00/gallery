@@ -79,10 +79,7 @@ suspend fun handleBenchmark(
   }
 
   // Same config-value lookup the benchmark screen's accelerator default resolves to server-side.
-  val accelerator = model.getStringConfigValue(
-    key = ConfigKeys.ACCELERATOR,
-    defaultValue = honestDefaultAcceleratorLabel(model),
-  )
+  val accelerator = model.currentAccelerator?.label ?: honestDefaultAcceleratorLabel(model)
   val spec = BenchmarkSpec(
     prefillTokens = request.prefill_tokens,
     decodeTokens = request.decode_tokens,

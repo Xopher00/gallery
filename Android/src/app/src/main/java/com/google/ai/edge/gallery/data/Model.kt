@@ -124,8 +124,8 @@ data class Model(
   /** Model family hierarchy and variant configuration. */
   val hierarchy: ModelHierarchy = ModelHierarchy(),
 
-  /** Whether the model is LLM or not. */
-  val isLlm: Boolean = false,
+  /** LLM-specific parameters and capability flags. */
+  val llmProfile: LlmProfile? = null,
 
   // The following fields are only used for built-in tasks. Can ignore if you are creating your own
   // custom tasks.
@@ -134,35 +134,14 @@ data class Model(
   /** Whether to show the "run again" button in the UI. */
   val showRunAgainButton: Boolean = true,
 
-  /** The prompt templates for the model (only for LLM). */
-  val llmPromptTemplates: List<PromptTemplate> = listOf(),
+  /** Whether the model supports image input. */
+  val supportImage: Boolean = false,
 
-  /** Whether the LLM model supports image input. */
-  val llmSupportImage: Boolean = false,
-
-  /** Whether the LLM model supports audio input. */
-  val llmSupportAudio: Boolean = false,
-
-  /** Whether the LLM model supports tiny garden. */
-  val llmSupportTinyGarden: Boolean = false,
-
-  /** Whether the LLM model supports mobile actions. */
-  val llmSupportMobileActions: Boolean = false,
+  /** Whether the model supports audio input. */
+  val supportAudio: Boolean = false,
 
   /** The capabilities of the model. */
   val capabilities: List<ModelCapability> = listOf(),
-
-  /** The max token for llm model. */
-  val llmMaxToken: Int = 0,
-
-  /** Compatible accelerators. */
-  val accelerators: List<Accelerator> = listOf(),
-
-  /** Accelerator for running vision encoder. */
-  val visionAccelerator: Accelerator = Accelerator.GPU,
-
-  /** Accelerator for running audio encoder. */
-  val audioAccelerator: Accelerator? = null,
 
   /** A map of model capability to the task type ids that the model capability is allowed for. */
   val capabilityToTaskTypes: Map<ModelCapability, List<String>> = mapOf(),
@@ -178,6 +157,9 @@ data class Model(
   var configValues: Map<String, Any> = mapOf(),
   var prevConfigValues: Map<String, Any> = mapOf(),
 ) {
+  val isLlm: Boolean
+    get() = llmProfile != null
+
   init {
     normalizedName = NORMALIZE_NAME_REGEX.replace(name, "_")
   }
@@ -194,10 +176,43 @@ data class Model(
   val isLiteRtLm: Boolean
     get() = backendSpec.isLiteRtLm
 
+  /**
+   * Indicates whether the model is allowed to use [capability] for the task identified by [taskId].
+   */
+  fun allowCapability(capability: ModelCapability, taskId: String): Boolean =
+    capabilityToTaskTypes[capability]?.contains(taskId) == true
+
   /** Indicates whether this model supports NPU (or TPU). */
   val supportsNpu: Boolean
-    get() = accelerators.any {
-      it == Accelerator.NPU || it == Accelerator.TPU
+    get() =
+      backendSpec.accelerators.any {
+        it == Accelerator.NPU || it == Accelerator.TPU
+      }
+
+  /**
+   * The current accelerator for this model.
+   *
+   * If the user has set the accelerator, the value is returned. Otherwise, the first accelerator in
+   * the [BackendSpec.accelerators] list is returned.
+   */
+  val currentAccelerator: Accelerator?
+    get() {
+      val accelerator =
+        Accelerator.fromLabel(getStringConfigValue(ConfigKeys.ACCELERATOR, "").trim())
+      return accelerator ?: backendSpec.defaultAccelerator
+    }
+
+  /**
+   * The current vision accelerator for this model.
+   *
+   * If the user has set the accelerator, the value is returned. Otherwise, the
+   * [BackendSpec.visionAccelerator] is returned.
+   */
+  val currentVisionAccelerator: Accelerator
+    get() {
+      val accelerator =
+        Accelerator.fromLabel(getStringConfigValue(ConfigKeys.VISION_ACCELERATOR, "").trim())
+      return accelerator ?: backendSpec.visionAccelerator
     }
 
   sealed interface InitializationStatus {
@@ -321,16 +336,16 @@ data class Model(
       as Boolean
   }
 
-  fun getStringConfigValue(key: ConfigKey, defaultValue: String = ""): String {
-    return getTypedConfigValue(key = key, valueType = ValueType.STRING, defaultValue = defaultValue)
-      as String
-  }
-
   private fun getTypedConfigValue(key: ConfigKey, valueType: ValueType, defaultValue: Any): Any {
     return convertValueToTargetType(
       value = configValues.getOrDefault(key.label, defaultValue),
       valueType = valueType,
     )
+  }
+
+  private fun getStringConfigValue(key: ConfigKey, defaultValue: String = ""): String {
+    return getTypedConfigValue(key = key, valueType = ValueType.STRING, defaultValue = defaultValue)
+      as String
   }
 }
 

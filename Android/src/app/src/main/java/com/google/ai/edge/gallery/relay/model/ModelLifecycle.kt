@@ -81,8 +81,7 @@ class ModelLifecycle(
   fun heldModelNames(): Set<String> = _holds.value.keys
 
   fun isFirstInitialization(model: Model): Boolean {
-    val backend =
-      model.getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = Accelerator.GPU.label)
+    val backend = model.currentAccelerator?.label ?: Accelerator.GPU.label
     val backends = synchronized(initializedBackendsLock) { initializedBackends[model.name] }
     return !(backends?.contains(backend) ?: false)
   }
@@ -124,11 +123,7 @@ class ModelLifecycle(
       val onDoneFn: (error: String) -> Unit = { error ->
         if (model.instance != null) {
           Log.d(TAG, "Model '${model.name}' initialized successfully")
-          val backend =
-            model.getStringConfigValue(
-              key = ConfigKeys.ACCELERATOR,
-              defaultValue = Accelerator.GPU.label,
-            )
+          val backend = model.currentAccelerator?.label ?: Accelerator.GPU.label
           synchronized(initializedBackendsLock) {
             initializedBackends.getOrPut(model.name) { mutableSetOf() }.add(backend)
           }

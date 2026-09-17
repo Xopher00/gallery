@@ -30,7 +30,6 @@ import com.google.ai.edge.gallery.data.DEFAULT_MAX_TOKEN
 import com.google.ai.edge.gallery.data.DEFAULT_TEMPERATURE
 import com.google.ai.edge.gallery.data.DEFAULT_TOPK
 import com.google.ai.edge.gallery.data.DEFAULT_TOPP
-import com.google.ai.edge.gallery.data.DEFAULT_VISION_ACCELERATOR
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelCapability
 import com.google.ai.edge.gallery.data.THOUGHT_CHANNEL
@@ -39,13 +38,13 @@ import com.google.ai.edge.gallery.data.markInitializationStarted
 import com.google.ai.edge.gallery.data.markInitialized
 import com.google.ai.edge.gallery.data.resetInitialization
 import com.google.ai.edge.gallery.data.supportModelBenchmark
-import com.google.ai.edge.gallery.runtime.CleanUpListener
 import com.google.ai.edge.gallery.relay.runtime.CountKind
-import com.google.ai.edge.gallery.runtime.LlmModelHelper
-import com.google.ai.edge.gallery.runtime.ResultListener
 import com.google.ai.edge.gallery.relay.runtime.TokenCount
 import com.google.ai.edge.gallery.relay.runtime.TurnTokenUsage
 import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
+import com.google.ai.edge.gallery.runtime.CleanUpListener
+import com.google.ai.edge.gallery.runtime.LlmModelHelper
+import com.google.ai.edge.gallery.runtime.ResultListener
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -61,15 +60,31 @@ import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.ToolProvider
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 
 private const val TAG = "AGLlmChatModelHelper"
 
-data class LlmModelInstance(val engine: Engine, var conversation: Conversation)
+/**
+ * A model instance with its associated engine, conversation, and metrics tracker.
+ *
+ * @property metricsTracker Telemetry for this model instance, or null when the instance was built
+ *   outside [LlmChatModelHelper.initialize] and so is not measured. Tracks nothing when the model
+ *   does not support benchmark telemetry.
+ */
+data class LlmModelInstance(
+  val engine: Engine,
+  var conversation: Conversation,
+  val metricsTracker: MetricsTracker? = null,
+)
 
 object LlmChatModelHelper : LlmModelHelper {
   // Indexed by model name.
   private val cleanUpListeners: MutableMap<String, CleanUpListener> = mutableMapOf()
+
+  @Suppress("GlobalCoroutineDispatchers", "AndroidLintDispatcherUsage")
+  internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 
   @OptIn(ExperimentalApi::class) // opt-in experimental flags
   override fun initialize(
@@ -98,34 +113,22 @@ object LlmChatModelHelper : LlmModelHelper {
     val topP = model.getFloatConfigValue(key = ConfigKeys.TOPP, defaultValue = DEFAULT_TOPP)
     val temperature =
       model.getFloatConfigValue(key = ConfigKeys.TEMPERATURE, defaultValue = DEFAULT_TEMPERATURE)
-    val accelerator =
-      model.getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = Accelerator.GPU.label)
-    val visionAccelerator =
-      model.getStringConfigValue(
-        key = ConfigKeys.VISION_ACCELERATOR,
-        defaultValue = DEFAULT_VISION_ACCELERATOR.label,
-      )
     val visionBackend =
-      when (visionAccelerator) {
-        Accelerator.CPU.label -> Backend.CPU()
-        Accelerator.GPU.label -> Backend.GPU()
-        Accelerator.NPU.label, Accelerator.TPU.label ->
-          Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
-        Accelerator.TPU.label ->
-          Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
+      when (model.currentVisionAccelerator) {
+        Accelerator.CPU -> Backend.CPU()
+        Accelerator.GPU -> Backend.GPU()
+        Accelerator.NPU -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
+        Accelerator.TPU -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
         else -> Backend.GPU()
       }
     val shouldEnableImage = supportImage
     val shouldEnableAudio = supportAudio
     val preferredBackend =
-      when (accelerator) {
-        Accelerator.CPU.label -> Backend.CPU()
-        Accelerator.GPU.label -> Backend.GPU()
-        Accelerator.NPU.label, Accelerator.TPU.label ->
-          Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
-        Accelerator.TPU.label ->
-          Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
-        else -> Backend.CPU()
+      when (model.currentAccelerator ?: Accelerator.GPU) {
+        Accelerator.CPU -> Backend.CPU()
+        Accelerator.GPU -> Backend.GPU()
+        Accelerator.NPU -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
+        Accelerator.TPU -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
       }
     Log.d(TAG, "Preferred backend: $preferredBackend")
 
@@ -143,7 +146,6 @@ object LlmChatModelHelper : LlmModelHelper {
           else null,
       )
 
-    // Check if the model file supports speculative decoding.
     var supportsSpeculativeDecoding = false
     // Check if the model file supports speculative decoding.
     try {
@@ -160,8 +162,7 @@ object LlmChatModelHelper : LlmModelHelper {
       // speculative decoding is enabled in the settings.
       if (
         supportsSpeculativeDecoding &&
-          model.capabilityToTaskTypes[ModelCapability.SPECULATIVE_DECODING]?.contains(taskId) ==
-            true
+          model.allowCapability(capability = ModelCapability.SPECULATIVE_DECODING, taskId = taskId)
       ) {
         speculativeDecoding =
           model.getBooleanConfigValue(
@@ -202,7 +203,18 @@ object LlmChatModelHelper : LlmModelHelper {
           )
         )
       ExperimentalFlags.enableConversationConstrainedDecoding = false
-      model.instance = LlmModelInstance(engine = engine, conversation = conversation)
+      model.instance =
+        LlmModelInstance(
+          engine = engine,
+          conversation = conversation,
+          metricsTracker =
+            MetricsTracker.create(
+              context = context,
+              model = model,
+              taskId = taskId,
+              ioDispatcher = ioDispatcher,
+            ),
+        )
     } catch (e: Exception) {
       val errorMsg = cleanUpMediapipeTaskErrorMessage(e.message ?: "Unknown error")
       model.markInitializationFailed(errorMsg)
@@ -240,18 +252,14 @@ object LlmChatModelHelper : LlmModelHelper {
       val shouldEnableAudio = supportAudio
       Log.d(TAG, "Enable image: $shouldEnableImage, enable audio: $shouldEnableAudio")
 
-      val accelerator =
-        model.getStringConfigValue(
-          key = ConfigKeys.ACCELERATOR,
-          defaultValue = Accelerator.GPU.label,
-        )
+      val accelerator = model.currentAccelerator ?: Accelerator.GPU
       ExperimentalFlags.enableConversationConstrainedDecoding =
         enableConversationConstrainedDecoding
       val newConversation =
         engine.createConversation(
           ConversationConfig(
             samplerConfig =
-              if (accelerator == Accelerator.NPU.label || accelerator == Accelerator.TPU.label) {
+              if (accelerator == Accelerator.NPU || accelerator == Accelerator.TPU) {
                 null
               } else {
                 SamplerConfig(
@@ -269,6 +277,10 @@ object LlmChatModelHelper : LlmModelHelper {
         )
       ExperimentalFlags.enableConversationConstrainedDecoding = false
       instance.conversation = newConversation
+      // The replacement conversation starts on an empty KV cache, so per-session token accounting
+      // and sensor histories are rewound to match. This also clears a turn left active by closing
+      // the old conversation mid-flight.
+      instance.metricsTracker?.resetSession()
 
       Log.d(TAG, "Resetting done")
     } catch (e: Exception) {
@@ -294,6 +306,8 @@ object LlmChatModelHelper : LlmModelHelper {
     } catch (e: Exception) {
       Log.e(TAG, "Failed to close the engine: ${e.message}")
     }
+
+    instance.metricsTracker?.resetSession()
 
     val onCleanUp = cleanUpListeners.remove(model.name)
     if (onCleanUp != null) {
@@ -325,7 +339,6 @@ object LlmChatModelHelper : LlmModelHelper {
     audioClips: List<ByteArray>,
     coroutineScope: CoroutineScope?,
     extraContext: Map<String, String>?,
-    metricsTracker: MetricsTracker?,
     maxOutputTokens: Int?,
   ) {
     val instance = model.instance as? LlmModelInstance
@@ -341,111 +354,110 @@ object LlmChatModelHelper : LlmModelHelper {
 
     // Step 1: Initialize turn telemetry with active Conversation.
     val conversation = instance.conversation
-    metricsTracker?.startTurn(conversation.asSession())
+    instance.metricsTracker?.startTurn(conversation.asSession())
 
     // Token accounting. getTokenCount() is cumulative over the conversation, so the difference
     // across this turn is exact even though the prompt/completion split below is not.
     val turnSequence = TurnUsageStore.begin(model.name)
     try {
-    val tokensBefore = runCatching { conversation.getTokenCount() }.getOrNull()
-    var chunkCount = 0
+      val tokensBefore = runCatching { conversation.getTokenCount() }.getOrNull()
+      var chunkCount = 0
 
-    fun recordUsage() {
-      val turnTotal =
-        tokensBefore?.let { before ->
-          runCatching { conversation.getTokenCount() }.getOrNull()?.let { it - before }
-        }
-      // One callback per token is unverified for this engine; upstream's own metrics tracker makes
-      // the same assumption. Cross-check: an exact total well above chunkCount means it is wrong.
-      val benchmark =
-        runCatching { conversation.getBenchmarkInfo() }
-          .getOrNull()
-          ?.takeIf { it.lastPrefillTokenCount > 0 && it.lastDecodeTokenCount > 0 }
-      val usage =
-        if (benchmark != null) {
-          TurnTokenUsage(
-            prompt = TokenCount(benchmark.lastPrefillTokenCount, CountKind.EXACT),
-            completion = TokenCount(benchmark.lastDecodeTokenCount, CountKind.EXACT),
-            exactTotal = turnTotal,
-            turnSequence = turnSequence,
-          )
-        } else {
-          val completion = TokenCount(chunkCount, CountKind.ESTIMATED)
-          val prompt =
-            turnTotal?.let { TokenCount((it - chunkCount).coerceAtLeast(0), CountKind.ESTIMATED) }
-          if (prompt == null) return
-          TurnTokenUsage(prompt, completion, exactTotal = turnTotal, turnSequence = turnSequence)
-        }
-      TurnUsageStore.record(model.name, usage)
-    }
-
-    // Step 2: Assemble multimodal prompt attachments (images, audio clips, and text).
-    val contents = mutableListOf<Content>()
-    for (image in images) {
-      contents.add(Content.ImageBytes(image.toPngByteArray()))
-    }
-    for (audioClip in audioClips) {
-      contents.add(Content.AudioBytes(audioClip))
-    }
-    // Add text after images/audio to ensure proper autoregressive token sequencing.
-    if (input.trim().isNotEmpty()) {
-      contents.add(Content.Text(input))
-    }
-
-    // Step 3: Configure extra runtime parameters (such as thinking reasoning mode).
-    val enableThinking = extraContext?.get("enable_thinking") == "true"
-    val finalExtraContext: Map<String, Any> =
-      (extraContext ?: emptyMap()) + ("enable_thinking" to enableThinking)
-
-    // Step 4: Dispatch asynchronous streaming inference to the native LiteRT-LM engine.
-    conversation.sendMessageAsync(
-      contents = Contents.of(contents),
-      callback =
-        object : MessageCallback {
-          override fun onMessage(message: Message) {
-            val text = message.toString()
-            val thinking = message.channels[THOUGHT_CHANNEL]
-            // Record streaming token to lock TTFT on first token and update live metrics.
-            metricsTracker?.onNewToken(tokenText = text, thinkingText = thinking)
-            chunkCount++
-            resultListener(text, false, thinking)
+      fun recordUsage() {
+        val turnTotal =
+          tokensBefore?.let { before ->
+            runCatching { conversation.getTokenCount() }.getOrNull()?.let { it - before }
           }
-
-          override fun onDone() {
-            // Finalize turn metrics with SUCCESS status.
-            val unused =
-              metricsTracker?.endTurn(
-                statusCode = InferenceStatus.Code.SUCCESS,
-                errorMessage = null,
-              )
-            // Record before the done callback so a reader sees usage as soon as it is signalled.
-            recordUsage()
-            resultListener("", true, null)
+        // Cross-check: an exact total well above chunkCount means one-callback-per-token is wrong.
+        val benchmark =
+          runCatching { conversation.getBenchmarkInfo() }
+            .getOrNull()
+            ?.takeIf { it.lastPrefillTokenCount > 0 && it.lastDecodeTokenCount > 0 }
+        val usage =
+          if (benchmark != null) {
+            TurnTokenUsage(
+              prompt = TokenCount(benchmark.lastPrefillTokenCount, CountKind.EXACT),
+              completion = TokenCount(benchmark.lastDecodeTokenCount, CountKind.EXACT),
+              exactTotal = turnTotal,
+              turnSequence = turnSequence,
+            )
+          } else {
+            val completion = TokenCount(chunkCount, CountKind.ESTIMATED)
+            val prompt =
+              turnTotal?.let { TokenCount((it - chunkCount).coerceAtLeast(0), CountKind.ESTIMATED) }
+            if (prompt == null) return
+            TurnTokenUsage(prompt, completion, exactTotal = turnTotal, turnSequence = turnSequence)
           }
+        TurnUsageStore.record(model.name, usage)
+      }
 
-          override fun onError(throwable: Throwable) {
-            if (throwable is CancellationException) {
-              // User or system cancelled inference: reconcile context tokens and mark CANCELLED.
-              Log.i(TAG, "The inference is cancelled.")
-              val unused = metricsTracker?.cancelTurn()
+      // Step 2: Assemble multimodal prompt attachments (images, audio clips, and text).
+      val contents = mutableListOf<Content>()
+      for (image in images) {
+        contents.add(Content.ImageBytes(image.toPngByteArray()))
+      }
+      for (audioClip in audioClips) {
+        contents.add(Content.AudioBytes(audioClip))
+      }
+      // Add text after images/audio to ensure proper autoregressive token sequencing.
+      if (input.trim().isNotEmpty()) {
+        contents.add(Content.Text(input))
+      }
+
+      // Step 3: Configure extra runtime parameters (such as thinking reasoning mode).
+      val enableThinking = extraContext?.get("enable_thinking") == "true"
+      val finalExtraContext: Map<String, Any> =
+        (extraContext ?: emptyMap()) + ("enable_thinking" to enableThinking)
+
+      // Step 4: Dispatch asynchronous streaming inference to the native LiteRT-LM engine.
+      conversation.sendMessageAsync(
+        contents = Contents.of(contents),
+        callback =
+          object : MessageCallback {
+            override fun onMessage(message: Message) {
+              val text = message.toString()
+              val thinking = message.channels[THOUGHT_CHANNEL]
+              // Record streaming token to lock TTFT on first token and update live metrics.
+              instance.metricsTracker?.onNewToken(tokenText = text, thinkingText = thinking)
+              chunkCount++
+              resultListener(text, false, thinking)
+            }
+
+            override fun onDone() {
+              // Finalize turn metrics with SUCCESS status.
+              val unused =
+                instance.metricsTracker?.endTurn(
+                  statusCode = InferenceStatus.Code.SUCCESS,
+                  errorMessage = null,
+                )
+              // Record before the done callback so a reader sees usage as soon as it is signalled.
               recordUsage()
               resultListener("", true, null)
-            } else {
-              // Engine error or crash: record ERROR status with error message.
-              Log.e(TAG, "onError", throwable)
-              val unused =
-                metricsTracker?.endTurn(
-                  statusCode = InferenceStatus.Code.ERROR,
-                  errorMessage = throwable.message ?: "Unknown error",
-                )
-              TurnUsageStore.abort(model.name)
-              onError("Error: ${throwable.message}")
             }
-          }
-        },
-      extraContext = finalExtraContext,
-      maxOutputToken = maxOutputTokens,
-    )
+
+            override fun onError(throwable: Throwable) {
+              if (throwable is CancellationException) {
+                // User or system cancelled inference: reconcile context tokens and mark CANCELLED.
+                Log.i(TAG, "The inference is cancelled.")
+                val unused = instance.metricsTracker?.cancelTurn()
+                recordUsage()
+                resultListener("", true, null)
+              } else {
+                // Engine error or crash: record ERROR status with error message.
+                Log.e(TAG, "onError", throwable)
+                val unused =
+                  instance.metricsTracker?.endTurn(
+                    statusCode = InferenceStatus.Code.ERROR,
+                    errorMessage = throwable.message ?: "Unknown error",
+                  )
+                TurnUsageStore.abort(model.name)
+                onError("Error: ${throwable.message}")
+              }
+            }
+          },
+        extraContext = finalExtraContext,
+        maxOutputToken = maxOutputTokens,
+      )
     } catch (e: Exception) {
       // sendMessageAsync can throw synchronously before any callback fires.
       TurnUsageStore.abort(model.name)
