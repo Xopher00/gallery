@@ -185,7 +185,23 @@ jobs:
         if: steps.state.outputs.work == 'true' && (steps.merge.outputs.clean == 'true' || steps.state.outputs.released == 'false')
         run: |
           set -euo pipefail
-          if ./gradlew assembleRelease --no-daemon -PuseCcache > /tmp/build.log 2>&1; then
+          : > /tmp/build.log
+          # This is the path that actually pushes to main on a clean upstream merge -- ci-build.yaml's
+          # own copy of this guard only runs on a PR, which a clean automated merge never opens.
+          GUARD_HIT=""
+          if grep -rln 'com\.google\.firebase\.analytics' app/src/main --include='*.kt' >> /tmp/build.log; then
+            GUARD_HIT="import"
+          elif grep -n 'firebase-analytics' gradle/libs.versions.toml app/build.gradle.kts >> /tmp/build.log; then
+            GUARD_HIT="dependency"
+          fi
+          if [ -n "$GUARD_HIT" ]; then
+            {
+              echo "e: Firebase Analytics guard tripped ($GUARD_HIT) -- the merge reintroduced it outside"
+              echo "e: Analytics.kt's no-op shim; route it through the shim instead."
+            } >> /tmp/build.log
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            cat /tmp/build.log
+          elif ./gradlew assembleRelease --no-daemon -PuseCcache >> /tmp/build.log 2>&1; then
             APK=$(ls app/build/outputs/apk/release/*.apk)
             if unzip -l "$APK" | grep -q 'META-INF/services/kotlinx.coroutines.internal.MainDispatcherFactory'; then
               echo "passed=true" >> "$GITHUB_OUTPUT"
