@@ -42,7 +42,8 @@ class OpenAiServer(
     internal val llmSessionManager: com.google.ai.edge.gallery.agent.sessions.LlmSessionManager,
 ) {
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
-    internal val modelMutexes = ConcurrentHashMap<String, Mutex>()
+    internal val modelMutexes: ConcurrentHashMap<String, Mutex>
+        get() = com.google.ai.edge.gallery.relay.runtime.ModelGenerationLocks.mutexes
 
     internal val dataStoreRepository by lazy {
         EntryPointAccessors.fromApplication(
