@@ -868,9 +868,7 @@ constructor(
   }
 
   private fun getSkillDestinationDir(originalImportDirName: String): File {
-    val normalizedDirName = originalImportDirName.replace("\\s+".toRegex(), "-")
-    val newImportDirName = "skills/${normalizedDirName}"
-    return context.filesDir.resolve(newImportDirName)
+    return skillDestinationDir(context.filesDir, originalImportDirName)
   }
 
   /**
@@ -1103,4 +1101,18 @@ fun getDisplayName(context: Context, uri: Uri): String {
     // Ignore
   }
   return name.ifEmpty { uri.path?.substringAfterLast('/') ?: "Unknown" }
+}
+
+internal fun sanitizeSkillDirName(name: String): String {
+  val cleaned = name.replace(Regex("[^A-Za-z0-9._-]"), "-")
+  return if (cleaned.isEmpty() || cleaned == "." || cleaned == "..") "skill" else cleaned
+}
+
+internal fun skillDestinationDir(filesDir: File, displayName: String): File {
+  val dir = filesDir.resolve("skills/${sanitizeSkillDirName(displayName)}")
+  // Invariant for future callers; the sanitizer above is what normally guarantees it.
+  require(
+    dir.canonicalFile.toPath().startsWith(filesDir.canonicalFile.toPath()),
+  ) { "Skill destination escapes filesDir: ${dir.path}" }
+  return dir
 }

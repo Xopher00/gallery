@@ -23,6 +23,7 @@ import kotlinx.serialization.json.jsonObject
 import android.os.Bundle
 import android.util.Log
 import com.google.ai.edge.gallery.common.convertStringToJsonObject
+import com.google.ai.edge.gallery.mcp.McpServerState
 import com.google.ai.edge.gallery.mcp.McpServersProvider
 import com.google.ai.edge.gallery.skills.SkillsProvider
 import com.google.ai.edge.litertlm.Tool
@@ -33,6 +34,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
 private const val TAG = "AGRunMcpTool"
+
+internal fun findEnabledToolServer(
+  servers: List<McpServerState>,
+  toolName: String,
+): McpServerState? =
+  servers.find { state ->
+    state.mcpServer.enabled &&
+      state.mcpServer.toolsList.any { it.name == toolName && it.enabled }
+  }
 
 class RunMcpTool(
   private val mcpServersProvider: McpServersProvider,
@@ -50,10 +60,7 @@ class RunMcpTool(
   ): Map<String, String> {
     Log.d(TAG, "Run MCP tool:\n- name: $toolName\n- input: $input")
     return runBlocking(Dispatchers.IO) {
-      val serverState =
-        mcpServersProvider.mcpServers.find { serverState ->
-          serverState.mcpServer.toolsList.any { it.name == toolName }
-        }
+      val serverState = findEnabledToolServer(mcpServersProvider.mcpServers, toolName)
 
       if (serverState == null) {
         Log.w(TAG, "MCP server or tool not found for: $toolName")
