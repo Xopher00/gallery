@@ -28,6 +28,21 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      # Analytics.kt shims upstream's Firebase Analytics API so incoming calls compile as
+      # no-ops; the real SDK must never come back through either door.
+      - name: Guard against Firebase Analytics returning
+        run: |
+          set -euo pipefail
+          if grep -rln 'com\.google\.firebase\.analytics' app/src/main --include='*.kt'; then
+            echo "Firebase Analytics import found above -- route through the Analytics.kt shim instead." >&2
+            exit 1
+          fi
+          if grep -n 'firebase-analytics' gradle/libs.versions.toml app/build.gradle.kts; then
+            echo "firebase-analytics dependency found above -- must stay removed." >&2
+            exit 1
+          fi
+          echo "clean"
+
       - name: Set up build environment
         uses: ./.github/actions/android-build-env
         with:
