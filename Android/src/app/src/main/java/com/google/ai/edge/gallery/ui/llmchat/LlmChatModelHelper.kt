@@ -45,6 +45,7 @@ import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import com.google.ai.edge.gallery.runtime.CleanUpListener
 import com.google.ai.edge.gallery.runtime.LlmModelHelper
 import com.google.ai.edge.gallery.runtime.ResultListener
+import com.google.ai.edge.gallery.runtime.StructuredOutputRequest
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -56,6 +57,7 @@ import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
+import com.google.ai.edge.litertlm.ResponseFormat
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.ToolProvider
 import java.io.ByteArrayOutputStream
@@ -185,6 +187,8 @@ object LlmChatModelHelper : LlmModelHelper {
         enableConversationConstrainedDecoding
       val conversation =
         engine.createConversation(
+          // A non-null responseFormat is dropped by the SDK when tools are set with automatic
+          // tool calling, for non-"tool" role messages.
           ConversationConfig(
             samplerConfig =
               if (preferredBackend is Backend.NPU) {
@@ -199,6 +203,7 @@ object LlmChatModelHelper : LlmModelHelper {
               },
             systemInstruction = systemInstruction,
             tools = tools,
+            enableResponseFormat = true,
             maxOutputToken = maxTokens,
           )
         )
@@ -257,6 +262,8 @@ object LlmChatModelHelper : LlmModelHelper {
         enableConversationConstrainedDecoding
       val newConversation =
         engine.createConversation(
+          // A non-null responseFormat is dropped by the SDK when tools are set with automatic
+          // tool calling, for non-"tool" role messages.
           ConversationConfig(
             samplerConfig =
               if (accelerator == Accelerator.NPU || accelerator == Accelerator.TPU) {
@@ -271,6 +278,7 @@ object LlmChatModelHelper : LlmModelHelper {
               },
             systemInstruction = systemInstruction,
             tools = tools,
+            enableResponseFormat = true,
             initialMessages = initialMessages,
             maxOutputToken = maxTokens,
           )
@@ -290,6 +298,7 @@ object LlmChatModelHelper : LlmModelHelper {
 
   override fun cleanUp(model: Model, onDone: () -> Unit) {
     if (model.instance == null) {
+      onDone()
       return
     }
 
@@ -340,6 +349,7 @@ object LlmChatModelHelper : LlmModelHelper {
     coroutineScope: CoroutineScope?,
     extraContext: Map<String, String>?,
     maxOutputTokens: Int?,
+    responseFormat: StructuredOutputRequest?,
   ) {
     val instance = model.instance as? LlmModelInstance
     if (instance == null) {
@@ -409,6 +419,7 @@ object LlmChatModelHelper : LlmModelHelper {
       val finalExtraContext: Map<String, Any> =
         (extraContext ?: emptyMap()) + ("enable_thinking" to enableThinking)
 
+      val litertResponseFormat = responseFormat?.let { ResponseFormat.json(it.schemaJson) }
       // Step 4: Dispatch asynchronous streaming inference to the native LiteRT-LM engine.
       conversation.sendMessageAsync(
         contents = Contents.of(contents),
@@ -457,6 +468,7 @@ object LlmChatModelHelper : LlmModelHelper {
           },
         extraContext = finalExtraContext,
         maxOutputToken = maxOutputTokens,
+        responseFormat = litertResponseFormat,
       )
     } catch (e: Exception) {
       // sendMessageAsync can throw synchronously before any callback fires.

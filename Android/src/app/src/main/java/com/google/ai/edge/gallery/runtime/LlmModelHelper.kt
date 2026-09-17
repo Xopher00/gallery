@@ -106,6 +106,8 @@ interface LlmModelHelper {
    * @param extraContext optional extra context for inference.
    * @param maxOutputTokens optional per-request cap on generated tokens; overrides the model's
    *   configured MAX_OUTPUT_TOKENS when non-null.
+   * @param responseFormat an optional schema-constrained decoding request; honored by engines that
+   *   support it, ignored otherwise.
    */
   fun runInference(
     model: Model,
@@ -118,6 +120,7 @@ interface LlmModelHelper {
     coroutineScope: CoroutineScope? = null,
     extraContext: Map<String, String>? = null,
     maxOutputTokens: Int? = null,
+    responseFormat: StructuredOutputRequest? = null,
   )
 
   /**

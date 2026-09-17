@@ -18,7 +18,9 @@ import com.google.ai.edge.gallery.relay.server.ChatMessage
 import com.google.ai.edge.gallery.relay.server.ErrorBody
 import com.google.ai.edge.gallery.relay.server.ErrorEnvelope
 import com.google.ai.edge.gallery.relay.server.LoadResult
+import com.google.ai.edge.gallery.relay.server.ResponseFormat
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
+import com.google.ai.edge.gallery.relay.runtime.ModelEngine
 import com.google.ai.edge.gallery.relay.runtime.isContextOverflow
 import com.google.ai.edge.gallery.relay.server.Usage
 import com.google.ai.edge.gallery.relay.runtime.ThermalGovernor
@@ -54,6 +56,18 @@ internal fun replyCapError(cap: Int?): String? = if (cap != null && cap < 1) "ma
 
 internal fun gpuLayersRangeError(gpuLayers: Int?): String? =
     if (gpuLayers != null && gpuLayers !in 0..999) "gpu_layers must be between 0 and 999" else null
+
+internal fun structuredOutputStreamConflictError(stream: Boolean, responseFormat: ResponseFormat?): String? =
+    if (stream && responseFormat != null) {
+        "stream and response_format cannot be combined: a streamed reply is already sent to the " +
+            "client before it could be validated against the schema."
+    } else null
+
+internal fun structuredOutputEngineError(engine: ModelEngine, responseFormat: ResponseFormat?): String? =
+    if (responseFormat != null && (engine == ModelEngine.AiCore || engine == ModelEngine.LlamaCpp)) {
+        "cannot honor response_format: its engine (${engine.wireName}) does not support " +
+            "constrained decoding yet."
+    } else null
 
 // null counts as 0 (CPU); a live llama.cpp engine loaded on a different value must be reloaded.
 internal fun needsGpuLayersReload(model: Model, requestedGpuLayers: Int?): Boolean =
@@ -144,6 +158,10 @@ internal suspend fun runInferenceBlocking(model: Model, prompt: String, images: 
     )
     if (stopWatcher.triggered) truncated = true
     feedDecodeRate(model, System.currentTimeMillis() - startMs)
+    return buildChatCompletionResponse(model, resultText, truncated)
+}
+
+internal fun buildChatCompletionResponse(model: Model, text: String, truncated: Boolean): ChatCompletionResponse {
     val usage = TurnUsageStore.peek(model.name)
     return ChatCompletionResponse(
         id = "chatcmpl-" + UUID.randomUUID().toString(),
@@ -152,7 +170,7 @@ internal suspend fun runInferenceBlocking(model: Model, prompt: String, images: 
         choices = listOf(
             ChatChoice(
                 index = 0,
-                message = ChatMessage(role = "assistant", content = resultText),
+                message = ChatMessage(role = "assistant", content = text),
                 finish_reason = if (truncated) "length" else "stop"
             )
         ),

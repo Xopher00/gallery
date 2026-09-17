@@ -5,6 +5,7 @@ package com.google.ai.edge.gallery.relay.runtime.llamacpp
 import com.google.ai.edge.gallery.relay.runtime.CountKind
 import com.google.ai.edge.gallery.runtime.LlmModelHelper
 import com.google.ai.edge.gallery.runtime.ResultListener
+import com.google.ai.edge.gallery.runtime.StructuredOutputRequest
 import com.google.ai.edge.gallery.runtime.CleanUpListener
 import com.google.ai.edge.gallery.relay.runtime.TokenCount
 import com.google.ai.edge.gallery.relay.runtime.TurnTokenUsage
@@ -166,6 +167,7 @@ object LlamaCppModelHelper : LlmModelHelper {
         coroutineScope: CoroutineScope?,
         extraContext: Map<String, String>?,
         maxOutputTokens: Int?,
+        responseFormat: StructuredOutputRequest?,
     ) {
         val engine = engines[model.name]
         if (engine == null || !engine.isModelLoaded.get()) {

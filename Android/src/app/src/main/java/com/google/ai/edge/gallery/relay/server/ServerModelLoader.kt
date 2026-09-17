@@ -139,6 +139,7 @@ private suspend fun OpenAiServer.reinitializeModel(model: Model, accelerator: Ac
         taskId = API_TASK_ID,
         supportImage = model.supportImage,
         supportAudio = false,
+        enableConversationConstrainedDecoding = true,
         onDone = { errorMsg -> initError.complete(errorMsg) },
     )
     val error = initError.await()

@@ -24,6 +24,7 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.relay.runtime.TurnUsageStore
 import com.google.ai.edge.gallery.relay.runtime.isContextOverflow
 import com.google.ai.edge.gallery.runtime.LlmModelHelper
+import com.google.ai.edge.gallery.runtime.StructuredOutputRequest
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -54,6 +55,7 @@ internal suspend fun collectInferenceText(
     coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Default),
     onPartial: ((String) -> Unit)? = null,
     maxOutputTokens: Int? = null,
+    responseFormat: StructuredOutputRequest? = null,
     // Invoked before completion iff the maxOutputTokens cap (not a natural stop) was hit.
     onTruncated: (() -> Unit)? = null,
     helper: LlmModelHelper = model.runtimeHelper,
@@ -83,6 +85,7 @@ internal suspend fun collectInferenceText(
         coroutineScope = coroutineScope,
         extraContext = null,
         maxOutputTokens = maxOutputTokens,
+        responseFormat = responseFormat,
     )
 
     return completer.await()

@@ -24,6 +24,10 @@ import com.google.ai.edge.gallery.relay.server.LoadResult
 import com.google.ai.edge.gallery.relay.server.honestDefaultAcceleratorLabel
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import com.google.ai.edge.gallery.relay.runtime.ThermalGovernor
+import com.google.ai.edge.gallery.relay.runtime.engineFor
+import com.google.ai.edge.gallery.runtime.StructuredOutputOutcome
+import com.google.ai.edge.gallery.runtime.StructuredOutputRequest
+import com.google.ai.edge.gallery.runtime.runWithStructuredOutputRetry
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.relay.sessions.openSession
 import com.google.ai.edge.gallery.relay.vision.VisionToolListing
@@ -85,6 +89,15 @@ suspend fun handleChatCompletion(
 
     gpuLayersRangeError(request.gpu_layers)?.let {
         call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+        return
+    }
+
+    structuredOutputStreamConflictError(request.stream, request.response_format)?.let {
+        call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = it)))
+        return
+    }
+    structuredOutputEngineError(model.engineFor(taskIdFor(modelRegistry, model)), request.response_format)?.let {
+        call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = "Model '${model.name}' $it")))
         return
     }
 
@@ -345,7 +358,29 @@ suspend fun handleChatCompletion(
                     persistTurn(assistantText.toString())
                 }
             } else {
-                val response = runInferenceBlocking(model, prompt, lastParsed.images, replyCap)
+                val schema = request.response_format?.takeIf { it.type == "json_schema" }?.json_schema?.schema
+                val response = if (schema != null) {
+                    when (val outcome = runWithStructuredOutputRetry(prompt, schema) { p ->
+                        collectInferenceText(
+                            model, p, lastParsed.images, maxOutputTokens = replyCap,
+                            responseFormat = StructuredOutputRequest(schemaJson = schema.toString()),
+                        )
+                    }) {
+                        is StructuredOutputOutcome.Accepted -> buildChatCompletionResponse(model, outcome.text, truncated = false)
+                        is StructuredOutputOutcome.Exhausted -> {
+                            call.respond(
+                                HttpStatusCode.UnprocessableEntity,
+                                ErrorEnvelope(ErrorBody(
+                                    message = "model failed to produce valid JSON: ${outcome.reason}",
+                                    last_output = outcome.lastOutput,
+                                ))
+                            )
+                            return@withBusyGuard
+                        }
+                    }
+                } else {
+                    runInferenceBlocking(model, prompt, lastParsed.images, replyCap)
+                }
                 persistTurn(response.choices.first().message.content)
                 call.respond(
                     if (effectiveSessionId != null) response.copy(session_id = effectiveSessionId) else response

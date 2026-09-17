@@ -8,6 +8,7 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.runtime.CleanUpListener
 import com.google.ai.edge.gallery.runtime.LlmModelHelper
 import com.google.ai.edge.gallery.runtime.ResultListener
+import com.google.ai.edge.gallery.runtime.StructuredOutputRequest
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.ToolProvider
@@ -65,6 +66,7 @@ object LiteRtLmEmbeddingModelHelper : LlmModelHelper {
     coroutineScope: CoroutineScope?,
     extraContext: Map<String, String>?,
     maxOutputTokens: Int?,
+    responseFormat: StructuredOutputRequest?,
   ) {
     onError(NOT_A_CHAT_MODEL)
   }
