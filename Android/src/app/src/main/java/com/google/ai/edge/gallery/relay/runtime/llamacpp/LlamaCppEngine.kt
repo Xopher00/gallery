@@ -146,19 +146,12 @@ class LlamaCppEngine : EmbeddingCapable {
 
             resetJob = CoroutineScope(Dispatchers.Default).launch {
                 try {
-                    // Close and reopen — this clears the KV cache and message history
-                    // but the OS keeps model pages in memory so reload is fast
-                    instance.close()
-                    instance = SmolLM()
-                    instance.load(modelPath, params)
+                    instance.resetContext()
 
                     if (systemPrompt.isNotBlank()) {
                         instance.addSystemPrompt(systemPrompt)
                     }
 
-                    // Seat prior turns (including the model's own replies) as the conversation
-                    // prefix for the next generateResponse call -- same native mechanism
-                    // loadModel's conversationHistory replay above uses.
                     for ((role, content) in conversationHistory) {
                         instance.addChatMessage(role, content)
                     }
@@ -182,6 +175,7 @@ class LlamaCppEngine : EmbeddingCapable {
         onComplete: (GenerationResult) -> Unit,
         onCancelled: () -> Unit,
         onError: (Exception) -> Unit,
+        schemaJson: String? = null,
     ) {
         stateLock.withLock {
             if (!isModelLoaded.get()) {
@@ -211,7 +205,7 @@ class LlamaCppEngine : EmbeddingCapable {
                     var shouldStop = false
 
                     val duration = measureTime {
-                        instance.getResponseAsFlow(query, maxOutputTokens ?: 0)
+                        instance.getResponseAsFlow(query, maxOutputTokens ?: 0, schemaJson)
                             .takeWhile { !shouldStop }
                             .collect { piece ->
                                 // One emission per completionLoop call, i.e. one decoded token.
@@ -260,6 +254,7 @@ class LlamaCppEngine : EmbeddingCapable {
                     }
                 } catch (e: CancellationException) {
                     isGenerating = false
+                    runCatching { instance.cancelCompletion() }
                     withContext(Dispatchers.Main) { onCancelled() }
                 } catch (e: Exception) {
                     isGenerating = false

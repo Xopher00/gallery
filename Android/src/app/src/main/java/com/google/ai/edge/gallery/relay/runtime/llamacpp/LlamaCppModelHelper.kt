@@ -220,7 +220,8 @@ object LlamaCppModelHelper : LlmModelHelper {
                     Log.e(TAG, "Inference error", e)
                     TurnUsageStore.abort(model.name)
                     onError(e.message ?: "Inference error")
-                }
+                },
+                schemaJson = responseFormat?.schemaJson,
             )
         } catch (e: Exception) {
             // generateResponse can throw synchronously before any callback fires.

@@ -1,4 +1,6 @@
 #include "LLMInference.h"
+#include "json-schema-to-grammar.h"
+#include "json.h"
 #include <jni.h>
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -60,12 +62,42 @@ Java_com_jegly_offlineLLM_smollm_SmolLM_close(JNIEnv* env, jobject thiz, jlong m
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_jegly_offlineLLM_smollm_SmolLM_startCompletion(JNIEnv* env, jobject thiz, jlong modelPtr, jstring prompt, jint maxOutputTokens) {
+Java_com_jegly_offlineLLM_smollm_SmolLM_resetContext(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    llmInference->resetContext();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_jegly_offlineLLM_smollm_SmolLM_cancelCompletion(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    llmInference->cancelCompletion();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_jegly_offlineLLM_smollm_SmolLM_startCompletion(JNIEnv* env, jobject thiz, jlong modelPtr, jstring prompt, jint maxOutputTokens, jstring grammarJson) {
     jboolean    isCopy       = true;
     const char* promptCstr   = env->GetStringUTFChars(prompt, &isCopy);
     auto*       llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    const char* grammarCstr  = nullptr;
+    std::string grammarStr;
+    if (grammarJson) {
+        const char* schemaCstr = env->GetStringUTFChars(grammarJson, &isCopy);
+        if (schemaCstr && schemaCstr[0] != '\0') {
+            try {
+                common_json schema = common_json::parse(schemaCstr);
+                grammarStr = json_schema_to_grammar(schema);
+                grammarCstr = grammarStr.c_str();
+            } catch (std::exception& error) {
+                env->ReleaseStringUTFChars(grammarJson, schemaCstr);
+                env->ReleaseStringUTFChars(prompt, promptCstr);
+                env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), error.what());
+                return;
+            }
+        }
+        env->ReleaseStringUTFChars(grammarJson, schemaCstr);
+    }
     try {
-        llmInference->startCompletion(promptCstr, maxOutputTokens);
+        llmInference->startCompletion(promptCstr, maxOutputTokens, grammarCstr);
     } catch (std::exception& error) {
         env->ReleaseStringUTFChars(prompt, promptCstr);
         env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), error.what());

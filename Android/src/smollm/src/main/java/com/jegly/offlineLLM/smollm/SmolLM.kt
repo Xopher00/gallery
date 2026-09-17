@@ -123,9 +123,9 @@ class SmolLM {
         return getContextSizeUsed(nativePtr)
     }
 
-    fun getResponseAsFlow(query: String, maxOutputTokens: Int = 0): Flow<String> = flow {
+    fun getResponseAsFlow(query: String, maxOutputTokens: Int = 0, schemaJson: String? = null): Flow<String> = flow {
         verifyHandle()
-        startCompletion(nativePtr, query, maxOutputTokens)
+        startCompletion(nativePtr, query, maxOutputTokens, schemaJson)
         var piece = completionLoop(nativePtr)
         while (piece != "[EOG]") {
             emit(piece)
@@ -134,9 +134,9 @@ class SmolLM {
         stopCompletion(nativePtr)
     }
 
-    fun getResponse(query: String, maxOutputTokens: Int = 0): String {
+    fun getResponse(query: String, maxOutputTokens: Int = 0, schemaJson: String? = null): String {
         verifyHandle()
-        startCompletion(nativePtr, query, maxOutputTokens)
+        startCompletion(nativePtr, query, maxOutputTokens, schemaJson)
         var piece = completionLoop(nativePtr)
         var response = ""
         while (piece != "[EOG]") {
@@ -167,6 +167,16 @@ class SmolLM {
         }
     }
 
+    fun resetContext() {
+        verifyHandle()
+        resetContext(nativePtr)
+    }
+
+    fun cancelCompletion() {
+        verifyHandle()
+        cancelCompletion(nativePtr)
+    }
+
     fun isLoaded(): Boolean = nativePtr != 0L
 
     private fun verifyHandle() {
@@ -183,9 +193,17 @@ class SmolLM {
     private external fun getResponseGenerationSpeed(modelPtr: Long): Float
     private external fun getContextSizeUsed(modelPtr: Long): Int
     private external fun close(modelPtr: Long)
-    private external fun startCompletion(modelPtr: Long, prompt: String, maxOutputTokens: Int)
+    private external fun resetContext(modelPtr: Long)
+    private external fun cancelCompletion(modelPtr: Long)
+    private external fun startCompletion(
+        modelPtr: Long,
+        prompt: String,
+        maxOutputTokens: Int,
+        grammarJson: String?,
+    )
     private external fun completionLoop(modelPtr: Long): String
     private external fun stopCompletion(modelPtr: Long)
     private external fun benchModel(modelPtr: Long, pp: Int, tg: Int, pl: Int): DoubleArray
     private external fun getEmbedding(modelPtr: Long, text: String): FloatArray
 }
+

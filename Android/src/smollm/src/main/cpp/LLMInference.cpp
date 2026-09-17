@@ -1,4 +1,6 @@
 #include "LLMInference.h"
+#include "json-schema-to-grammar.h"
+#include "json.h"
 #include <android/log.h>
 #include <cstring>
 #include <iomanip>
@@ -8,6 +10,7 @@
 #include <algorithm>
 #include <dlfcn.h>
 #include <fstream>
+#include <malloc.h>
 #include <mutex>
 
 #define TAG "[offlineLLM-Cpp]"
@@ -58,6 +61,36 @@ static void ensureBackendsLoaded() {
 }
 
 void
+LLMInference::buildSampler(const char *grammarStr) {
+    if (_sampler) llama_sampler_free(_sampler);
+    llama_sampler_chain_params sampler_params = llama_sampler_chain_default_params();
+    _sampler = llama_sampler_chain_init(sampler_params);
+
+    if (_repeatPenalty > 1.0f) {
+        int32_t nVocab = llama_vocab_n_tokens(llama_model_get_vocab(_model));
+        llama_sampler_chain_add(_sampler,
+            llama_sampler_init_penalties(nVocab, 256, _repeatPenalty, 0.0f, 0.0f));
+    }
+    if (_topK > 0) {
+        llama_sampler_chain_add(_sampler, llama_sampler_init_top_k(_topK));
+    }
+    if (_topP < 1.0f) {
+        llama_sampler_chain_add(_sampler, llama_sampler_init_top_p(_topP, 1));
+    }
+    if (_minP > 0.0f) {
+        llama_sampler_chain_add(_sampler, llama_sampler_init_min_p(_minP, 1));
+    }
+    llama_sampler_chain_add(_sampler, llama_sampler_init_temp(_temperature));
+    // Grammar goes immediately before dist -- it must see the distribution after every other
+    // rescaling sampler has run, so it masks the actual candidates dist would otherwise pick from.
+    if (grammarStr && grammarStr[0] != '\0') {
+        llama_sampler_chain_add(_sampler,
+            llama_sampler_init_grammar(llama_model_get_vocab(_model), grammarStr, "root"));
+    }
+    llama_sampler_chain_add(_sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+}
+
+void
 LLMInference::loadModel(const char *model_path, float minP, float temperature, float topP, int topK,
                         float repeatPenalty, bool storeChats, long contextSize,
                         const char *chatTemplate, int nThreads, bool useMmap, bool useMlock,
@@ -77,6 +110,12 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, f
          "\n\tgpuLayers = %d",
          model_path, minP, temperature, topP, topK, repeatPenalty, storeChats, contextSize,
          nThreads, useMmap, useMlock, gpuLayers);
+
+    _minP = minP;
+    _temperature = temperature;
+    _topP = topP;
+    _repeatPenalty = repeatPenalty;
+    _topK = topK;
 
     ensureBackendsLoaded();
 
@@ -129,29 +168,7 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, f
         throw std::runtime_error("llama_new_context_with_model() returned null");
     }
 
-    llama_sampler_chain_params sampler_params = llama_sampler_chain_default_params();
-    sampler_params.no_perf = true;
-    _sampler = llama_sampler_chain_init(sampler_params);
-
-    if (repeatPenalty > 1.0f) {
-        int32_t nVocab = llama_vocab_n_tokens(llama_model_get_vocab(_model));
-        llama_sampler_chain_add(_sampler, llama_sampler_init_penalties(nVocab, 256, repeatPenalty, 0.0f, 0.0f));
-    }
-
-    if (topK > 0) {
-        llama_sampler_chain_add(_sampler, llama_sampler_init_top_k(topK));
-    }
-
-    if (topP < 1.0f) {
-        llama_sampler_chain_add(_sampler, llama_sampler_init_top_p(topP, 1));
-    }
-
-    if (minP > 0.0f) {
-        llama_sampler_chain_add(_sampler, llama_sampler_init_min_p(minP, 1));
-    }
-
-    llama_sampler_chain_add(_sampler, llama_sampler_init_temp(temperature));
-    llama_sampler_chain_add(_sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+    buildSampler(nullptr);
 
     _formattedMessages = std::vector<char>(llama_n_ctx(_ctx));
     _messages.clear();
@@ -197,7 +214,8 @@ LLMInference::getContextSizeUsed() const {
 }
 
 void
-LLMInference::startCompletion(const char *query, int maxOutputTokens) {
+LLMInference::startCompletion(const char *query, int maxOutputTokens, const char *grammarStr) {
+    buildSampler(grammarStr);
     if (_isEmbeddingModel) {
         throw std::runtime_error("this GGUF has a pooling type and produces embeddings, not chat replies -- use /v1/embeddings");
     }
@@ -252,6 +270,7 @@ LLMInference::startCompletion(const char *query, int maxOutputTokens) {
         }
     }
 
+    delete _batch;
     _batch = new llama_batch();
     _batch->token = _promptTokens.data();
     _batch->n_tokens = _promptTokens.size();
@@ -359,6 +378,28 @@ LLMInference::stopCompletion() {
     _cacheResponseTokens.clear();
 }
 
+void
+LLMInference::resetContext() {
+    llama_memory_clear(llama_get_memory(_ctx), false);
+    for (llama_chat_message &message: _messages) {
+        free(const_cast<char *>(message.role));
+        free(const_cast<char *>(message.content));
+    }
+    _messages.clear();
+    _formattedMessages = std::vector<char>(llama_n_ctx(_ctx));
+    _promptTokens.clear();
+    _response.clear();
+    _cacheResponseTokens.clear();
+    _nCtxUsed = 0;
+}
+
+void
+LLMInference::cancelCompletion() {
+    llama_memory_clear(llama_get_memory(_ctx), false);
+    _response.clear();
+    _cacheResponseTokens.clear();
+}
+
 LLMInference::~LLMInference() {
     for (llama_chat_message &message: _messages) {
         free(const_cast<char *>(message.role));
@@ -368,6 +409,10 @@ LLMInference::~LLMInference() {
     if (_model) llama_model_free(_model);
     delete _batch;
     if (_sampler) llama_sampler_free(_sampler);
+    // bionic has no malloc_trim(3) (glibc-only) -- log mallinfo2 alone as the best
+    // available signal on whether the frees above actually shrink the heap arena.
+    struct mallinfo2 info = mallinfo2();
+    LOGi("post-unload heap: uordblks %zu, fordblks %zu", info.uordblks, info.fordblks);
 }
 
 LLMInference::BenchResult

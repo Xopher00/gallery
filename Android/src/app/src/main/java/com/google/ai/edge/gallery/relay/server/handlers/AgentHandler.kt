@@ -163,14 +163,14 @@ private fun allowedToolsForApiKey(
 // so a plain `in` check against the raw names never matches. Normalise both sides (lowercase,
 // strip underscores) before comparing rather than retyping DEFAULT_ALLOWED_TOOLS's casing, so
 // this keeps working whichever casing litertlm emits.
-private fun normalizeToolName(name: String): String = name.lowercase().replace("_", "")
+internal fun normalizeToolName(name: String): String = name.lowercase().replace("_", "")
 
-private val NORMALIZED_DEFAULT_ALLOWED_TOOLS: Set<String> =
+internal val NORMALIZED_DEFAULT_ALLOWED_TOOLS: Set<String> =
     DEFAULT_ALLOWED_TOOLS.map(::normalizeToolName).toSet()
 
 // The `===` fast path below only fires on the one call site still passing the constant
 // directly (never-yet-persisted); everything else normalises `allowedTools` on the spot.
-private fun isToolAllowed(toolName: String, allowedTools: Set<String>): Boolean =
+internal fun isToolAllowed(toolName: String, allowedTools: Set<String>): Boolean =
     if (allowedTools === DEFAULT_ALLOWED_TOOLS) {
         normalizeToolName(toolName) in NORMALIZED_DEFAULT_ALLOWED_TOOLS
     } else {

@@ -23,14 +23,24 @@ public:
     void addChatMessage(const char *message, const char *role);
     float getResponseGenerationTime() const;
     int getContextSizeUsed() const;
-    void startCompletion(const char *query, int maxOutputTokens);
+    void startCompletion(const char *query, int maxOutputTokens, const char *grammarStr = nullptr);
     std::string completionLoop();
     void stopCompletion();
+    void resetContext();
+    void cancelCompletion();
     BenchResult benchModel(int pp, int tg, int pl);
     std::vector<float> getEmbedding(const char *text);
     ~LLMInference();
 
 private:
+    float _minP = 0.0f;
+    float _temperature = 0.0f;
+    float _topP = 1.0f;
+    float _repeatPenalty = 0.0f;
+    int _topK = 0;
+
+    void buildSampler(const char *grammarStr);
+
     llama_model *_model = nullptr;
     llama_context *_ctx = nullptr;
     llama_sampler *_sampler = nullptr;
