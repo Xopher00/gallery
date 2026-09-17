@@ -84,6 +84,7 @@ import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.skills.formatSelectedSkills
 import com.google.ai.edge.gallery.tools.AskInfoToolAction
+import com.google.ai.edge.gallery.tools.AskLocalToolCallPermissionAction
 import com.google.ai.edge.gallery.tools.AskMcpToolCallPermissionAction
 import com.google.ai.edge.gallery.tools.CallJsToolAction
 import com.google.ai.edge.gallery.tools.PermissionResult
@@ -145,6 +146,9 @@ fun AgentChatScreen(
   var currentAskInfoAction by remember { mutableStateOf<AskInfoToolAction?>(null) }
   var currentMcpPermissionAction by remember {
     mutableStateOf<AskMcpToolCallPermissionAction?>(null)
+  }
+  var currentLocalToolPermissionAction by remember {
+    mutableStateOf<AskLocalToolCallPermissionAction?>(null)
   }
   var askInfoInputValue by remember { mutableStateOf("") }
   var webViewRef: WebView? by remember { mutableStateOf(null) }
@@ -418,6 +422,9 @@ fun AgentChatScreen(
             is AskMcpToolCallPermissionAction -> {
               currentMcpPermissionAction = action
             }
+            is AskLocalToolCallPermissionAction -> {
+              currentLocalToolPermissionAction = action
+            }
           }
         }
       }
@@ -608,6 +615,24 @@ fun AgentChatScreen(
           }
         }
         currentMcpPermissionAction = null
+      },
+    )
+  }
+
+  if (currentLocalToolPermissionAction != null) {
+    val action = currentLocalToolPermissionAction!!
+    LocalToolCallPermissionDialog(
+      toolName = action.toolName,
+      argument = action.argument,
+      onResult = { result ->
+        action.result.complete(result)
+        if (result == PermissionResult.ALWAYS_ALLOW) {
+          val dataStoreRepository = skillManagerViewModel.skillManager.dataStoreRepository
+          dataStoreRepository.saveInAppAlwaysAllowedTools(
+            dataStoreRepository.readInAppAlwaysAllowedTools() + action.toolName
+          )
+        }
+        currentLocalToolPermissionAction = null
       },
     )
   }

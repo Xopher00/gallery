@@ -17,13 +17,11 @@ import android.util.Log
 import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import dagger.hilt.android.EntryPointAccessors
-import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.cio.*
 import io.ktor.server.plugins.contentnegotiation.*
-import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
@@ -120,12 +118,6 @@ class OpenAiServer(
                     encodeDefaults = true // else fields equal to their default are dropped
                 })
             }
-            install(CORS) {
-                anyHost()
-                allowHeader(HttpHeaders.ContentType)
-                allowHeader(HttpHeaders.Authorization)
-            }
-
             installApiKeyAuth(apiKey)
 
             // Catch-all is safe: auth and busy guards above respond directly, never throw.

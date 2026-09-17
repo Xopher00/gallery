@@ -37,8 +37,6 @@ data class ToolExecutionContext(
  * implementations annotate concrete tool methods with [@Tool] and parameters with [@ToolParam].
  */
 interface ToolDefinition : ToolSet {
-  /** Whether the tool is always allowed to run. */
-  val alwaysAllow: Boolean
   /** Execution context for the current tool turn. */
   var executionContext: ToolExecutionContext?
 

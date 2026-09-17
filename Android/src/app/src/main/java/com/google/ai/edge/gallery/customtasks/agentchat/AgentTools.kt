@@ -72,10 +72,20 @@ open class AgentToolsImpl : AgentTools {
   }
 
   val runJsTool by lazy {
-    RunJsTool(skillsProvider = skillsProvider, dataStoreRepository = dataStoreRepository)
+    RunJsTool(
+      context = context,
+      skillsProvider = skillsProvider,
+      dataStoreRepository = dataStoreRepository,
+    )
   }
 
-  val runIntentTool by lazy { RunIntentTool(context = context, skillsProvider = skillsProvider) }
+  val runIntentTool by lazy {
+    RunIntentTool(
+      context = context,
+      skillsProvider = skillsProvider,
+      dataStoreRepository = dataStoreRepository,
+    )
+  }
 
   override fun getAvailableTools(): List<ToolDefinition> {
     return listOf(loadSkillTool, runMcpTool, runJsTool, runIntentTool) + activeTools

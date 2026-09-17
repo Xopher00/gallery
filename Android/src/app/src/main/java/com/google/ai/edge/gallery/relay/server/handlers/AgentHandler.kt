@@ -25,7 +25,7 @@
  * open arbitrary URLs). Real execution of a tool's Action -- actually calling
  * MobileActionExecutor.performAction(action, context), which fires the Android
  * Intent/CameraManager side effect -- only happens for tool names in the persisted allowlist
- * (ServerRuntime.allowedTools, seeded from [DEFAULT_ALLOWED_TOOLS] the first time it's read
+ * (ServerRuntime.allowedTools, seeded from [PolicyEngine.DEFAULT_ALLOWED_TOOLS] the first time it's read
  * on a given install -- see [allowedToolsForApiKey]); everything else still gets a canned
  * "success" response fed back to the model (matching what MobileActionsTools' own @Tool methods
  * always return), but its real side effect is withheld, the step is marked blocked, and the
@@ -48,11 +48,13 @@ import com.google.ai.edge.gallery.relay.server.AgentToolData
 import com.google.ai.edge.gallery.relay.server.AgentToolsResponse
 import com.google.ai.edge.gallery.relay.server.ErrorBody
 import com.google.ai.edge.gallery.relay.server.ErrorEnvelope
+import com.google.ai.edge.gallery.relay.server.extractBearerToken
 import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
 import com.google.ai.edge.gallery.relay.server.ServerRuntime
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import com.google.ai.edge.gallery.relay.runtime.ModelEngine
 import com.google.ai.edge.gallery.relay.runtime.engineFor
+import com.google.ai.edge.gallery.relay.security.PolicyEngine
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.ui.llmchat.LlmChatModelHelper
 import com.google.ai.edge.litertlm.ToolManager
@@ -86,65 +88,6 @@ private const val MAX_STEPS_CAP = 20
 // invocations the model triggers along the way).
 private const val AGENT_RUN_TIMEOUT_MS = 120_000L
 
-/**
- * All 14 tool names (matching MobileActionsTools' method names /
- * Action.functionCallDetails.functionName) that can be given to an API client at all.
- */
-internal val ALL_MOBILE_ACTION_TOOLS =
-    listOf(
-        "turnOnFlashlight",
-        "turnOffFlashlight",
-        "createContact",
-        "sendEmail",
-        "showLocationOnMap",
-        "openWifiSettings",
-        "createCalendarEvent",
-        "setAlarm",
-        "setTimer",
-        "dialNumber",
-        "sendSms",
-        "openUrl",
-        "openBluetoothSettings",
-        "openSoundSettings",
-    )
-
-/**
- * Tools that open a compose/dial/browse surface with attacker-or-model-chosen content
- * (dialNumber, sendSms) or navigate to a model-chosen URL (openUrl -- phishing/exfil-via-
- * query-string risk). These must default OFF and stay off unless the user explicitly opts each
- * one in from the Server screen -- this project's standing rule for security-relevant toggles.
- * Not enforced here beyond documentation + the UI grouping (ServerScreen.kt): nothing in this
- * file refuses to persist a set that includes one of these, since the user IS allowed to opt in.
- * What must never happen is one of these appearing in [DEFAULT_ALLOWED_TOOLS] below.
- */
-internal val RISKY_TOOLS = setOf("dialNumber", "sendSms", "openUrl")
-
-/**
- * Seed value for the persisted allowlist (ServerRuntime.loadAllowedTools) the first time a
- * given install reads it with nothing yet persisted -- keeps behaviour unchanged for an existing
- * install until the user visits the Server screen and changes something. None of [RISKY_TOOLS]
- * is in here.
- *
- * Default-on rule (read-only/benign only; anything that sends a message, places a call, or
- * writes user data is off by default):
- *  - turnOnFlashlight / turnOffFlashlight: toggles the torch, fully reversible, no data written.
- *  - openWifiSettings / openBluetoothSettings / openSoundSettings: opens a system Settings
- *    screen; doesn't change anything by itself.
- * Left off by default (user can opt in from the Server screen):
- *  - openUrl, showLocationOnMap: launches a browser/maps intent with attacker-or-model-chosen
- *    content (phishing/exfil-via-query-string risk).
- *  - dialNumber, sendSms, sendEmail: one tap/step from placing a call or sending a message.
- *  - createContact, createCalendarEvent, setAlarm, setTimer: write durable, user-visible data.
- */
-internal val DEFAULT_ALLOWED_TOOLS =
-    setOf(
-        "turnOnFlashlight",
-        "turnOffFlashlight",
-        "openWifiSettings",
-        "openBluetoothSettings",
-        "openSoundSettings",
-    )
-
 // `apiKey` stays unused: the allowlist is keyed globally, not per key, but the parameter is
 // kept for a real per-key map to replace this body later without touching call sites.
 private fun allowedToolsForApiKey(
@@ -155,27 +98,8 @@ private fun allowedToolsForApiKey(
         context.applicationContext,
         DataStoreRepositoryEntryPoint::class.java,
     ).dataStoreRepository()
-    return ServerRuntime.loadAllowedTools(repo, defaultIfUnset = DEFAULT_ALLOWED_TOOLS)
+    return ServerRuntime.loadAllowedTools(repo, defaultIfUnset = PolicyEngine.DEFAULT_ALLOWED_TOOLS)
 }
-
-// litertlm's ReflectionTool emits snake_case tool names (e.g. "turn_on_flashlight") while
-// DEFAULT_ALLOWED_TOOLS holds the camelCase Kotlin @Tool method names (e.g. "turnOnFlashlight"),
-// so a plain `in` check against the raw names never matches. Normalise both sides (lowercase,
-// strip underscores) before comparing rather than retyping DEFAULT_ALLOWED_TOOLS's casing, so
-// this keeps working whichever casing litertlm emits.
-internal fun normalizeToolName(name: String): String = name.lowercase().replace("_", "")
-
-internal val NORMALIZED_DEFAULT_ALLOWED_TOOLS: Set<String> =
-    DEFAULT_ALLOWED_TOOLS.map(::normalizeToolName).toSet()
-
-// The `===` fast path below only fires on the one call site still passing the constant
-// directly (never-yet-persisted); everything else normalises `allowedTools` on the spot.
-internal fun isToolAllowed(toolName: String, allowedTools: Set<String>): Boolean =
-    if (allowedTools === DEFAULT_ALLOWED_TOOLS) {
-        normalizeToolName(toolName) in NORMALIZED_DEFAULT_ALLOWED_TOOLS
-    } else {
-        normalizeToolName(toolName) in allowedTools.map(::normalizeToolName).toSet()
-    }
 
 suspend fun handleAgentRun(
     call: ApplicationCall,
@@ -281,7 +205,7 @@ suspend fun handleAgentRun(
             return@withBusyGuard
         }
 
-        val apiKey = call.request.headers[HttpHeaders.Authorization]?.removePrefix("Bearer ")?.trim()
+        val apiKey = extractBearerToken(call.request.headers[HttpHeaders.Authorization])
         val allowedTools = allowedToolsForApiKey(context, apiKey)
 
         val steps = mutableListOf<AgentStepData>()
@@ -304,7 +228,12 @@ suspend fun handleAgentRun(
                                         toolName = toolName,
                                         reason = "an earlier tool call in this run was refused",
                                     )
-                            !isToolAllowed(toolName, allowedTools) -> {
+                            PolicyEngine.decide(
+                                PolicyEngine.Surface.HTTP_AGENT_RUN,
+                                PolicyEngine.Operation.ExecuteTool(toolName),
+                                allowedTools,
+                                userAlreadyAllowed = false,
+                            ) is PolicyEngine.Decision.Deny -> {
                                 blockedTool = toolName
                                 "blocked: '$toolName' is not allowlisted for this API key" to
                                     ToolOutcome.Refused(toolName = toolName)
@@ -394,7 +323,7 @@ suspend fun handleAgentRun(
 suspend fun handleAgentTools(call: ApplicationCall, context: Context) {
     // Reads from disk (allowedToolsForApiKey), not ServerRuntime.allowedTools' in-memory
     // last-seen value, which may still be null on a freshly booted, never-opened-UI process.
-    val apiKey = call.request.headers[HttpHeaders.Authorization]?.removePrefix("Bearer ")?.trim()
+    val apiKey = extractBearerToken(call.request.headers[HttpHeaders.Authorization])
     val allowedTools = allowedToolsForApiKey(context, apiKey)
 
     // Reflects the real @Tool/@ToolParam annotations on MobileActionsTools via litertlm's own
@@ -412,7 +341,13 @@ suspend fun handleAgentTools(call: ApplicationCall, context: Context) {
                 name = name,
                 description = fn.get("description")?.asString ?: "",
                 parameters = (fn.get("parameters") ?: GsonObject()).toKotlinxJson(),
-                allowlisted = isToolAllowed(name, allowedTools),
+                allowlisted =
+                    PolicyEngine.decide(
+                        PolicyEngine.Surface.HTTP_AGENT_RUN,
+                        PolicyEngine.Operation.ExecuteTool(name),
+                        allowedTools,
+                        userAlreadyAllowed = false,
+                    ) is PolicyEngine.Decision.Allow,
             )
         }
 

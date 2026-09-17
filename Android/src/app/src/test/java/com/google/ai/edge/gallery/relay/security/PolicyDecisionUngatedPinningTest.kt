@@ -1,17 +1,21 @@
-// Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
-
 package com.google.ai.edge.gallery.relay.security
 
-import com.google.ai.edge.gallery.skills.NoOpSkillsProvider
-import com.google.ai.edge.gallery.tools.LoadSkillTool
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** Pins today's fully-ungated in-app tools: alwaysAllow is true and nothing gates the in-app path. */
+/** Pins that loadSkill has no confirmation gate on the in-app local-tool surface. */
 class PolicyDecisionUngatedPinningTest {
 
   @Test
-  fun `LoadSkillTool is always allowed with no gate`() {
-    assertTrue(LoadSkillTool(NoOpSkillsProvider()).alwaysAllow)
+  fun `loadSkill is always allowed with no gate`() {
+    assertEquals(
+      PolicyEngine.Decision.Allow,
+      PolicyEngine.decide(
+        PolicyEngine.Surface.IN_APP_LOCAL_TOOL,
+        PolicyEngine.Operation.ExecuteTool("loadSkill"),
+        allowedTools = emptySet(),
+        userAlreadyAllowed = false,
+      ),
+    )
   }
 }

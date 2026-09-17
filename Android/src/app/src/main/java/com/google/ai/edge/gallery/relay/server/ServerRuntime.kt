@@ -138,10 +138,13 @@ object ServerRuntime {
         repo.saveServerSelectedInterfaceName(name ?: "")
     }
 
-    // No has-been-set bit on the proto field, so empty (never-set or explicit all-off) falls
-    // back to defaultIfUnset -- an explicit all-off no longer survives a process restart.
     fun loadAllowedTools(repo: DataStoreRepository, defaultIfUnset: Set<String>): Set<String> {
-        val tools = repo.readServerAllowedTools().ifEmpty { defaultIfUnset }
+        val tools =
+            if (repo.readServerAllowedToolsConfigured()) {
+                repo.readServerAllowedTools()
+            } else {
+                defaultIfUnset
+            }
         _allowedTools.value = tools
         return tools
     }

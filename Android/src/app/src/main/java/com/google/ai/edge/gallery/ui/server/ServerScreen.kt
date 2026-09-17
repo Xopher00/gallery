@@ -61,9 +61,7 @@ import com.google.ai.edge.gallery.relay.server.ApiKey
 import com.google.ai.edge.gallery.relay.server.OpenAiServerService
 import com.google.ai.edge.gallery.relay.server.ServerRuntime
 import com.google.ai.edge.gallery.relay.server.ServerRuntime.BindMode
-import com.google.ai.edge.gallery.relay.server.handlers.ALL_MOBILE_ACTION_TOOLS
-import com.google.ai.edge.gallery.relay.server.handlers.DEFAULT_ALLOWED_TOOLS
-import com.google.ai.edge.gallery.relay.server.handlers.RISKY_TOOLS
+import com.google.ai.edge.gallery.relay.security.PolicyEngine
 import dagger.hilt.android.EntryPointAccessors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -94,7 +92,7 @@ fun ServerScreen(navigateUp: () -> Unit, modifier: Modifier = Modifier) {
     val bindError by ServerRuntime.bindError.collectAsState()
 
     var allowedTools by remember {
-        mutableStateOf(ServerRuntime.loadAllowedTools(dataStoreRepository, defaultIfUnset = DEFAULT_ALLOWED_TOOLS))
+        mutableStateOf(ServerRuntime.loadAllowedTools(dataStoreRepository, defaultIfUnset = PolicyEngine.DEFAULT_ALLOWED_TOOLS))
     }
 
     fun setToolAllowed(toolName: String, allowed: Boolean) {
@@ -408,8 +406,8 @@ fun ServerScreen(navigateUp: () -> Unit, modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(modifier = Modifier.height(8.dp))
-            for (toolName in ALL_MOBILE_ACTION_TOOLS) {
-                if (toolName in RISKY_TOOLS) continue
+            for (toolName in PolicyEngine.ALL_MOBILE_ACTION_TOOLS) {
+                if (toolName in PolicyEngine.RISKY_TOOLS) continue
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -435,8 +433,8 @@ fun ServerScreen(navigateUp: () -> Unit, modifier: Modifier = Modifier) {
                 color = MaterialTheme.colorScheme.error,
             )
             Spacer(modifier = Modifier.height(8.dp))
-            for (toolName in ALL_MOBILE_ACTION_TOOLS) {
-                if (toolName !in RISKY_TOOLS) continue
+            for (toolName in PolicyEngine.ALL_MOBILE_ACTION_TOOLS) {
+                if (toolName !in PolicyEngine.RISKY_TOOLS) continue
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,

@@ -16,9 +16,11 @@
 
 package com.google.ai.edge.gallery.tools
 
+import android.content.Context
 import android.util.Log
 import com.google.ai.edge.gallery.common.LOCAL_URL_BASE
 import com.google.ai.edge.gallery.data.DataStoreRepository
+import com.google.ai.edge.gallery.relay.security.PolicyEngine
 import com.google.ai.edge.gallery.skills.SkillsProvider
 import com.google.ai.edge.gallery.skills.getJsSkillUrl
 import com.google.ai.edge.gallery.skills.getJsSkillWebviewUrl
@@ -36,10 +38,10 @@ fun getSkillSecretKey(skillName: String): String {
 }
 
 class RunJsTool(
+  private val context: Context,
   private val skillsProvider: SkillsProvider,
   private val dataStoreRepository: DataStoreRepository,
 ) : ToolDefinition {
-  override val alwaysAllow: Boolean = true
   override var executionContext: ToolExecutionContext? = null
 
   var resultImageToShow: CallJsSkillResultImage? = null
@@ -57,6 +59,26 @@ class RunJsTool(
     data: String,
   ): Map<String, Any> {
     return runBlocking(Dispatchers.Default) {
+      val alreadyAllowed = dataStoreRepository.readInAppAlwaysAllowedTools().contains("runJs")
+      val decision =
+        PolicyEngine.decide(
+          context,
+          PolicyEngine.Surface.IN_APP_LOCAL_TOOL,
+          PolicyEngine.Operation.ExecuteTool("runJs"),
+          userAlreadyAllowed = alreadyAllowed,
+        )
+      if (decision is PolicyEngine.Decision.RequireUserConfirmation) {
+        val permissionAction =
+          AskLocalToolCallPermissionAction(
+            toolName = "runJs",
+            argument = "Run script \"$scriptName\" from skill \"$skillName\"",
+          )
+        executionContext?.actionChannel?.send(permissionAction)
+        val result = permissionAction.result.await()
+        if (result == PermissionResult.DENY) {
+          return@runBlocking mapOf("error" to "Permission denied by user", "status" to "failed")
+        }
+      }
       Log.d(
         TAG,
         "runJS tool called with:" +

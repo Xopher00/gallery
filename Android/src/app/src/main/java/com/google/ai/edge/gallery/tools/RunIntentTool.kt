@@ -18,8 +18,10 @@ package com.google.ai.edge.gallery.tools
 
 import android.content.Context
 import android.util.Log
+import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.intents.IntentAction
 import com.google.ai.edge.gallery.intents.IntentHandler
+import com.google.ai.edge.gallery.relay.security.PolicyEngine
 import com.google.ai.edge.gallery.skills.SkillsProvider
 import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
@@ -28,9 +30,11 @@ import kotlinx.coroutines.runBlocking
 
 private const val TAG = "AGRunIntentTool"
 
-class RunIntentTool(private val context: Context, private val skillsProvider: SkillsProvider) :
-  ToolDefinition {
-  override val alwaysAllow: Boolean = true
+class RunIntentTool(
+  private val context: Context,
+  private val skillsProvider: SkillsProvider,
+  private val dataStoreRepository: DataStoreRepository,
+) : ToolDefinition {
   override var executionContext: ToolExecutionContext? = null
 
   /** Run an Android intent */
@@ -49,6 +53,26 @@ class RunIntentTool(private val context: Context, private val skillsProvider: Sk
       if (IntentAction.from(intent) == null) {
         Log.w(TAG, "Intent not found: '$intent'")
         return@runBlocking guardMissingEntityWithSkillFallback(name = intent, type = "Intent")
+      }
+      val alreadyAllowed = dataStoreRepository.readInAppAlwaysAllowedTools().contains("runIntent")
+      val decision =
+        PolicyEngine.decide(
+          context,
+          PolicyEngine.Surface.IN_APP_LOCAL_TOOL,
+          PolicyEngine.Operation.ExecuteTool("runIntent"),
+          userAlreadyAllowed = alreadyAllowed,
+        )
+      if (decision is PolicyEngine.Decision.RequireUserConfirmation) {
+        val permissionAction =
+          AskLocalToolCallPermissionAction(
+            toolName = "runIntent",
+            argument = "Run intent \"$intent\" with parameters: $parameters",
+          )
+        executionContext?.actionChannel?.send(permissionAction)
+        val result = permissionAction.result.await()
+        if (result == PermissionResult.DENY) {
+          return@runBlocking mapOf("action" to intent, "parameters" to parameters, "result" to "denied by user")
+        }
       }
       Log.d(TAG, "Run intent. Intent: '$intent', parameters: '$parameters'")
       executionContext

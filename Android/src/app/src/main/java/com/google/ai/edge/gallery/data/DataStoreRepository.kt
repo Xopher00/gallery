@@ -112,6 +112,12 @@ interface DataStoreRepository {
 
   fun readServerAllowedTools(): Set<String>
 
+  fun readServerAllowedToolsConfigured(): Boolean
+
+  fun saveInAppAlwaysAllowedTools(tools: Set<String>)
+
+  fun readInAppAlwaysAllowedTools(): Set<String>
+
   fun saveServerLastPinned(modelName: String?, accelerator: String?)
 
   fun readServerLastPinned(): Pair<String?, String?>
@@ -440,13 +446,34 @@ class DefaultDataStoreRepository(
   override fun saveServerAllowedTools(tools: Set<String>) {
     runBlocking {
       userDataDataStore.updateData { userData ->
-        userData.toBuilder().clearServerAllowedTools().addAllServerAllowedTools(tools).build()
+        userData
+          .toBuilder()
+          .clearServerAllowedTools()
+          .addAllServerAllowedTools(tools)
+          .setServerAllowedToolsConfigured(true)
+          .build()
       }
     }
   }
 
   override fun readServerAllowedTools(): Set<String> {
     return runBlocking { userDataDataStore.data.first().serverAllowedToolsList.toSet() }
+  }
+
+  override fun readServerAllowedToolsConfigured(): Boolean {
+    return runBlocking { userDataDataStore.data.first().serverAllowedToolsConfigured }
+  }
+
+  override fun saveInAppAlwaysAllowedTools(tools: Set<String>) {
+    runBlocking {
+      userDataDataStore.updateData { userData ->
+        userData.toBuilder().clearInAppAlwaysAllowedTools().addAllInAppAlwaysAllowedTools(tools).build()
+      }
+    }
+  }
+
+  override fun readInAppAlwaysAllowedTools(): Set<String> {
+    return runBlocking { userDataDataStore.data.first().inAppAlwaysAllowedToolsList.toSet() }
   }
 
   override fun saveServerLastPinned(modelName: String?, accelerator: String?) {

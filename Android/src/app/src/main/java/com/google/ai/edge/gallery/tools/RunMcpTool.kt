@@ -25,6 +25,7 @@ import android.util.Log
 import com.google.ai.edge.gallery.common.convertStringToJsonObject
 import com.google.ai.edge.gallery.mcp.McpServerState
 import com.google.ai.edge.gallery.mcp.McpServersProvider
+import com.google.ai.edge.gallery.relay.security.PolicyEngine
 import com.google.ai.edge.gallery.skills.SkillsProvider
 import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
@@ -49,7 +50,6 @@ class RunMcpTool(
   private val skillsProvider: SkillsProvider,
   private val taskId: String,
 ) : ToolDefinition {
-  override val alwaysAllow: Boolean = true
   override var executionContext: ToolExecutionContext? = null
 
   /** Runs MCP tool */
@@ -79,7 +79,15 @@ class RunMcpTool(
       val mcpTool = serverState.mcpServer.toolsList.find { it.name == toolName }
       val isAlwaysAllow = mcpTool?.alwaysAllow ?: false
 
-      if (!isAlwaysAllow) {
+      val decision =
+        PolicyEngine.decide(
+          PolicyEngine.Surface.IN_APP_MCP,
+          PolicyEngine.Operation.ExecuteTool(toolName),
+          allowedTools = emptySet(),
+          userAlreadyAllowed = isAlwaysAllow,
+        )
+
+      if (decision is PolicyEngine.Decision.RequireUserConfirmation) {
         val permissionAction = AskMcpToolCallPermissionAction(toolName = toolName, argument = input)
         executionContext?.actionChannel?.send(permissionAction)
         val permissionResult = permissionAction.result.await()

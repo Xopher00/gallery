@@ -26,6 +26,7 @@ enum class ToolActionName() {
   ASK_INFO,
   REQUEST_PERMISSION,
   ASK_MCP_TOOL_CALL_PERMISSION,
+  ASK_LOCAL_TOOL_CALL_PERMISSION,
 }
 
 /**
@@ -116,6 +117,16 @@ class AskMcpToolCallPermissionAction(
   val argument: String,
   val result: CompletableDeferred<PermissionResult> = CompletableDeferred(),
 ) : ToolAction(name = ToolActionName.ASK_MCP_TOOL_CALL_PERMISSION)
+
+/**
+ * Emitted to request user permission before running an in-app local tool for the first time
+ * ([PolicyEngine.LOCAL_TOOLS_REQUIRING_CONFIRMATION] members only).
+ */
+class AskLocalToolCallPermissionAction(
+  val toolName: String,
+  val argument: String,
+  val result: CompletableDeferred<PermissionResult> = CompletableDeferred(),
+) : ToolAction(name = ToolActionName.ASK_LOCAL_TOOL_CALL_PERMISSION)
 
 /**
  * Parsed JSON data returned from a JavaScript skill execution (`[CallJsToolAction]`).

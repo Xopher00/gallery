@@ -27,7 +27,6 @@ import kotlinx.coroutines.runBlocking
 private const val TAG = "AGLoadSkillTool"
 
 class LoadSkillTool(private val skillsProvider: SkillsProvider) : ToolDefinition {
-  override val alwaysAllow: Boolean = true
   override var executionContext: ToolExecutionContext? = null
 
   /** Loads skill. */

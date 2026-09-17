@@ -443,6 +443,9 @@
   <string name="mcp_tool_call_permission_title" translatable="true" description="Title of the dialog asking the user for permission to execute an MCP tool. [CHAR_LIMIT=45]">Permission to call MCP tool?</string>
   <string name="mcp_tool_name_label" translatable="true" description="Label prefixing the name of the tool requesting execution permission. [CHAR_LIMIT=18]">Tool name</string>
   <string name="mcp_tool_input_label" translatable="true" description="Label prefixing the input arguments being passed to the tool. [CHAR_LIMIT=18]">Input</string>
+  <string name="local_tool_call_permission_title" translatable="true" description="Title of the dialog asking the user for permission to execute an in-app local tool. [CHAR_LIMIT=45]">Allow this action?</string>
+  <string name="local_tool_name_label" translatable="true" description="Label prefixing the name of the local tool requesting execution permission. [CHAR_LIMIT=18]">Tool</string>
+  <string name="local_tool_summary_label" translatable="true" description="Label prefixing the description of what the local tool will do. [CHAR_LIMIT=18]">This will</string>
   <string name="mcp_tool_always_allow" translatable="true" description="Button label to grant permanent permission for the tool to run without asking again. [CHAR_LIMIT=23]">Always allow</string>
   <string name="mcp_tool_allow_once" translatable="true" description="Button label to grant one-time permission for the tool to run. [CHAR_LIMIT=20]">Allow once</string>
   <string name="mcp_tool_dont_allow" translatable="true" description="Button label to deny permission for the tool to run. [CHAR_LIMIT=23]">Don\'t allow</string>

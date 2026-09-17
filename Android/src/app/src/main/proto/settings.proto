@@ -113,6 +113,8 @@ message UserData {
   string server_last_pinned_model_name = 8;
   string server_last_pinned_accelerator = 9;
   bool server_start_on_boot = 10;
+  bool server_allowed_tools_configured = 11;
+  repeated string in_app_always_allowed_tools = 12;
 }
 
 enum FillMode {
