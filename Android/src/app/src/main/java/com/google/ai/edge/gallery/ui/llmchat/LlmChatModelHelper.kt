@@ -348,6 +348,8 @@ object LlmChatModelHelper : LlmModelHelper {
     audioClips: List<ByteArray>,
     coroutineScope: CoroutineScope?,
     extraContext: Map<String, String>?,
+    sessionId: String?,
+    messageIndex: Int?,
     maxOutputTokens: Int?,
     responseFormat: StructuredOutputRequest?,
   ) {
@@ -362,9 +364,16 @@ object LlmChatModelHelper : LlmModelHelper {
       cleanUpListeners[model.name] = cleanUpListener
     }
 
-    // Step 1: Initialize turn telemetry with active Conversation.
+    // Step 1: Initialize turn telemetry with active Conversation and caller-provided correlation
+    // IDs.
     val conversation = instance.conversation
-    instance.metricsTracker?.startTurn(conversation.asSession())
+    instance.metricsTracker?.startTurn(
+      session = conversation.asSession(),
+      sessionId = sessionId,
+      // Since each turn consists of two back-and-forth messages, we divide the message index by
+      // 2 to get the turn index.
+      turnIndex = if (messageIndex == null) null else messageIndex / 2,
+    )
 
     // Token accounting. getTokenCount() is cumulative over the conversation, so the difference
     // across this turn is exact even though the prompt/completion split below is not.

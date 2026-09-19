@@ -65,6 +65,8 @@ object LiteRtLmEmbeddingModelHelper : LlmModelHelper {
     audioClips: List<ByteArray>,
     coroutineScope: CoroutineScope?,
     extraContext: Map<String, String>?,
+    sessionId: String?,
+    messageIndex: Int?,
     maxOutputTokens: Int?,
     responseFormat: StructuredOutputRequest?,
   ) {
