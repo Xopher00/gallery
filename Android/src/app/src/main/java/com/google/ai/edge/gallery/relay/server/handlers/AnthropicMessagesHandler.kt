@@ -13,7 +13,6 @@ import com.google.ai.edge.gallery.data.Accelerator
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.proto.ChatMessageProto
 import com.google.ai.edge.gallery.proto.ChatSideProto
-import com.google.ai.edge.gallery.relay.server.AnthropicContentBlock
 import com.google.ai.edge.gallery.relay.server.AnthropicMessagesRequest
 import com.google.ai.edge.gallery.relay.server.AnthropicMessagesResponse
 import com.google.ai.edge.gallery.relay.server.AnthropicUsage
@@ -101,7 +100,7 @@ suspend fun handleAnthropicMessages(
         return
     }
 
-    if (request.stream) {
+    if (request.stream == true) {
         call.respond(
             HttpStatusCode.NotImplemented,
             ErrorEnvelope(ErrorBody(
@@ -148,7 +147,8 @@ suspend fun handleAnthropicMessages(
         }
         withSamplerOverrides(model, originalConfigValues, request.temperature, request.top_p, request.top_k) {
             // Anthropic's `system` is top-level, not a message role.
-            val systemInstruction = request.system?.let { Contents.of(Content.Text(it)) }
+            val systemText = anthropicSystemText(request.system)
+            val systemInstruction = systemText?.let { Contents.of(Content.Text(it)) }
 
             val lastMessage = request.messages.last()
             if (lastMessage.role != "user") {
@@ -156,22 +156,22 @@ suspend fun handleAnthropicMessages(
                 return@withBusyGuard
             }
 
-            val lastParsed = when (val parsed = parseMessageContent(lastMessage.content)) {
-                is ContentParseResult.Ok -> parsed.parsed
-                is ContentParseResult.Error -> {
+            val lastParsed = when (val parsed = parseAnthropicMessage(lastMessage.role, lastMessage.content)) {
+                is AnthropicParseResult.Ok -> parsed
+                is AnthropicParseResult.Error -> {
                     call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = parsed.message)))
                     return@withBusyGuard
                 }
             }
-            if (lastParsed.audioClips.isNotEmpty()) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorEnvelope(ErrorBody(message = "Audio input is supported on /v1/chat/completions only"))
-                )
-                return@withBusyGuard
+            // No audio block type in Anthropic's content schema; reuse MultimodalContent's decoder for images.
+            val decodedImages = when (val decoded = parseMessageContent(lastParsed.openAiContent)) {
+                is ContentParseResult.Ok -> decoded.parsed.images
+                is ContentParseResult.Error -> {
+                    call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = decoded.message)))
+                    return@withBusyGuard
+                }
             }
-
-            if (lastParsed.images.isNotEmpty() && !model.supportImage) {
+            if (decodedImages.isNotEmpty() && !model.supportImage) {
                 call.respond(
                     HttpStatusCode.BadRequest,
                     ErrorEnvelope(ErrorBody(
@@ -190,9 +190,9 @@ suspend fun handleAnthropicMessages(
                 val initialMessages = mutableListOf<Message>()
                 for (i in 0 until request.messages.size - 1) {
                     val msg = request.messages[i]
-                    val parsedHistory = when (val parsed = parseMessageContent(msg.content)) {
-                        is ContentParseResult.Ok -> parsed.parsed
-                        is ContentParseResult.Error -> {
+                    val parsedHistory = when (val parsed = parseAnthropicMessage(msg.role, msg.content)) {
+                        is AnthropicParseResult.Ok -> parsed
+                        is AnthropicParseResult.Error -> {
                             call.respond(HttpStatusCode.BadRequest, ErrorEnvelope(ErrorBody(message = parsed.message)))
                             return@withBusyGuard
                         }
@@ -222,7 +222,7 @@ suspend fun handleAnthropicMessages(
                     model = model,
                     supportImage = model.supportImage,
                     supportAudio = false,
-                    defaultSystemPrompt = request.system,
+                    defaultSystemPrompt = anthropicSystemText(request.system),
                 ).messages
             }
 
@@ -231,7 +231,7 @@ suspend fun handleAnthropicMessages(
             val stopWatcher = ThermalStopWatcher(model)
             val resultText =
                 collectInferenceText(
-                    model, lastParsed.text, lastParsed.images,
+                    model, lastParsed.text, decodedImages,
                     maxOutputTokens = replyCap,
                     onTruncated = { truncated = true },
                     onPartial = stopWatcher::onPartial,
@@ -254,7 +254,7 @@ suspend fun handleAnthropicMessages(
                 AnthropicMessagesResponse(
                     id = "msg_" + UUID.randomUUID().toString(),
                     model = model.name,
-                    content = listOf(AnthropicContentBlock(text = resultText)),
+                    content = anthropicContentBlocks(resultText, emptyList(), emptyList()),
                     stop_reason = if (truncated) "max_tokens" else "end_turn",
                     // 0/0 when the engine recorded nothing for this turn: unknown, not faked.
                     usage =

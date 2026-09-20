@@ -516,13 +516,16 @@ data class AgentToolData(
 data class AnthropicMessagesRequest(
     val model: String,
     val max_tokens: Int,
-    val system: String? = null,
-    val messages: List<ChatMessageIn>,
-    val tools: List<OpenAiTool>? = null,
+    val system: JsonElement? = null,
+    val messages: List<AnthropicMessageIn>,
+    val tools: List<AnthropicTool>? = null,
+    val tool_choice: JsonElement? = null,
     val temperature: Float? = null,
     val top_p: Float? = null,
     val top_k: Int? = null,
-    val stream: Boolean = false,
+    val stop_sequences: List<String>? = null,
+    val stream: Boolean? = null,
+    val metadata: JsonElement? = null,
     // Box: see ChatCompletionRequest.session_id.
     val session_id: String? = null,
     // Box: see ChatCompletionRequest.gpu_layers.
@@ -535,7 +538,7 @@ data class AnthropicMessagesResponse(
     val type: String = "message",
     val role: String = "assistant",
     val model: String,
-    val content: List<AnthropicContentBlock>,
+    val content: List<JsonObject>,
     val stop_reason: String? = null,
     val usage: AnthropicUsage = AnthropicUsage(),
     // Box: echoes AnthropicMessagesRequest.session_id -- the id a new session was created
@@ -544,13 +547,78 @@ data class AnthropicMessagesResponse(
 )
 
 @Serializable
-data class AnthropicContentBlock(
-    val type: String = "text",
-    val text: String,
-)
-
-@Serializable
 data class AnthropicUsage(
     val input_tokens: Int = 0,
     val output_tokens: Int = 0,
+)
+
+// --- Anthropic tool-calling DTOs (F3) ---
+
+@Serializable
+data class AnthropicMessageIn(
+    val role: String,
+    val content: JsonElement?,
+)
+
+@Serializable
+data class AnthropicTool(
+    val name: String,
+    val description: String? = null,
+    val input_schema: JsonElement? = null,
+    val type: String? = null,
+)
+
+@Serializable
+data class AnthropicErrorEnvelope(
+    val type: String = "error",
+    val error: AnthropicErrorBody,
+)
+
+@Serializable
+data class AnthropicErrorBody(
+    val type: String,
+    val message: String,
+)
+
+@Serializable
+data class AnthropicStreamMessageStart(
+    val type: String = "message_start",
+    val message: JsonObject,
+)
+
+@Serializable
+data class AnthropicStreamBlockStart(
+    val type: String = "content_block_start",
+    val index: Int,
+    val content_block: JsonObject,
+)
+
+@Serializable
+data class AnthropicStreamBlockDelta(
+    val type: String = "content_block_delta",
+    val index: Int,
+    val delta: JsonObject,
+)
+
+@Serializable
+data class AnthropicStreamBlockStop(
+    val type: String = "content_block_stop",
+    val index: Int,
+)
+
+@Serializable
+data class AnthropicStreamMessageDelta(
+    val type: String = "message_delta",
+    val delta: JsonObject,
+    val usage: JsonObject,
+)
+
+@Serializable
+data class AnthropicStreamMessageStop(
+    val type: String = "message_stop",
+)
+
+@Serializable
+data class AnthropicStreamPing(
+    val type: String = "ping",
 )
