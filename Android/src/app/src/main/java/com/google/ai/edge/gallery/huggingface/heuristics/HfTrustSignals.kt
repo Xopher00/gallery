@@ -15,6 +15,7 @@ private val KNOWN_PUBLISHER_NAMESPACES =
     "mistralai",
     "Qwen",
     "meta-llama",
+    "zai-org",
   )
 
 fun HfModelItemProto.isKnownPublisher(): Boolean {
