@@ -26,6 +26,7 @@ import com.google.ai.edge.gallery.data.createLlmChatConfigs
 import com.google.ai.edge.gallery.proto.ImportedModel
 import com.jegly.offlineLLM.smollm.GGUFReader
 import java.io.File
+import kotlin.math.ceil
 
 internal val RESET_CONVERSATION_TURN_COUNT_CONFIG =
   NumberSliderConfig(
@@ -35,6 +36,11 @@ internal val RESET_CONVERSATION_TURN_COUNT_CONFIG =
     defaultValue = 3f,
     valueType = ValueType.INT,
   )
+
+fun estimatedMinDeviceMemoryInGb(sizeInBytes: Long): Int {
+  val sizeInGb = sizeInBytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
+  return maxOf(4, ceil(sizeInGb * 3).toInt())
+}
 
 class ImportedModelStore(
   private val modelsDir: File,
@@ -166,6 +172,7 @@ class ImportedModelStore(
             downloadFileName = "$SD_IMPORTS_DIR${File.separator}$fileName",
             imported = true,
           ),
+        minDeviceMemoryInGb = estimatedMinDeviceMemoryInGb(fileSize),
         configs =
           mutableListOf(
             NumberSliderConfig(
@@ -308,6 +315,7 @@ class ImportedModelStore(
           if (hfModelId.isEmpty()) "" else cardDescriptionStore.get(hfModelId)?.description.orEmpty(),
         configs = configs,
         downloadInfo = downloadInfo,
+        minDeviceMemoryInGb = estimatedMinDeviceMemoryInGb(info.fileSize),
         showRunAgainButton = false,
         supportImage = llmSupportImage,
         supportAudio = llmSupportAudio,
