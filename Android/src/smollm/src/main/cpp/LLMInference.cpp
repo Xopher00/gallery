@@ -495,3 +495,9 @@ LLMInference::getEmbedding(const char *text) {
     llama_batch_free(batch);
     return result;
 }
+
+int
+LLMInference::getEmbeddingTokenCount(const char *text) {
+    std::vector<llama_token> tokens = common_tokenize(_ctx, text, true, true);
+    return int(tokens.size());
+}

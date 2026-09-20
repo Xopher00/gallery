@@ -160,3 +160,19 @@ Java_com_jegly_offlineLLM_smollm_SmolLM_getEmbedding(JNIEnv* env, jobject thiz, 
         return nullptr;
     }
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_jegly_offlineLLM_smollm_SmolLM_getEmbeddingTokenCount(JNIEnv* env, jobject thiz, jlong modelPtr, jstring text) {
+    jboolean    isCopy       = true;
+    const char* textCstr     = env->GetStringUTFChars(text, &isCopy);
+    auto*       llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    try {
+        jint tokenCount = llmInference->getEmbeddingTokenCount(textCstr);
+        env->ReleaseStringUTFChars(text, textCstr);
+        return tokenCount;
+    } catch (std::exception& error) {
+        env->ReleaseStringUTFChars(text, textCstr);
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), error.what());
+        return 0;
+    }
+}

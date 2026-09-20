@@ -446,6 +446,7 @@ data class EmbeddingsResponse(
     val `object`: String = "list",
     val data: List<EmbeddingData>,
     val model: String,
+    val usage: Usage? = null,
 )
 
 @Serializable

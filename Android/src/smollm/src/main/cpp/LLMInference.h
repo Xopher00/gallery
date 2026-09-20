@@ -30,6 +30,7 @@ public:
     void cancelCompletion();
     BenchResult benchModel(int pp, int tg, int pl);
     std::vector<float> getEmbedding(const char *text);
+    int getEmbeddingTokenCount(const char *text);
     ~LLMInference();
 
 private:

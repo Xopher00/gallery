@@ -3,6 +3,7 @@
 package com.google.ai.edge.gallery.relay.runtime.llamacpp
 
 import com.google.ai.edge.gallery.relay.runtime.EmbeddingCapable
+import com.google.ai.edge.gallery.relay.runtime.EmbeddingResult
 import com.jegly.offlineLLM.smollm.SmolLM
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -308,7 +309,7 @@ class LlamaCppEngine : EmbeddingCapable {
     fun isReady(): Boolean = isModelLoaded.get() && !isGenerating
 
     // Throws IllegalStateException if this GGUF has no pooling-type metadata (a chat model).
-    override suspend fun embed(text: String): FloatArray = withContext(Dispatchers.Default) {
-        instance.getEmbedding(text)
+    override suspend fun embed(text: String): EmbeddingResult = withContext(Dispatchers.Default) {
+        EmbeddingResult(instance.getEmbedding(text), instance.getEmbeddingTokenCount(text))
     }
 }

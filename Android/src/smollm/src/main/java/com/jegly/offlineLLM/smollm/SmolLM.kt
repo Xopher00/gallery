@@ -160,6 +160,11 @@ class SmolLM {
         return getEmbedding(nativePtr, text)
     }
 
+    fun getEmbeddingTokenCount(text: String): Int {
+        verifyHandle()
+        return getEmbeddingTokenCount(nativePtr, text)
+    }
+
     fun close() {
         if (nativePtr != 0L) {
             close(nativePtr)
@@ -205,5 +210,6 @@ class SmolLM {
     private external fun stopCompletion(modelPtr: Long)
     private external fun benchModel(modelPtr: Long, pp: Int, tg: Int, pl: Int): DoubleArray
     private external fun getEmbedding(modelPtr: Long, text: String): FloatArray
+    private external fun getEmbeddingTokenCount(modelPtr: Long, text: String): Int
 }
 

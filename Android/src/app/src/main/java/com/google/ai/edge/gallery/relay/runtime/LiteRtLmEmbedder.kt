@@ -12,8 +12,8 @@ import kotlinx.coroutines.withContext
 // Wraps litertlm's own EmbeddingEngine -- unlike llama.cpp, no native work is needed here.
 class LiteRtLmEmbedder private constructor(private val engine: EmbeddingEngine) : EmbeddingCapable {
 
-    override suspend fun embed(text: String): FloatArray = withContext(Dispatchers.Default) {
-        engine.computeEmbedding(listOf(InputData.Text(text))).embedding
+    override suspend fun embed(text: String): EmbeddingResult = withContext(Dispatchers.Default) {
+        EmbeddingResult(engine.computeEmbedding(listOf(InputData.Text(text))).embedding, promptTokens = null)
     }
 
     fun close() = engine.close()

@@ -5,12 +5,14 @@ package com.google.ai.edge.gallery.relay.server.handlers
 import android.util.Base64
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
 import com.google.ai.edge.gallery.relay.runtime.EmbeddingCapable
+import com.google.ai.edge.gallery.relay.runtime.EmbeddingResult
 import com.google.ai.edge.gallery.relay.server.EmbeddingData
 import com.google.ai.edge.gallery.relay.server.EmbeddingsRequest
 import com.google.ai.edge.gallery.relay.server.EmbeddingsResponse
 import com.google.ai.edge.gallery.relay.server.ErrorBody
 import com.google.ai.edge.gallery.relay.server.ErrorEnvelope
 import com.google.ai.edge.gallery.relay.server.LoadResult
+import com.google.ai.edge.gallery.relay.server.Usage
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.respond
@@ -113,13 +115,21 @@ suspend fun handleEmbeddings(
     }
 
     try {
-      val vectors = inputs.map { embedder.embed(it) }
+      val results = inputs.map { embedder.embed(it) }
+      val tokenCounts = results.map { it.promptTokens }
+      val usage = if (tokenCounts.all { it != null }) {
+        val sum = tokenCounts.filterNotNull().sum()
+        Usage(prompt_tokens = sum, completion_tokens = 0, total_tokens = sum)
+      } else {
+        null
+      }
       call.respond(
         EmbeddingsResponse(
-          data = vectors.mapIndexed { index, vector ->
-            EmbeddingData(embedding = embeddingElement(vector, encodingFormat), index = index)
+          data = results.mapIndexed { index, result ->
+            EmbeddingData(embedding = embeddingElement(result.vector, encodingFormat), index = index)
           },
           model = loadedModel.name,
+          usage = usage,
         )
       )
     } catch (e: IllegalStateException) {
