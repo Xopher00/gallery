@@ -155,6 +155,7 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
             modelRegistry = server.modelRegistry,
             llmSessionManager = server.llmSessionManager,
             modelMutexes = server.modelMutexes,
+            admissionGate = server.admissionGate,
             parseAccelerator = server::parseAccelerator,
             usesNpuSlot = server::usesNpuSlot,
             ensureAccelerator = { model, accel ->
@@ -259,6 +260,7 @@ internal fun Route.installOpenAiRoutes(server: OpenAiServer, port: Int) {
             context = server.context,
             modelRegistry = server.modelRegistry,
             agentMutexes = server.agentMutexes,
+            admissionGate = server.admissionGate,
             ensureAccelerator = { model, accel ->
                 when (val result = server.ensureAccelerator(model, accel)) {
                     is AcceleratorResult.Ok -> null

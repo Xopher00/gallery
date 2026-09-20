@@ -16,6 +16,7 @@ import android.content.Context
 import android.util.Log
 import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
+import com.google.ai.edge.gallery.relay.runtime.AdmissionGate
 import dagger.hilt.android.EntryPointAccessors
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -42,6 +43,8 @@ class OpenAiServer(
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     internal val modelMutexes: ConcurrentHashMap<String, Mutex>
         get() = com.google.ai.edge.gallery.relay.runtime.ModelGenerationLocks.mutexes
+
+    internal val admissionGate = AdmissionGate(capacity = 3)
 
     internal val dataStoreRepository by lazy {
         EntryPointAccessors.fromApplication(

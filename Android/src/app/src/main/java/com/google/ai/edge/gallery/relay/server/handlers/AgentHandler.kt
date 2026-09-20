@@ -52,6 +52,7 @@ import com.google.ai.edge.gallery.relay.server.extractBearerToken
 import com.google.ai.edge.gallery.data.DataStoreRepositoryEntryPoint
 import com.google.ai.edge.gallery.relay.server.ServerRuntime
 import com.google.ai.edge.gallery.relay.model.ModelRegistry
+import com.google.ai.edge.gallery.relay.runtime.AdmissionGate
 import com.google.ai.edge.gallery.relay.runtime.ModelEngine
 import com.google.ai.edge.gallery.relay.runtime.engineFor
 import com.google.ai.edge.gallery.relay.security.PolicyEngine
@@ -66,6 +67,7 @@ import dagger.hilt.android.EntryPointAccessors
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
@@ -107,6 +109,7 @@ suspend fun handleAgentRun(
     context: Context,
     modelRegistry: ModelRegistry,
     agentMutexes: ConcurrentHashMap<String, Mutex>,
+    admissionGate: AdmissionGate,
     // Reuses OpenAiServer's private ensureAccelerator/NPU-guard logic (bound by the caller) --
     // null means "ok to proceed", a non-null String is the model name currently holding the NPU.
     ensureAccelerator: suspend (Model, Accelerator?) -> String?,
@@ -177,9 +180,16 @@ suspend fun handleAgentRun(
         return
     }
 
-    val maxSteps = (request.max_steps ?: DEFAULT_MAX_STEPS).coerceIn(1, MAX_STEPS_CAP)
+    if (!admissionGate.tryAcquireShared()) {
+        call.response.header(HttpHeaders.RetryAfter, "1")
+        call.respond(HttpStatusCode.ServiceUnavailable, ErrorEnvelope(ErrorBody(message = "Server is at capacity; retry later")))
+        return
+    }
 
-    // model.runtimeHelper.stopResponse(model) is the real cancel here (LlmModelHelper.stopResponse
+    try {
+        val maxSteps = (request.max_steps ?: DEFAULT_MAX_STEPS).coerceIn(1, MAX_STEPS_CAP)
+
+        // model.runtimeHelper.stopResponse(model) is the real cancel here (LlmModelHelper.stopResponse
     // -> instance.conversation.cancelProcess(), the same call LlmChatModelHelper.cleanUp() and the
     // UI's "stop" button use) -- it fires whenever this run doesn't finish normally, whether that
     // is the AGENT_RUN_TIMEOUT_MS timeout below or the client disconnecting mid-run, so a live
@@ -310,13 +320,16 @@ suspend fun handleAgentRun(
             }
         }
     }
-    when (guardResult) {
-        is BusyResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, ErrorEnvelope(ErrorBody(message = "Model is busy")))
-        is BusyResult.TimedOut -> call.respond(
-            HttpStatusCode.GatewayTimeout,
-            ErrorEnvelope(ErrorBody(message = "Agent run timed out after ${AGENT_RUN_TIMEOUT_MS / 1000}s")),
-        )
-        is BusyResult.Ok -> {}
+        when (guardResult) {
+            is BusyResult.Busy -> call.respond(HttpStatusCode.TooManyRequests, ErrorEnvelope(ErrorBody(message = "Model is busy")))
+            is BusyResult.TimedOut -> call.respond(
+                HttpStatusCode.GatewayTimeout,
+                ErrorEnvelope(ErrorBody(message = "Agent run timed out after ${AGENT_RUN_TIMEOUT_MS / 1000}s")),
+            )
+            is BusyResult.Ok -> {}
+        }
+    } finally {
+        admissionGate.releaseShared()
     }
 }
 
