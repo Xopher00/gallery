@@ -311,6 +311,12 @@ jobs:
             echo
             cat /tmp/conflict_trace.md 2>/dev/null || echo "_Trace unavailable._"
           } > /tmp/conflict_issue.md
+          # GitHub rejects issue bodies over 65536 characters; a wide upstream change overflows the trace.
+          if [ "$(wc -c < /tmp/conflict_issue.md)" -gt 60000 ]; then
+            head -c 60000 /tmp/conflict_issue.md > /tmp/conflict_issue.trunc
+            printf '\n\n_Trace truncated at 60000 bytes; see the run log for the rest._\n' >> /tmp/conflict_issue.trunc
+            mv /tmp/conflict_issue.trunc /tmp/conflict_issue.md
+          fi
           EXISTING=$(gh issue list --repo "${{ github.repository }}" --label "$CONFLICT_LABEL" \
             --state open --json number --jq '.[0].number // empty')
           if [ -z "$EXISTING" ]; then
