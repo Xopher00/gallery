@@ -131,7 +131,8 @@ class ModelAllowlistLoader(
   fun groupTasksByCategory(): Map<String, List<Task>> =
     groupTasksByCategory(
       context = context,
-      tasks = taskCatalog.getActiveCustomTasks().map { it.task },
+      tasks =
+        taskCatalog.getActiveCustomTasks().map { it.task }.filter { it.id != BuiltInTaskId.LLM_TEST },
     )
 
   private fun getAllowlistUrl(version: String): String {
@@ -281,6 +282,7 @@ class ModelAllowlistLoader(
       allowlistModels.add(model)
       nameToModel.put(model.name, model)
       for (taskType in allowedModel.taskTypes) {
+        if (taskType == BuiltInTaskId.LLM_TEST) continue
         val task = curTasks.find { it.id == taskType }
         if (task != null && task.models.none { it.name == model.name }) {
           task.models.add(model)

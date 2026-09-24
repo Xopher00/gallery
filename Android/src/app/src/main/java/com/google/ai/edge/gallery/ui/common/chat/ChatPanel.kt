@@ -210,6 +210,11 @@ fun ChatPanel(
   var pickedAudioClipsCount by remember { mutableIntStateOf(0) }
 
   var showImageLimitBanner by remember { mutableStateOf(false) }
+  var showTestChatLimitedBanner by
+    remember(task.id) {
+      // Not persisted: the fork strips promo-view tracking from the data store.
+      mutableStateOf(task.id == BuiltInTaskId.LLM_TEST)
+    }
 
   // Stores the heights of the items in the list, indexed by the item index.
   val itemHeights = remember { mutableStateMapOf<Int, Int>() }
@@ -634,6 +639,17 @@ fun ChatPanel(
         FloatingBanner(
           visible = showImageLimitBanner,
           text = stringResource(R.string.aicore_image_limit_message),
+          modifier =
+            Modifier.align(Alignment.TopCenter).padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+
+        FloatingBanner(
+          visible = showTestChatLimitedBanner,
+          text = stringResource(R.string.test_chat_limited_functionality_note),
+          actionLabel = stringResource(R.string.dont_show_again),
+          onActionClick = {
+            showTestChatLimitedBanner = false
+          },
           modifier =
             Modifier.align(Alignment.TopCenter).padding(horizontal = 16.dp, vertical = 8.dp),
         )

@@ -52,19 +52,21 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
    * Fetches models from the Hugging Face API and applies official community promotion sorting.
    * Search fetching and model sorting are decoupled via [fetchModels] and [sortModels].
    */
-  suspend fun searchModels(
+  open suspend fun searchModels(
     query: String = "",
     sort: HfSortOptionProto = HfSortOptionProto.HF_SORT_OPTION_DOWNLOADS,
     limit: Int = 50,
     accessToken: String? = null,
   ): List<HfModelItemProto> {
-    val rawModels = fetchModels(query = query, limit = limit, accessToken = accessToken)
+    val rawModels =
+      fetchModels(query = query, sort = sort, limit = limit, accessToken = accessToken)
     return sortModels(rawModels, sort)
   }
 
-  /** Fetches matching catalog items from Hugging Face API without imposing a display sort order. */
-  suspend fun fetchModels(
+  /** Fetches matching catalog items from Hugging Face API with the given sort order. */
+  open suspend fun fetchModels(
     query: String = "",
+    sort: HfSortOptionProto = HfSortOptionProto.HF_SORT_OPTION_DOWNLOADS,
     limit: Int = 50,
     accessToken: String? = null,
   ): List<HfModelItemProto> =
@@ -74,6 +76,7 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
         fetchModelsForFilter(
           filterTag = FILTER_LITERT_LM,
           query = query,
+          sort = sort,
           limit = limit,
           accessToken = accessToken,
         )
@@ -82,6 +85,7 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
         fetchModelsForFilter(
           filterTag = FILTER_GGUF,
           query = query,
+          sort = sort,
           limit = limit,
           accessToken = accessToken,
         )
@@ -92,10 +96,11 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
   private fun fetchModelsForFilter(
     filterTag: String,
     query: String,
+    sort: HfSortOptionProto,
     limit: Int,
     accessToken: String?,
   ): List<HfModelItemProto> {
-    val urlString = buildApiUrl(query = query, limit = limit, filterTag = filterTag)
+    val urlString = buildApiUrl(query = query, sort = sort, limit = limit, filterTag = filterTag)
     val responseText = executeGetRequest(urlString = urlString, accessToken = accessToken)
     if (responseText.isNullOrEmpty()) {
       return emptyList()
@@ -121,16 +126,24 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
     return models.filter { it.hasCompatibleModelFiles() || it.hasGgufFiles() }
   }
 
-  private fun buildApiUrl(query: String, limit: Int, filterTag: String): String {
+  private fun buildApiUrl(
+    query: String,
+    sort: HfSortOptionProto,
+    limit: Int,
+    filterTag: String,
+  ): String {
     val queryParams =
       mutableListOf(
         "filter" to filterTag,
+        "sort" to sort.queryValue,
+        "direction" to "-1",
         "limit" to limit.toString(),
         "expand" to "siblings",
         "expand" to "tags",
         "expand" to "likes",
         "expand" to "downloads",
         "expand" to "lastModified",
+        "expand" to "trendingScore",
       )
     if (query.isNotBlank()) {
       queryParams.add("search" to URLEncoder.encode(query.trim(), "UTF-8"))
@@ -274,6 +287,7 @@ constructor(@IoDispatcher private val ioDispatcher: CoroutineDispatcher) {
     jsonObj.getOrNull("downloads")?.let { downloads = it.asLong }
     jsonObj.getOrNull("likes")?.let { likes = it.asLong }
     jsonObj.getOrNull("lastModified")?.let { lastModified = it.asString }
+    jsonObj.getOrNull("trendingScore")?.let { trendingScore = it.asLong }
 
     jsonObj
       .getAsJsonArray("tags")

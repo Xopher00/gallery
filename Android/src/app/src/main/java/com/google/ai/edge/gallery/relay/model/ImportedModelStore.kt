@@ -4,6 +4,8 @@ package com.google.ai.edge.gallery.relay.model
 
 import android.util.Log
 import com.google.ai.edge.gallery.R
+import com.google.ai.edge.gallery.data.ModelUtils
+import com.google.ai.edge.gallery.data.getTargetTaskIdsForImportedModel
 import com.google.ai.edge.gallery.data.Accelerator
 import com.google.ai.edge.gallery.data.BackendSpec
 import com.google.ai.edge.gallery.data.BuiltInTaskId
@@ -61,30 +63,8 @@ class ImportedModelStore(
       // fetch, never a model load.
       queueDescriptionFor(importedModel)
 
-      taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_CHAT }, model)
-      taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_PROMPT_LAB }, model)
-      taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_AGENT_CHAT }, model)
-      if (model.supportImage) {
-        taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_ASK_IMAGE }, model)
-      }
-      if (model.supportAudio) {
-        taskCatalog.addModelIfAbsent(curTasks.find { it.id == BuiltInTaskId.LLM_ASK_AUDIO }, model)
-      }
-      if (model.llmProfile?.supportTinyGarden == true) {
-        taskCatalog.addModelIfAbsent(
-          curTasks.find { it.id == BuiltInTaskId.LLM_TINY_GARDEN },
-          model,
-        )
-        val newConfigs = model.configs.toMutableList()
-        newConfigs.add(RESET_CONVERSATION_TURN_COUNT_CONFIG)
-        model.configs = newConfigs
-        model.preProcess()
-      }
-      if (model.llmProfile?.supportMobileActions == true) {
-        taskCatalog.addModelIfAbsent(
-          curTasks.find { it.id == BuiltInTaskId.LLM_MOBILE_ACTIONS },
-          model,
-        )
+      for (taskId in model.getTargetTaskIdsForImportedModel()) {
+        taskCatalog.addModelIfAbsent(curTasks.find { it.id == taskId }, model)
       }
     }
 
@@ -110,42 +90,17 @@ class ImportedModelStore(
     val model = createModelFromImportedModelInfo(info = info)
     queueDescriptionFor(info)
 
-    val setOfTasks =
-      mutableSetOf(
-        BuiltInTaskId.LLM_CHAT,
-        BuiltInTaskId.LLM_ASK_IMAGE,
-        BuiltInTaskId.LLM_ASK_AUDIO,
-        BuiltInTaskId.LLM_PROMPT_LAB,
-        BuiltInTaskId.LLM_TINY_GARDEN,
-        BuiltInTaskId.LLM_MOBILE_ACTIONS,
-        BuiltInTaskId.LLM_AGENT_CHAT,
-      )
-    for (task in taskCatalog.getTasksByIds(ids = setOfTasks)) {
+    for (task in taskCatalog.getActiveCustomTasks().map { it.task }) {
       val modelIndex =
         task.models.indexOfFirst { info.fileName == it.name && it.downloadInfo.imported }
       if (modelIndex >= 0) {
         Log.d(TAG, "duplicated imported model found in task. Removing it first")
         task.models.removeAt(modelIndex)
+        task.updateTrigger.value = System.currentTimeMillis()
       }
-      if (
-        (task.id == BuiltInTaskId.LLM_ASK_IMAGE && model.supportImage) ||
-          (task.id == BuiltInTaskId.LLM_ASK_AUDIO && model.supportAudio) ||
-          (task.id == BuiltInTaskId.LLM_TINY_GARDEN && model.llmProfile?.supportTinyGarden == true) ||
-          (task.id == BuiltInTaskId.LLM_MOBILE_ACTIONS &&
-            model.llmProfile?.supportMobileActions == true) ||
-          (task.id != BuiltInTaskId.LLM_ASK_IMAGE &&
-            task.id != BuiltInTaskId.LLM_ASK_AUDIO &&
-            task.id != BuiltInTaskId.LLM_TINY_GARDEN &&
-            task.id != BuiltInTaskId.LLM_MOBILE_ACTIONS)
-      ) {
-        task.models.add(model)
-        if (task.id == BuiltInTaskId.LLM_TINY_GARDEN) {
-          val newConfigs = model.configs.toMutableList()
-          newConfigs.add(RESET_CONVERSATION_TURN_COUNT_CONFIG)
-          model.configs = newConfigs
-        }
-        model.preProcess()
-      }
+    }
+    for (task in taskCatalog.getTasksByIds(ids = model.getTargetTaskIdsForImportedModel())) {
+      task.models.add(model)
       task.updateTrigger.value = System.currentTimeMillis()
     }
 
@@ -208,6 +163,7 @@ class ImportedModelStore(
             else -> null
           }
         }
+        .ifEmpty { listOf(Accelerator.CPU) }
         .toMutableList()
     val llmMaxToken = info.llmConfig.defaultMaxTokens
     val llmSupportImage = info.llmConfig.supportImage
@@ -216,6 +172,7 @@ class ImportedModelStore(
     val llmSupportMobileActions = info.llmConfig.supportMobileActions
     val llmSupportThinking = info.llmConfig.supportThinking
     val llmSupportSpeculativeDecoding = info.llmConfig.supportSpeculativeDecoding
+    val isForTestOnly = ModelUtils.isImportedUrlForTestOnly(info.url)
     val importedFileNameToCheck =
       if (info.fileName.startsWith("$IMPORTS_DIR/")) {
         info.fileName.substringAfter("$IMPORTS_DIR/")
@@ -270,23 +227,16 @@ class ImportedModelStore(
     buildModelFileDetailsText(details = modelFileDetails, selectedAccelerators = accelerators)?.let {
       configs.add(1, LabelConfig(key = MODEL_FILE_DETAILS_LABEL_KEY, defaultValue = it))
     }
-    val capabilities: MutableList<ModelCapability> = mutableListOf()
-    val capabilityToTaskTypes: MutableMap<ModelCapability, List<String>> = mutableMapOf()
-    if (llmSupportThinking) {
-      capabilities.add(ModelCapability.LLM_THINKING)
-      capabilityToTaskTypes[ModelCapability.LLM_THINKING] =
-        listOf(BuiltInTaskId.LLM_CHAT, BuiltInTaskId.LLM_ASK_IMAGE, BuiltInTaskId.LLM_ASK_AUDIO)
+    if (llmSupportTinyGarden && !isForTestOnly) {
+      configs.add(RESET_CONVERSATION_TURN_COUNT_CONFIG)
     }
-    if (llmSupportSpeculativeDecoding) {
-      capabilities.add(ModelCapability.SPECULATIVE_DECODING)
-      capabilityToTaskTypes[ModelCapability.SPECULATIVE_DECODING] =
-        listOf(
-          BuiltInTaskId.LLM_CHAT,
-          BuiltInTaskId.LLM_ASK_IMAGE,
-          BuiltInTaskId.LLM_ASK_AUDIO,
-          BuiltInTaskId.LLM_PROMPT_LAB,
-        )
-    }
+    val capabilityToTaskTypes =
+      ModelUtils.buildImportedModelCapabilityToTaskTypes(
+        supportThinking = llmSupportThinking,
+        supportSpeculativeDecoding = llmSupportSpeculativeDecoding,
+        isForTestOnly = isForTestOnly,
+      )
+    val capabilities = capabilityToTaskTypes.keys.toMutableList()
     val importedRuntimeType =
       if (importedFileNameToCheck.endsWith(".gguf", ignoreCase = true)) {
         RuntimeType.UNKNOWN
@@ -332,7 +282,7 @@ class ImportedModelStore(
             )
           },
         capabilities = capabilities.toList(),
-        capabilityToTaskTypes = capabilityToTaskTypes.toMap(),
+        capabilityToTaskTypes = capabilityToTaskTypes,
         backendSpec = BackendSpec(runtimeType = importedRuntimeType, accelerators = accelerators),
       )
     model.preProcess()

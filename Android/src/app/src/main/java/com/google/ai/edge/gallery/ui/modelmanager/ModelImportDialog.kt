@@ -66,18 +66,12 @@ import com.google.ai.edge.gallery.R
 import com.google.ai.edge.gallery.common.getModelStorageDir
 import com.google.ai.edge.gallery.common.isPixel10
 import com.google.ai.edge.gallery.data.Accelerator
-import com.google.ai.edge.gallery.data.BooleanSwitchConfig
 import com.google.ai.edge.gallery.data.Config
 import com.google.ai.edge.gallery.data.ConfigKey
 import com.google.ai.edge.gallery.data.ConfigKeys
-import com.google.ai.edge.gallery.data.DEFAULT_MAX_TOKEN
-import com.google.ai.edge.gallery.data.DEFAULT_TEMPERATURE
-import com.google.ai.edge.gallery.data.DEFAULT_TOPK
-import com.google.ai.edge.gallery.data.DEFAULT_TOPP
 import com.google.ai.edge.gallery.data.IMPORTS_DIR
 import com.google.ai.edge.gallery.data.LabelConfig
-import com.google.ai.edge.gallery.data.NumberSliderConfig
-import com.google.ai.edge.gallery.data.SegmentedButtonConfig
+import com.google.ai.edge.gallery.data.ModelUtils
 import com.google.ai.edge.gallery.data.ValueType
 import com.google.ai.edge.gallery.data.convertValueToTargetType
 import com.google.ai.edge.gallery.huggingface.DeviceHardwareInfo
@@ -87,7 +81,6 @@ import com.google.ai.edge.gallery.huggingface.extractHfUrlInfo
 import com.google.ai.edge.gallery.huggingface.isLiteRtLmFileName
 import com.google.ai.edge.gallery.proto.ImportedModel
 import com.google.ai.edge.gallery.proto.importedModel
-import com.google.ai.edge.gallery.proto.llmConfig
 import com.google.ai.edge.gallery.relay.model.MODEL_FILE_DETAILS_LABEL_KEY
 import com.google.ai.edge.gallery.relay.model.buildModelFileDetailsTextFromFileName
 import com.google.ai.edge.gallery.relay.model.importedFile
@@ -106,6 +99,7 @@ import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -129,74 +123,23 @@ private fun acceleratorOptionsFor(fileName: String): List<Accelerator> =
     else -> SUPPORTED_ACCELERATORS
   }
 
-private val IMPORT_CONFIGS_LLM: List<Config> =
-  listOf(
-    LabelConfig(key = ConfigKeys.NAME),
-    LabelConfig(key = ConfigKeys.MODEL_TYPE),
-    NumberSliderConfig(
-      key = ConfigKeys.DEFAULT_MAX_TOKENS,
-      sliderMin = 100f,
-      sliderMax = 4096f,
-      defaultValue = DEFAULT_MAX_TOKEN.toFloat(),
-      valueType = ValueType.INT,
-    ),
-    NumberSliderConfig(
-      key = ConfigKeys.DEFAULT_TOPK,
-      sliderMin = 1f,
-      sliderMax = 100f,
-      defaultValue = DEFAULT_TOPK.toFloat(),
-      valueType = ValueType.INT,
-    ),
-    NumberSliderConfig(
-      key = ConfigKeys.DEFAULT_TOPP,
-      sliderMin = 0.0f,
-      sliderMax = 1.0f,
-      defaultValue = DEFAULT_TOPP,
-      valueType = ValueType.FLOAT,
-    ),
-    NumberSliderConfig(
-      key = ConfigKeys.DEFAULT_TEMPERATURE,
-      sliderMin = 0.0f,
-      sliderMax = 2.0f,
-      defaultValue = DEFAULT_TEMPERATURE,
-      valueType = ValueType.FLOAT,
-    ),
-    BooleanSwitchConfig(key = ConfigKeys.SUPPORT_IMAGE, defaultValue = false),
-    BooleanSwitchConfig(key = ConfigKeys.SUPPORT_AUDIO, defaultValue = false),
-    BooleanSwitchConfig(key = ConfigKeys.SUPPORT_MOBILE_ACTIONS, defaultValue = false),
-    BooleanSwitchConfig(key = ConfigKeys.SUPPORT_THINKING, defaultValue = false),
-    BooleanSwitchConfig(key = ConfigKeys.SUPPORT_SPECULATIVE_DECODING, defaultValue = false),
-    SegmentedButtonConfig(
-      key = ConfigKeys.COMPATIBLE_ACCELERATORS,
-      defaultValue = SUPPORTED_ACCELERATORS[0].label,
-      options = SUPPORTED_ACCELERATORS.map { it.label },
-      allowMultiple = true,
-    ),
-  )
-
-// Swaps only the accelerator config; SegmentedButtonConfig isn't a data class, so fields are passed through by hand.
-// Also inserts the filename-derived details row, read-only, right above that accelerator selector.
-private fun importConfigsLlmFor(acceleratorOptions: List<Accelerator>, fileName: String): List<Config> {
+// The fork has never offered the Tiny Garden toggle on import. Inserts the filename-derived details
+// row, read-only, right above the accelerator selector.
+private fun importConfigsLlmFor(
+  acceleratorOptions: List<Accelerator>,
+  fileName: String,
+  isForTestOnly: Boolean,
+): List<Config> {
   val detailsText = buildModelFileDetailsTextFromFileName(fileName)
-  return IMPORT_CONFIGS_LLM.flatMap { config ->
-    if (config.key == ConfigKeys.COMPATIBLE_ACCELERATORS) {
-      val original = config as SegmentedButtonConfig
-      val acceleratorsConfig =
-        SegmentedButtonConfig(
-          key = original.key,
-          defaultValue = acceleratorOptions[0].label,
-          options = acceleratorOptions.map { it.label },
-          allowMultiple = original.allowMultiple,
-        )
-      if (detailsText != null) {
-        listOf(LabelConfig(key = MODEL_FILE_DETAILS_LABEL_KEY, defaultValue = detailsText), acceleratorsConfig)
+  return Config.createLlmImportConfigs(accelerators = acceleratorOptions, isForTestOnly = isForTestOnly)
+    .filter { it.key != ConfigKeys.SUPPORT_TINY_GARDEN }
+    .flatMap { config ->
+      if (config.key == ConfigKeys.COMPATIBLE_ACCELERATORS && detailsText != null) {
+        listOf(LabelConfig(key = MODEL_FILE_DETAILS_LABEL_KEY, defaultValue = detailsText), config)
       } else {
-        listOf(acceleratorsConfig)
+        listOf(config)
       }
-    } else {
-      listOf(config)
     }
-  }
 }
 
 @Composable
@@ -242,7 +185,13 @@ fun ModelImportDialog(
 
   val acceleratorOptions = remember(fileName) { acceleratorOptionsFor(fileName) }
   val importConfigsLlm =
-    remember(acceleratorOptions, fileName) { importConfigsLlmFor(acceleratorOptions, fileName) }
+    remember(acceleratorOptions, fileName) {
+      importConfigsLlmFor(
+        acceleratorOptions = acceleratorOptions,
+        fileName = fileName,
+        isForTestOnly = ModelUtils.isImportedUrlForTestOnly(uri.toString()),
+      )
+    }
 
   val initialValues: Map<String, Any> = remember {
     mutableMapOf<String, Any>().apply {
@@ -316,78 +265,16 @@ fun ModelImportDialog(
                     as String)
                   .split(",")
                   .filter { label -> acceleratorOptions.any { it.label == label } }
-              val defaultMaxTokens =
-                convertValueToTargetType(
-                  value = values.get(ConfigKeys.DEFAULT_MAX_TOKENS.label)!!,
-                  valueType = ValueType.INT,
-                )
-                  as Int
-              val defaultTopk =
-                convertValueToTargetType(
-                  value = values.get(ConfigKeys.DEFAULT_TOPK.label)!!,
-                  valueType = ValueType.INT,
-                )
-                  as Int
-              val defaultTopp =
-                convertValueToTargetType(
-                  value = values.get(ConfigKeys.DEFAULT_TOPP.label)!!,
-                  valueType = ValueType.FLOAT,
-                )
-                  as Float
-              val defaultTemperature =
-                convertValueToTargetType(
-                  value = values.get(ConfigKeys.DEFAULT_TEMPERATURE.label)!!,
-                  valueType = ValueType.FLOAT,
-                )
-                  as Float
-              val supportImage =
-                convertValueToTargetType(
-                  value = values.get(ConfigKeys.SUPPORT_IMAGE.label)!!,
-                  valueType = ValueType.BOOLEAN,
-                )
-                  as Boolean
-              val supportAudio =
-                convertValueToTargetType(
-                  value = values.get(ConfigKeys.SUPPORT_AUDIO.label)!!,
-                  valueType = ValueType.BOOLEAN,
-                )
-                  as Boolean
-              val supportMobileActions =
-                convertValueToTargetType(
-                  value = values.get(ConfigKeys.SUPPORT_MOBILE_ACTIONS.label)!!,
-                  valueType = ValueType.BOOLEAN,
-                )
-                  as Boolean
-              val supportThinking =
-                convertValueToTargetType(
-                  value = values.get(ConfigKeys.SUPPORT_THINKING.label)!!,
-                  valueType = ValueType.BOOLEAN,
-                )
-                  as Boolean
-              val supportSpeculativeDecoding =
-                convertValueToTargetType(
-                  value = values.get(ConfigKeys.SUPPORT_SPECULATIVE_DECODING.label)!!,
-                  valueType = ValueType.BOOLEAN,
-                )
-                  as Boolean
+                  .joinToString(",")
               val downloadUrl = getDownloadUrl(uri)
               val importedModel = importedModel {
                 this.fileName = fileName
                 this.fileSize = fileSize
                 this.url = if (isHttpOrHttps(uri)) downloadUrl else ""
-                this.llmConfig = llmConfig {
-                  compatibleAccelerators += supportedAccelerators
-                  this.defaultMaxTokens = defaultMaxTokens
-                  this.defaultTopk = defaultTopk
-                  this.defaultTopp = defaultTopp
-                  this.defaultTemperature = defaultTemperature
-                  this.supportImage = supportImage
-                  this.supportAudio = supportAudio
-                  this.supportMobileActions = supportMobileActions
-                  this.supportThinking = supportThinking
-                  this.supportTinyGarden = supportTinyGarden
-                  this.supportSpeculativeDecoding = supportSpeculativeDecoding
-                }
+                this.llmConfig =
+                  ModelUtils.createImportedLlmConfig(
+                    values + (ConfigKeys.COMPATIBLE_ACCELERATORS.label to supportedAccelerators)
+                  )
               }
 
               onDone(importedModel)
@@ -523,7 +410,7 @@ private fun importModel(
       //   onProgress(i.toFloat() / 10f)
       // }
       Log.d(TAG, "import done for web model")
-      onDone()
+      withContext(Dispatchers.Main) { onDone() }
       return@launch
     }
 
@@ -550,6 +437,7 @@ private fun importModel(
     try {
       if (inputStream != null) {
         while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+          ensureActive()
           outputStream.write(buffer, 0, bytesRead)
           importedBytes += bytesRead
 
@@ -564,17 +452,23 @@ private fun importModel(
           }
         }
       }
+    } catch (e: CancellationException) {
+      throw e
     } catch (e: Exception) {
-      e.printStackTrace()
-      onError(e.message ?: context.getString(R.string.failed_to_import))
+      Log.e(TAG, "Failed to import model", e)
+      withContext(Dispatchers.Main) {
+        onError(e.message ?: context.getString(R.string.failed_to_import))
+      }
       return@launch
     } finally {
       inputStream?.close()
       outputStream.close()
     }
     Log.d(TAG, "import done")
-    onProgress(1f)
-    onDone()
+    withContext(Dispatchers.Main) {
+      onProgress(1f)
+      onDone()
+    }
   }
 }
 
