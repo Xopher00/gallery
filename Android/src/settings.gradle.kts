@@ -47,7 +47,7 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "AI Edge Gallery"
+rootProject.name = "Freehold"
 
 include(":app")
 include(":smollm")

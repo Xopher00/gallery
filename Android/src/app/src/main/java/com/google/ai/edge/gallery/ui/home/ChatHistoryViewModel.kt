@@ -76,7 +76,7 @@ class ChatHistoryViewModel @Inject constructor(
                 val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
                 val sessions = chatSessionRepository.getAllChatSessions()
                 val sb = StringBuilder()
-                sb.appendLine("Box Chat Export")
+                sb.appendLine("Freehold Chat Export")
                 sb.appendLine("Exported: ${fmt.format(Date())}")
                 sb.appendLine("Total conversations: ${sessions.size}")
                 sb.appendLine("=".repeat(72))
@@ -95,7 +95,7 @@ class ChatHistoryViewModel @Inject constructor(
                     }
                     sb.appendLine("=".repeat(72))
                 }
-                val fileName = "box_chat_export_${System.currentTimeMillis()}.txt"
+                val fileName = "freehold_chat_export_${System.currentTimeMillis()}.txt"
                 val saved = saveToDownloads(context, fileName, sb.toString())
                 withContext(Dispatchers.Main) {
                     if (saved) Toast.makeText(context, "Saved to Downloads/$fileName", Toast.LENGTH_LONG).show()
@@ -118,7 +118,7 @@ class ChatHistoryViewModel @Inject constructor(
             try {
                 val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
                 val sb = StringBuilder()
-                sb.appendLine("Box Chat Export")
+                sb.appendLine("Freehold Chat Export")
                 sb.appendLine("Conversation: ${session.title}")
                 if (session.originalModel.isNotEmpty()) sb.appendLine("Model: ${session.originalModel}")
                 sb.appendLine("Exported: ${fmt.format(Date())}")
@@ -132,7 +132,7 @@ class ChatHistoryViewModel @Inject constructor(
                     sb.appendLine()
                 }
                 val safeName = session.title.replace(Regex("[^a-zA-Z0-9]"), "_").take(30)
-                val fileName = "box_${safeName}_${System.currentTimeMillis()}.txt"
+                val fileName = "freehold_${safeName}_${System.currentTimeMillis()}.txt"
                 val saved = saveToDownloads(context, fileName, sb.toString())
                 withContext(Dispatchers.Main) {
                     if (saved) Toast.makeText(context, "Saved to Downloads/$fileName", Toast.LENGTH_LONG).show()

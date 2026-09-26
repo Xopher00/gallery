@@ -54,7 +54,7 @@ object OfflineMode {
      */
     fun assertOnlineOrThrow() {
         if (_isEnabled.value) {
-            throw OfflineModeException("Network request blocked: Box is in offline-only mode")
+            throw OfflineModeException("Network request blocked: Freehold is in offline-only mode")
         }
     }
 

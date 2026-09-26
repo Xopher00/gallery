@@ -1,4 +1,4 @@
-# Google AI Edge Gallery
+# Freehold
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
@@ -9,8 +9,8 @@ This repository is a fork of [`google-ai-edge/gallery`](https://github.com/googl
 merged with [`jegly/Box`](https://github.com/jegly/Box). Google's project provides the
 app, the LiteRT runtime and the model catalogue. The Box fork added image generation,
 audio transcription and GGUF inference. This fork adds an OpenAI-compatible API server,
-model discovery on HuggingFace and an app lock. The app name, application id and package
-are unchanged from upstream. Upstream changes are merged with the workflows described in
+model discovery on HuggingFace and an app lock. The application id and package are
+unchanged from upstream; the app name is Freehold. Upstream changes are merged with the workflows described in
 [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Install
@@ -68,7 +68,7 @@ not include the features added by the Box fork or by this fork.
 * **Chat History**: Save conversations and resume them later. Added by the Box fork.
 
 * **API Server**: An OpenAI-compatible HTTP server on the device, with chat completions,
-  transcription, image generation and vision endpoints behind a bearer token. Added by
+  transcription, image generation and vision endpoints behind a bearer token; see [API.md](API.md). Added by
   this fork.
 
 * **Model Discovery**: Search HuggingFace for LiteRT and GGUF models from inside the app.

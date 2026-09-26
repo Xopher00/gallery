@@ -63,7 +63,7 @@ class BiometricHelper(private val activity: FragmentActivity) {
         }
 
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Box")
+            .setTitle("Freehold")
             .setSubtitle("Authenticate to access your chats")
             .setNegativeButtonText("Cancel")
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
@@ -138,7 +138,7 @@ class BiometricHelper(private val activity: FragmentActivity) {
         // No setNegativeButtonText(): forbidden by the API when DEVICE_CREDENTIAL is included
         // in setAllowedAuthenticators() -- see the note above this section.
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Unlock Box")
+            .setTitle("Unlock Freehold")
             .setSubtitle("Authenticate to continue")
             .setAllowedAuthenticators(appUnlockAuthenticators)
             .build()

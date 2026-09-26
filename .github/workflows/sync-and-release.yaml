@@ -255,7 +255,7 @@ jobs:
           else
             gh release create "$TAG" \
               --repo "${{ github.repository }}" \
-              --title "AI Edge Gallery ${VERSION_NAME} (${VERSION_CODE})" \
+              --title "Freehold ${VERSION_NAME} (${VERSION_CODE})" \
               --notes "Automated signed release build from $(git rev-parse HEAD)." \
               app/build/outputs/apk/release/app-release.apk
           fi

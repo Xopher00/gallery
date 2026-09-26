@@ -117,7 +117,7 @@ fun AppLockScreen(activity: FragmentActivity) {
           tint = MaterialTheme.colorScheme.primary,
           modifier = Modifier.padding(bottom = 16.dp),
         )
-        Text("Box is locked", style = MaterialTheme.typography.titleLarge)
+        Text("Freehold is locked", style = MaterialTheme.typography.titleLarge)
         Text(
           "Authenticate to continue",
           style = MaterialTheme.typography.bodyMedium,

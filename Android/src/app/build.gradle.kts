@@ -36,7 +36,7 @@ android {
   compileSdk { this.version = release(37) { minorApiLevel = 0 } }
 
   defaultConfig {
-    applicationId = "com.google.aiedge.gallery"
+    applicationId = "io.github.xopher00.freehold"
     minSdk = 31
     targetSdk = 37
     versionCode = 44
