@@ -8,10 +8,9 @@ result types to the wire format.
 None of these tools run a general vision-language model. Each tool wraps one fixed-purpose Google
 library.
 
-Card history: `I4a` covers detection and segmentation. `I4b` covers OCR. Decision `D10` sets the
-v1 scope to `tasks-vision` only, with a GPU delegate and a CPU fallback, and excludes a raw
-`.tflite`/QNN stack. Decision `D11` uses ML Kit's bundled text recognizer, so the server needs no
-Play Services at runtime.
+Detection and segmentation use MediaPipe `tasks-vision` only, with a GPU delegate and a CPU
+fallback. There is no raw `.tflite` or QNN path. OCR uses ML Kit's bundled text recognizer, so the
+server needs no Play Services at runtime.
 
 ## What each file does
 
@@ -27,12 +26,15 @@ Play Services at runtime.
 - `VisionTypes.kt` defines plain internal result types. These types stay separate from the
   `@Serializable` wire types in `OpenAiModels.kt` on purpose. `VisionHandler.kt` is the only file
   that maps between the two.
+- `VisionToolListing.kt` lists the vision tools in `GET /v1/models`, so a client's model picker
+  shows them. OCR is always listed. Detection and segmentation are listed only when their model
+  file is present.
 
 ## Detection and segmentation need a manual step first
 
 Object detection and segmentation each need a model file that MediaPipe does not ship with the
 app: `efficientdet_lite0.tflite` and `deeplab_v3.tflite`. This server has no download flow for
-these files. Decision `D10` set this scope for v1. This is a planned gap, not an oversight.
+these files. This is a deliberate scope limit.
 
 `ModelCatalog.kt` checks whether the file exists at the expected path. If the file is missing, the
 server returns a 503 response that names the missing file and the Google-hosted URL to get it
@@ -43,9 +45,8 @@ from. The expected path is:
 ```
 
 This path uses app-external storage. A person can push a file there directly with `adb push`,
-without access to app-private storage. As of 2026-09-09, this directory does not exist on the test
-device. Detection and segmentation return a 503 response until a person downloads the two files by
-hand and pushes them to that path.
+without access to app-private storage. Detection and segmentation return a 503 response until a
+person downloads the two files by hand and pushes them to that path.
 
 OCR has no such gap. ML Kit bundles its recognizer inside the library dependency. OCR needs no
 external model file, and it works as soon as the server starts.
@@ -67,7 +68,5 @@ to hold across a suspension point.
 
 ## Before you change this code
 
-Check this README and the device-operations workspace's file
-`reference/2026-09-09-relay-vision-status.md` against the current code first. A person wrote both
-files from a single code read on 2026-09-09. Run `git log` on this directory to check whether the
-code has changed since.
+Check this README against the current code first. Run `git log` on this directory to see what has
+changed since the README was last updated.

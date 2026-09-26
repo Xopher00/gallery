@@ -12,7 +12,8 @@ On-device models have no access to live data or external services. The app uses 
 > MCP integration is currently experimental.
 
 This repository is a fork of `google-ai-edge/gallery`, merged with `jegly/Box`. The MCP
-code described here comes from upstream and the fork has not changed it.
+support comes from upstream. The fork changes two things. Each MCP tool call goes through the
+app's permission check before it runs. A tool from a disabled MCP server cannot run.
 
 ## Add a Local MCP Server
 

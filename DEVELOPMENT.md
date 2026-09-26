@@ -3,7 +3,7 @@
 ## Build
 
 You need JDK 21, Android SDK platform 37 and NDK 27.2.12479018. The NDK version is set
-in `Android/src/{smollm,stablediffusion,whisper}/build.gradle.kts`.
+in `Android/src/{app,smollm,stablediffusion,whisper}/build.gradle.kts`.
 
 The build needs one git submodule, `Android/src/chimera`
 (github.com/shakfu/chimera). Its `scripts/manage.py` pins the versions of the three
