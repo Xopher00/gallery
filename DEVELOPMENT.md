@@ -33,37 +33,32 @@ that ABI alone. AGP 9.0.1, Kotlin 2.2.21, `minSdk` 31, `compileSdk` and `targetS
 
 Release builds read `keystore.properties` from `Android/src/`. The file is gitignored.
 
-## Upstream
+## Upstream sync and releases
 
 This repository is a fork of `google-ai-edge/gallery`, merged with `jegly/Box`. The
 `upstream` remote tracks Google.
 
-`.github/workflows/upstream-drift.yaml` runs daily. It reports drift to a reusable
-issue, then attempts a merge. A clean merge that also builds pushes straight to `main`.
-A clean merge whose build then fails opens a draft PR. A real conflict opens a reusable
-issue instead, with no branch and no PR. `workflow_dispatch` runs it by hand.
+`.github/workflows/sync-and-release.yaml` runs every day at 03:17 UTC, on each push to
+`main` that changes `Android/` or `.github/`, and on demand. Each run does these steps:
 
-The conflict issue includes a diff of each conflicting file against the merge base, for
-both the fork's side and upstream's side. This shows what each side changed on its own,
-not just the raw conflict markers. The issue body also carries a hidden HTML comment
-with both commit SHAs, for the diagnostic workflow below to read.
+1. Fetch `upstream/main` and try to merge it.
+2. If the merge is clean, build a signed release APK.
+3. If the build passes, push the merge to `main` and publish a GitHub release with the APK.
+4. If the build of a clean merge fails, push the merge to a `sync/upstream-<sha>` branch,
+   build the fork's own `main` again, and release that build.
+5. If the merge has conflicts, abort it. The run opens or updates one issue with the
+   `upstream-merge-conflict` label. The issue shows, for each conflicting file, what each
+   side changed against the merge base.
+6. If a build fails, the run opens or updates one issue with the `build-failure` label.
+7. When a later run succeeds, it closes the issues that no longer apply.
 
-`.github/workflows/build-diagnostics.yaml` holds two independent jobs. Neither job opens
-an issue. Each one only comments on an issue that some other workflow already opened.
+Release tags have the form `v<versionName>-<versionCode>-<short sha>`. The workflow signs
+the release with a keystore from the repository secrets.
 
-`conflict_diagnosis` runs when `upstream-drift.yaml` opens a conflict issue. It resolves
-the conflict with `git merge -X ours`, a throwaway pick that favors the fork's side, then
-tries to compile the result. A plain text diff cannot show that one side deleted a symbol
-the other side still calls. Only a real compile catches that. The job never commits or
-pushes this merge. It posts the compile result as a comment on the issue.
-
-`release.yaml` opens a fresh `ci-build-failure` issue on its own failure, one per
-failure, since each one ties to a specific commit. `release_failure_diagnosis` runs when
-that issue opens. It finds the last commit where `Release APK` passed, then diffs the
-files named in the compiler error against that commit, and posts both as a comment.
-
-`build_android.yaml` is upstream's own workflow, kept identical to upstream. It does not
-fetch submodules and cannot build this tree. `ci-build.yaml` is the fork's build.
+`.github/workflows/ci-build.yaml` runs on each pull request to `main` and on demand. It
+builds a release APK, runs the JVM unit tests, checks that R8 kept a service file the app
+needs at launch, and uploads the APK as an artifact. CI has no `keystore.properties`, so
+this build is signed with the debug key.
 
 ## Model catalogue
 

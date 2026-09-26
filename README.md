@@ -1,121 +1,110 @@
 # Freehold
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Sync and release](https://github.com/Xopher00/freehold/actions/workflows/sync-and-release.yaml/badge.svg)](https://github.com/Xopher00/freehold/actions/workflows/sync-and-release.yaml)
+[![Latest release](https://img.shields.io/github/v/release/Xopher00/freehold)](https://github.com/Xopher00/freehold/releases/latest)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-An Android app that runs open-source language, image and speech models on the device,
-offline.
+An Android app that runs language, image and speech models on the device, offline.
 
-This repository is a fork of [`google-ai-edge/gallery`](https://github.com/google-ai-edge/gallery),
-merged with [`jegly/Box`](https://github.com/jegly/Box). Google's project provides the
-app, the LiteRT runtime and the model catalogue. The Box fork added image generation,
-audio transcription and GGUF inference. This fork adds an OpenAI-compatible API server,
-model discovery on HuggingFace and an app lock. The application id and package are
-unchanged from upstream; the app name is Freehold. Upstream changes are merged with the workflows described in
-[DEVELOPMENT.md](DEVELOPMENT.md).
+## Why
+
+Most assistant apps send each prompt to a cloud service. Freehold runs open models on
+the phone, and no prompt leaves the device. Other programs can use the same models through
+a local HTTP API that is compatible with OpenAI clients.
+
+Freehold is a fork of [`google-ai-edge/gallery`](https://github.com/google-ai-edge/gallery),
+merged with [`jegly/Box`](https://github.com/jegly/Box). Google's project provides the app,
+the LiteRT runtime and the model catalogue. The Box fork added image generation, audio
+transcription and GGUF inference. This fork adds the API server, model discovery on
+Hugging Face and an app lock.
 
 ## Install
 
-This fork has no releases and is not on any app store. Build it from source. See
-[DEVELOPMENT.md](DEVELOPMENT.md). The app needs Android 12 or later on an arm64 device.
+You need an arm64 device with Android 12 or later.
 
-The Play Store and App Store carry Google's build of the upstream app. That build does
-not include the features added by the Box fork or by this fork.
+1. Download `app-release.apk` from the
+   [latest release](https://github.com/Xopher00/freehold/releases/latest).
+2. Install it with `adb install app-release.apk`, or open the file on the device.
 
-## App Preview
+Releases are signed with this fork's own key. The application id is
+`io.github.xopher00.freehold`. Builds before this id change used `com.google.aiedge.gallery`.
+They install as a separate app, so import your models again in the new app.
 
-| Home | AI Chat | Model Manager |
-|:--:|:--:|:--:|
-| <img width="240" src="images/box_screenshots/Home_Chat_Tab.png" /> | <img width="240" src="images/box_screenshots/AI_Chat.png" /> | <img width="240" src="images/box_screenshots/Model_Manager.png" /> |
+The Play Store and the App Store carry Google's upstream app. It does not include the
+features below that come from the Box fork or from this fork.
 
-| Image Generation | Audio Transcription | MCP Server |
-|:--:|:--:|:--:|
-| <img width="240" src="images/box_screenshots/Image_Gen.png" /> | <img width="240" src="images/box_screenshots/Whisper_Scribe.png" /> | <img width="240" src="images/box_screenshots/MCP_Add_Server.png" /> |
+To build from source, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
-## Core Features
+## Usage
 
-* **AI Chat with Thinking Mode**: Multi-turn conversation. Thinking Mode shows the
-  model's reasoning steps on models that support it, starting with the Gemma 4 family.
+1. Open the app.
+2. Download a model from a task page or from the Model Manager, or import a model file.
+3. Start a chat, or open another task from the home screen.
 
-* **Agent Skills and MCP**: Give the model tools. Bundled skills add Wikipedia lookup,
-  maps and summary cards, and you can load a skill from a URL. MCP connects the model
-  to an external server. See [skills/README.md](skills/README.md) and
-  [mcp/README.md](mcp/README.md).
+To use the models from another program, start the API server and send an
+OpenAI-style request:
 
-* **Ask Image**: Describe an image or answer a question about it from the camera or the
-  photo gallery, on models with image input.
+```bash
+adb shell am start -n io.github.xopher00.freehold/com.google.ai.edge.gallery.MainActivity --ez start_api_server true
+adb forward tcp:8080 tcp:8080
+curl http://127.0.0.1:8080/v1/models -H "Authorization: Bearer <YOUR_KEY>"
+```
 
-* **Audio Scribe**: Transcribe and translate voice recordings with on-device models.
+The API key is on the app's Server screen. [API.md](API.md) documents the network modes,
+client setup for Python, Chatbox, Home Assistant, Tasker and Continue.dev, and every route.
 
-* **Prompt Lab**: Test single-turn prompts with control over temperature, top-k and
-  top-p.
+## Features
 
-* **Mobile Actions**: Control device functions from natural language with a finetune of
-  FunctionGemma 270m.
+From the upstream app:
 
-* **Tiny Garden**: A game that plants and harvests a virtual garden from natural
-  language, with a finetune of FunctionGemma 270m.
+* **Chat**, with a thinking mode on models that support it.
+* **Ask Image**: questions about a photo from the camera or the gallery.
+* **Audio Scribe**: transcription and translation of voice recordings.
+* **Prompt Lab**: single-turn prompts with control over temperature, top-k and top-p.
+* **Agent skills and MCP**: tools for the model. See [skills/README.md](skills/README.md)
+  and [mcp/README.md](mcp/README.md).
+* **Mobile Actions** and **Tiny Garden**: device control and a small game, from natural
+  language.
+* **Model management and benchmarks**.
 
-* **Model Management and Benchmark**: Download models from the catalogue or import your
-  own, and measure how each model performs on your hardware.
+From the Box fork:
 
-* **Image Generation**: Generate images with stable-diffusion.cpp. Added by the Box fork.
+* **Image generation** with stable-diffusion.cpp.
+* **Audio transcription** with whisper.cpp.
+* **GGUF models** with llama.cpp, beside the LiteRT models.
+* **Chat history**.
 
-* **Audio Transcription**: Transcribe audio with whisper.cpp. Added by the Box fork.
+From this fork:
 
-* **GGUF Models**: Run GGUF models with llama.cpp, beside the LiteRT models from the
-  catalogue. Added by the Box fork.
+* **API server**: chat completions, transcription, image generation, embeddings and vision
+  routes behind a bearer token. See [API.md](API.md).
+* **Model discovery**: search Hugging Face for LiteRT and GGUF models in the app.
+* **App lock**: a biometric lock, encrypted storage and an offline mode.
 
-* **Chat History**: Save conversations and resume them later. Added by the Box fork.
+All inference runs on the device. The app uses the network only to download models and
+the model catalogue, and for MCP servers or skills that you configure.
 
-* **API Server**: An OpenAI-compatible HTTP server on the device, with chat completions,
-  transcription, image generation and vision endpoints behind a bearer token; see [API.md](API.md). Added by
-  this fork.
+## Status
 
-* **Model Discovery**: Search HuggingFace for LiteRT and GGUF models from inside the app.
-  Added by this fork.
+Active development by one maintainer. The test device is a Samsung Galaxy S24
+(Exynos 2400). Each release builds automatically from `main` after a daily merge of
+upstream changes. The Claude-compatible `/v1/messages` route does not support tools or
+streaming yet. [API.md](API.md) lists the current limits.
 
-* **App Lock**: A biometric lock, encrypted storage and an offline mode. Added by this
-  fork.
+## Documentation
 
-* **On-Device Inference**: All inference runs on the device. The app uses the network
-  to download models and the model catalogue, and for any MCP server or skill you
-  configure.
+* [API.md](API.md): the on-device API server.
+* [DEVELOPMENT.md](DEVELOPMENT.md): build, native engines, upstream sync and releases.
+* [skills/README.md](skills/README.md) and [mcp/README.md](mcp/README.md): tools for the
+  model.
+* [Upstream wiki](https://github.com/google-ai-edge/gallery/wiki): the upstream app only.
 
-## Get Started
+## Contributing
 
-1. Check the OS requirement: Android 12 or later, arm64.
-2. Build and install the app. See [DEVELOPMENT.md](DEVELOPMENT.md).
-3. Open the app and download a model from a task page or from the Model Manager.
-
-For a user guide, see the [upstream project wiki](https://github.com/google-ai-edge/gallery/wiki).
-It documents the upstream app. The features added by the Box fork and by this fork are
-not covered there.
-
-## Technology
-
-* **Google AI Edge** and **LiteRT**: On-device model execution for `.litertlm` models.
-* **llama.cpp**, **stable-diffusion.cpp** and **whisper.cpp**: Native modules for GGUF
-  inference, image generation and transcription. The engine versions and the
-  stable-diffusion.cpp patches come from the `chimera` submodule.
-* **Hugging Face**: Model discovery and download.
-
-## Development
-
-See [DEVELOPMENT.md](DEVELOPMENT.md) for the build, the Chimera submodule and upstream
-syncing.
-
-## Feedback
-
-* Found a bug? [Open an issue](../../issues/new?labels=bug).
-* Have an idea? [Open an issue](../../issues/new?labels=enhancement).
+Bug reports and ideas are welcome as
+[issues](https://github.com/Xopher00/freehold/issues). For a larger change, open an issue
+before you start.
 
 ## License
 
-Apache License, Version 2.0. See [LICENSE](LICENSE).
-
-## Links
-
-* [Upstream project wiki](https://github.com/google-ai-edge/gallery/wiki)
-* [Hugging Face LiteRT Community](https://huggingface.co/litert-community)
-* [LiteRT-LM](https://github.com/google-ai-edge/LiteRT-LM)
-* [Google AI Edge Documentation](https://ai.google.dev/edge)
+[Apache License 2.0](LICENSE). The upstream code is copyright Google LLC.

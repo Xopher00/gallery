@@ -1,0 +1,4 @@
+# Local tooling output (codegraph index, codescaffold runs, graphify analysis).
+.codegraph/
+.codescaffold/
+graphify-out/
