@@ -25,7 +25,8 @@ object HfCardDescriptionModule {
   @Singleton
   fun provideHfCardDescriptions(
     store: HfCardDescriptionStore,
+    client: HfCardApiClient,
     dataStoreRepository: DataStoreRepository,
   ): HfCardDescriptions =
-    HfCardDescriptions(store) { dataStoreRepository.readAccessTokenData()?.accessToken }
+    HfCardDescriptions(store, client) { dataStoreRepository.readAccessTokenData()?.accessToken }
 }

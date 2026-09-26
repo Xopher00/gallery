@@ -2,26 +2,15 @@
 
 package com.google.ai.edge.gallery.relay.model
 
-import android.util.Log
-import com.google.ai.edge.gallery.relay.security.OfflineMode
 import com.google.gson.JsonObject
-import com.google.gson.JsonParser
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-
-private const val CARD_META_TAG = "AGHfCardMetadata"
-private const val HF_API_BASE_URL = "https://huggingface.co/api/models"
-private const val CONNECT_TIMEOUT_MS = 10_000
-private const val READ_TIMEOUT_MS = 10_000
 
 /** Cache-backed source of a model's short description. Never throws at its caller. */
 class HfCardDescriptions(
   private val store: HfCardDescriptionStore,
+  private val client: HfCardApiClient,
   private val accessToken: suspend () -> String?,
 ) {
   private val perModelLocks = ConcurrentHashMap<String, Mutex>()
@@ -35,7 +24,7 @@ class HfCardDescriptions(
       .withLock {
         store.get(modelId)
           ?: runCatching {
-              val facts = fetchHfCardFacts(modelId, accessToken())
+              val facts = client.getCardFacts(modelId, accessToken())
               HfCardEntry(
                 description = facts?.toDescription().orEmpty(),
                 baseModel = facts?.baseModel,
@@ -57,35 +46,7 @@ data class HfCardFacts(
   val gated: Boolean,
 )
 
-suspend fun fetchHfCardFacts(modelId: String, accessToken: String? = null): HfCardFacts? =
-  withContext(Dispatchers.IO) {
-    val urlString = "$HF_API_BASE_URL/$modelId"
-    try {
-      OfflineMode.assertOnlineOrThrow()
-      val connection = URL(urlString).openConnection() as HttpURLConnection
-      connection.requestMethod = "GET"
-      connection.connectTimeout = CONNECT_TIMEOUT_MS
-      connection.readTimeout = READ_TIMEOUT_MS
-      if (!accessToken.isNullOrEmpty()) {
-        connection.setRequestProperty("Authorization", "Bearer $accessToken")
-      }
-      connection.connect()
-
-      if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-        Log.e(CARD_META_TAG, "HF card API returned HTTP ${connection.responseCode} for $urlString")
-        return@withContext null
-      }
-
-      val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-      val jsonObj = JsonParser.parseString(responseText).asJsonObject
-      parseHfCardFacts(jsonObj)
-    } catch (e: Exception) {
-      Log.e(CARD_META_TAG, "Failed to fetch HF card metadata for $modelId", e)
-      null
-    }
-  }
-
-private fun parseHfCardFacts(jsonObj: JsonObject): HfCardFacts {
+internal fun parseHfCardFacts(jsonObj: JsonObject): HfCardFacts {
   val cardData = jsonObj.getOrNull("cardData")?.takeIf { it.isJsonObject }?.asJsonObject
 
   // gated may be `false`, or the string "auto"; anything other than `false` counts as gated.
